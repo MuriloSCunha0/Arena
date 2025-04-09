@@ -1,12 +1,10 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { AlertCircle, RefreshCw, Home } from 'lucide-react';
+import { AlertOctagon, RefreshCw } from 'lucide-react';
 import { Button } from './ui/Button';
 
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
-  onError?: (error: Error, errorInfo: ErrorInfo) => void;
-  resetOnChange?: any[];
 }
 
 interface State {
@@ -16,116 +14,68 @@ interface State {
 }
 
 class ErrorBoundary extends Component<Props, State> {
-  public state: State = {
-    hasError: false,
-    error: null,
-    errorInfo: null
-  };
-
-  // Reset state when specified props change
-  public componentDidUpdate(prevProps: Props) {
-    if (this.state.hasError && this.props.resetOnChange && 
-        prevProps.resetOnChange !== this.props.resetOnChange) {
-      this.setState({
-        hasError: false,
-        error: null,
-        errorInfo: null
-      });
-    }
+  constructor(props: Props) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null,
+      errorInfo: null
+    };
   }
 
-  public static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error, errorInfo: null };
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error("Erro capturado pelo ErrorBoundary:", error);
-    console.error("Detalhes do componente:", errorInfo.componentStack);
-    
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     this.setState({
-      error,
-      errorInfo
+      error: error,
+      errorInfo: errorInfo
     });
     
-    // Callback para logging externo ou outras ações
-    if (this.props.onError) {
-      this.props.onError(error, errorInfo);
-    }
-    
-    // Opcionalmente, você pode enviar o erro para um serviço de logging
-    // reportErrorToService(error, errorInfo);
+    // Log the error for debugging purposes
+    console.error("Error caught by ErrorBoundary:", error);
+    console.error("Component stack trace:", errorInfo.componentStack);
   }
 
-  private handleReload = () => {
-    window.location.reload();
-  };
-
-  private handleReset = () => {
+  handleReset = () => {
     this.setState({
       hasError: false,
       error: null,
       errorInfo: null
     });
+    
+    // Force a hard reload of the page
+    window.location.reload();
   };
 
-  private handleGoHome = () => {
-    window.location.href = '/';
-  };
-
-  public render() {
+  render() {
     if (this.state.hasError) {
-      // Se definido um fallback personalizado, use-o
-      if (this.props.fallback) {
-        return this.props.fallback;
-      }
-      
-      // Componente de fallback padrão
-      return (
-        <div className="p-6 bg-red-50 border border-red-200 rounded-lg max-w-3xl mx-auto my-8">
-          <div className="flex items-center mb-4">
-            <AlertCircle size={24} className="text-red-500 mr-3" />
-            <h2 className="text-xl font-medium text-red-700">Ops! Algo deu errado</h2>
-          </div>
-          
-          <p className="text-sm text-red-600 mb-4">
-            Ocorreu um erro inesperado nesta parte da aplicação. Tente recarregar a página ou voltar para a página inicial.
-          </p>
-          
-          {/* Mostrar detalhes do erro apenas em ambiente de desenvolvimento */}
-          {import.meta.env.DEV && (
-            <div className="bg-white p-4 rounded border border-red-100 overflow-auto max-h-64 text-xs font-mono mb-6 text-gray-700">
-              <p className="font-bold mb-2">Detalhes do erro (apenas em desenvolvimento):</p>
-              <p className="text-red-600 mb-2">{this.state.error?.toString()}</p>
-              <hr className="my-2 border-red-100" />
-              <pre>{this.state.errorInfo?.componentStack}</pre>
+      // You can render any custom fallback UI
+      return this.props.fallback || (
+        <div className="min-h-screen flex flex-col items-center justify-center p-4 text-center">
+          <div className="bg-white p-8 rounded-lg shadow-lg border border-red-100 max-w-md">
+            <div className="flex justify-center mb-4">
+              <AlertOctagon className="h-16 w-16 text-red-500" />
             </div>
-          )}
-          
-          <div className="flex flex-wrap gap-3">
+            <h1 className="text-xl font-bold text-red-700 mb-2">Algo deu errado</h1>
+            <p className="text-gray-600 mb-4">
+              Ocorreu um erro inesperado na aplicação. Isso pode ser devido a problemas de conectividade 
+              com o servidor ou dados inválidos.
+            </p>
+            {process.env.NODE_ENV === 'development' && this.state.error && (
+              <div className="bg-red-50 p-4 rounded-md mb-4 overflow-auto text-left">
+                <p className="text-red-800 font-mono text-sm">
+                  {this.state.error.toString()}
+                </p>
+              </div>
+            )}
             <Button 
-              onClick={this.handleReset}
-              variant="outline"
-              className="flex items-center"
+              onClick={this.handleReset} 
+              className="w-full"
             >
-              <RefreshCw size={16} className="mr-1" />
+              <RefreshCw className="mr-2 h-4 w-4" />
               Tentar novamente
-            </Button>
-            
-            <Button 
-              onClick={this.handleReload}
-              className="flex items-center"
-            >
-              <RefreshCw size={16} className="mr-1" />
-              Recarregar página
-            </Button>
-            
-            <Button 
-              onClick={this.handleGoHome}
-              variant="outline"
-              className="flex items-center"
-            >
-              <Home size={16} className="mr-1" />
-              Voltar ao início
             </Button>
           </div>
         </div>
