@@ -18,7 +18,7 @@ export const ParticipantsList: React.FC<ParticipantsListProps> = ({ eventId }) =
     loading, 
     error,
     fetchParticipantsByEvent, 
-    updatePaymentStatus
+    updateParticipantPayment // Fixed method name from updatePaymentStatus to updateParticipantPayment
   } = useParticipantsStore();
   
   const addNotification = useNotificationStore(state => state.addNotification);
@@ -96,16 +96,16 @@ export const ParticipantsList: React.FC<ParticipantsListProps> = ({ eventId }) =
     try {
       const newStatus = currentStatus === 'PENDING' ? 'CONFIRMED' : 'PENDING';
       
-      // Gerar um paymentId fictício para fins de demonstração, isso pode vir de uma API de pagamento real
-      const paymentId = newStatus === 'CONFIRMED' 
-        ? `pix_${Date.now()}_${participantId.substring(0, 5)}` 
-        : undefined;
+      // Confirm before changing status from confirmed to pending
+      if (currentStatus === 'CONFIRMED' && !window.confirm('Tem certeza que deseja reverter o pagamento para pendente?')) {
+        return;
+      }
       
-      await updatePaymentStatus(participantId, newStatus, paymentId);
+      // The function only accepts 2 arguments, so we can't pass the payment ID directly
+      await updateParticipantPayment(participantId, newStatus);
       
-      // Se confirmou o pagamento, atualizar o resumo financeiro
+      // If payment was confirmed, update the financial summary
       if (newStatus === 'CONFIRMED') {
-        // Atualiza o resumo financeiro após confirmar pagamento
         await fetchEventSummary(eventId);
       }
       
@@ -213,7 +213,9 @@ export const ParticipantsList: React.FC<ParticipantsListProps> = ({ eventId }) =
                       {participant.paymentStatus === 'CONFIRMED' ? (
                         <div className="flex items-center text-green-600">
                           <CheckCircle size={16} className="mr-1" />
-                          <span className="text-sm">Pago em {formatDateTime(participant.paymentDate)}</span>
+                          <span className="text-sm">
+                            Pago em {participant.paymentDate ? formatDateTime(participant.paymentDate) : 'data não registrada'}
+                          </span>
                         </div>
                       ) : (
                         <div className="flex items-center text-brand-orange">

@@ -60,7 +60,6 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
     try {
       const updatedMatch = await TournamentService.updateMatch(matchId, score1, score2);
       
-      // Atualizar o match na tournament.matches
       const tournament = get().tournament;
       if (tournament) {
         const updatedMatches = tournament.matches.map(match => 
@@ -69,6 +68,7 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
         
         set({ 
           tournament: { ...tournament, matches: updatedMatches },
+          selectedMatch: get().selectedMatch?.id === matchId ? updatedMatch : get().selectedMatch,
           loading: false 
         });
       } else {

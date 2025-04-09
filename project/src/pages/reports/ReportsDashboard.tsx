@@ -28,10 +28,8 @@ export const ReportsDashboard = () => {
       setDataError(null);
       
       try {
-        // Load data in sequence to avoid overwhelming the API
-        await fetchEvents();
-        await fetchAllParticipants();
-        await fetchAllTransactions();
+        // Paralelizando o carregamento de dados para maior eficiência
+        await Promise.all([fetchEvents(), fetchAllParticipants(), fetchAllTransactions()]);
       } catch (error) {
         console.error('Error loading report data:', error);
         setDataError('Falha ao carregar dados para relatórios');
