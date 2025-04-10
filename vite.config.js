@@ -1,15 +1,20 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { resolve } from 'path'
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/Arena/', // Ajustado para o caminho correto do repositório
+  base: './', // Usar caminho relativo para todos os assets
   build: {
     outDir: 'dist',
-    assetsDir: 'assets',
-    // Removido minify: 'terser' para usar o minificador padrão
-    sourcemap: false,
+    // Configuração adicional para garantir que os arquivos são servidos corretamente
+    assetsInlineLimit: 0,
+    rollupOptions: {
+      output: {
+        entryFileNames: 'main.js', // Nome fixo para o arquivo principal
+        chunkFileNames: '[name].[hash].js',
+        assetFileNames: '[name].[ext]', // Manter nomes originais para assets
+      }
+    }
   }
 })
