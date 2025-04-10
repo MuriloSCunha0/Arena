@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { Participant } from '../types';
 import { ParticipantsService } from '../services';
+import { supabase } from '../lib/supabase';
+import { isDemoMode, getDemoParticipants } from '../utils/demoMode';
 
 interface CreateParticipantDTO {
   eventId: string;
@@ -47,15 +49,37 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
   
   fetchAllParticipants: async () => {
     set({ loading: true, error: null });
+    
     try {
-      const participants = await ParticipantsService.getAll();
-      set({ allParticipants: participants, loading: false });
-    } catch (error) {
-      console.error('Error fetching all participants:', error);
-      set({ 
-        error: error instanceof Error ? error.message : 'Falha ao buscar todos os participantes', 
-        loading: false 
-      });
+      if (isDemoMode()) {
+        // Usar dados de demonstração
+        const demoParticipants = getDemoParticipants();
+        
+        // Validar e completar os dados para corresponder ao tipo Participant
+        const validatedParticipants = demoParticipants.map(p => ({
+          ...p,
+          // Adicionar propriedades ausentes diretamente
+          partnerId: null, // Definir como null em vez de tentar acessar
+          registeredAt: p.registrationDate || new Date().toISOString(),
+          // Garantir que paymentStatus seja um dos valores permitidos
+          paymentStatus: p.paymentStatus === 'CONFIRMED' ? 'CONFIRMED' : 'PENDING'
+        })) as Participant[];
+        
+        set({ allParticipants: validatedParticipants, loading: false });
+        return;
+      }
+      
+      // Código original para ambiente de produção
+      const { data, error } = await supabase
+        .from('participants')
+        .select('*');
+      
+      if (error) throw error;
+      
+      set({ allParticipants: data || [], loading: false });
+    } catch (error: any) {
+      console.error('Error fetching participants:', error);
+      set({ error: error.message, loading: false });
     }
   },
   

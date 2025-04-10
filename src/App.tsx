@@ -8,6 +8,7 @@ import { AdminLayout } from './components/layout/AdminLayout';
 import ErrorBoundary from './components/ErrorBoundary';
 import { BlockDetector } from './components/ui/BlockDetector';
 import { NotificationContainer } from './components/ui/Notification';
+import { isDemoMode } from './utils/demoMode';
 
 // Lazy loading para componentes que não são necessários imediatamente
 const EventsList = lazy(() => import('./pages/events/EventsList').then(module => ({ default: module.EventsList })));
@@ -26,7 +27,12 @@ const LoadingFallback = () => (
 );
 
 function App() {
-  const { user, setUser, loading } = useAuthStore();
+  const { user, setUser, loading, checkDemoMode } = useAuthStore();
+
+  useEffect(() => {
+    // Verificar o modo de demonstração e configurar autenticação apropriada
+    checkDemoMode();
+  }, [checkDemoMode]);
 
   useEffect(() => {
     // Check active sessions and sets the user
@@ -44,18 +50,18 @@ function App() {
     return () => subscription.unsubscribe();
   }, [setUser]);
 
-  if (loading) {
+  if (loading && !isDemoMode()) {
     return <LoadingFallback />;
   }
 
   return (
     <ErrorBoundary>
-      <Router>
+      <Router basename={isDemoMode() ? '/project-bolt-sb1-nanr6th8' : '/'}>
         <NotificationContainer />
         <BlockDetector />
         <Routes>
-          <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
-          <Route path="/*" element={user ? <AuthenticatedRoutes /> : <Navigate to="/login" replace />} />
+          <Route path="/login" element={isDemoMode() || user ? <Navigate to="/" replace /> : <Login />} />
+          <Route path="/*" element={isDemoMode() || user ? <AuthenticatedRoutes /> : <Navigate to="/login" replace />} />
         </Routes>
       </Router>
     </ErrorBoundary>

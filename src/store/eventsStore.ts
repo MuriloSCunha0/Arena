@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { supabase } from '../lib/supabase';
+import { isDemoMode, getDemoEvents } from '../utils/demoMode';
 import { Event } from '../types';
 import { EventsService } from '../services';
 
@@ -26,12 +28,50 @@ export const useEventsStore = create<EventsState>((set, get) => ({
 
   fetchEvents: async () => {
     set({ loading: true, error: null });
+    
     try {
-      const events = await EventsService.getAll();
-      set({ events, loading: false });
-    } catch (error) {
+      if (isDemoMode()) {
+        // Usar dados de demonstração
+        const demoEvents = getDemoEvents();
+        
+        // Completar com as propriedades faltantes para atender ao tipo Event
+        const validatedEvents = demoEvents.map(event => {
+          const completeEvent = {
+            ...event,
+            // Adicionar propriedades ausentes com valores padrão
+            price: event.entryFee || 0,
+            prize: `Prêmio para ${event.title}`, // Valor padrão direto
+            rules: 'Regras padrão do evento',
+            bannerImageUrl: null, // Valor direto sem tentar acessar
+            teamFormationType: 'INDIVIDUAL',
+            registrationsEndDate: event.date, // Usar a data do evento
+            category: 'GERAL',
+            // Propriedades adicionais necessárias
+            teamFormation: [],
+            categories: [],
+            updatedAt: event.createdAt
+          };
+          
+          // Converter para unknown primeiro e depois para Event
+          return completeEvent as unknown as Event;
+        });
+        
+        set({ events: validatedEvents, loading: false });
+        return;
+      }
+      
+      // Código original para ambiente de produção
+      const { data, error } = await supabase
+        .from('events')
+        .select('*')
+        .order('date', { ascending: true });
+      
+      if (error) throw error;
+      
+      set({ events: data || [], loading: false });
+    } catch (error: any) {
       console.error('Error fetching events:', error);
-      set({ error: 'Falha ao buscar eventos', loading: false });
+      set({ error: error.message, loading: false });
     }
   },
 

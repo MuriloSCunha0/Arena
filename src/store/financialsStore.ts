@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { supabase } from '../lib/supabase';
+import { isDemoMode, getDemoTransactions } from '../utils/demoMode';
 import { FinancialTransaction } from '../types';
 import { FinancialsService, EventsService } from '../services';
 
@@ -38,37 +40,32 @@ export const useFinancialsStore = create<FinancialsState>((set, get) => ({
   fetchAllTransactions: async () => {
     set({ loading: true, error: null });
     try {
-      // Fetch transactions
-      const transactions = await FinancialsService.getAll();
-      
-      // Get unique event IDs
-      const eventIds = Array.from(new Set(transactions.map(t => t.eventId)));
-      
-      // Create a map of event IDs to event titles
-      const eventMap: Record<string, string> = {};
-      
-      // Fetch event details for each unique event ID
-      for (const id of eventIds) {
-        try {
-          const event = await EventsService.getById(id);
-          if (event) {
-            eventMap[id] = event.title;
-          }
-        } catch (error) {
-          console.error(`Error fetching event ${id}:`, error);
-        }
+      if (isDemoMode()) {
+        // Usar dados de demonstração
+        const demoTransactions = getDemoTransactions();
+        
+        // Validar e converter os tipos para garantir compatibilidade com FinancialTransaction
+        const validatedTransactions = demoTransactions.map(tx => ({
+          ...tx,
+          // Garantir que o campo type seja um dos valores literais permitidos
+          type: tx.type === 'INCOME' ? 'INCOME' : 'EXPENSE'
+        })) as FinancialTransaction[];
+        
+        set({ transactions: validatedTransactions, loading: false });
+        return;
       }
       
-      // Add event names to transactions
-      const enrichedTransactions = transactions.map(transaction => ({
-        ...transaction,
-        eventName: eventMap[transaction.eventId] || 'Evento desconhecido'
-      }));
+      // Código original para ambiente de produção
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*');
       
-      set({ transactions: enrichedTransactions, loading: false });
-    } catch (error) {
+      if (error) throw error;
+      
+      set({ transactions: data || [], loading: false });
+    } catch (error: any) {
       console.error('Error fetching transactions:', error);
-      set({ error: error instanceof Error ? error.message : 'Falha ao buscar transações', loading: false });
+      set({ error: error.message, loading: false });
     }
   },
 

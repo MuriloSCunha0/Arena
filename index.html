@@ -5,6 +5,19 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sua Arena Admin</title>
+    <script>
+      // Processar redirecionamentos SPA para GitHub Pages
+      (function() {
+        const redirect = sessionStorage.getItem('redirect_path');
+        if (redirect) {
+          sessionStorage.removeItem('redirect_path');
+          const baseUrl = '/project-bolt-sb1-nanr6th8';
+          if (redirect !== '/') {
+            history.replaceState(null, null, baseUrl + redirect);
+          }
+        }
+      })();
+    </script>
   </head>
   <body class="bg-brand-sand">
     <div id="root"></div>

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Redirecionando...</title>
+  <script>
+    // Solução para SPA no GitHub Pages
+    // Armazena a URL atual e redireciona para a raiz
+    const pathSegments = window.location.pathname.split('/');
+    const repoName = '/project-bolt-sb1-nanr6th8';
+    
+    // Encontrar o caminho após o nome do repositório
+    let path = '/';
+    const repoIndex = pathSegments.findIndex(segment => 
+      segment === 'project-bolt-sb1-nanr6th8');
+    
+    if (repoIndex !== -1 && pathSegments.length > repoIndex + 1) {
+      path = '/' + pathSegments.slice(repoIndex + 1).join('/');
+    }
+    
+    sessionStorage.setItem('redirect_path', path);
+    window.location.replace(repoName);
+  </script>
+</head>
+<body>
+  <p>Redirecionando...</p>
+</body>
+</html>
