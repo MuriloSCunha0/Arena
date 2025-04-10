@@ -1,5 +1,5 @@
 import React, { useEffect, Suspense, lazy } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { supabase } from './lib/supabase';
 import { useAuthStore } from './store/authStore';
 import { Login } from './pages/Login';
@@ -56,7 +56,7 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <Router basename={isDemoMode() ? '/project-bolt-sb1-nanr6th8' : '/'}>
+      <Router>
         <NotificationContainer />
         <BlockDetector />
         <Routes>

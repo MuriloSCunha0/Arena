@@ -6,14 +6,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sua Arena Admin</title>
     <script>
-      // Processar redirecionamentos SPA para GitHub Pages
+      // Verificar se estamos em modo demo baseado no domínio
+      if (window.location.hostname.includes('github.io')) {
+        localStorage.setItem('demo_mode', 'true');
+      }
+      
+      // Ajustar rotas para SPA no GitHub Pages
       (function() {
         const redirect = sessionStorage.getItem('redirect_path');
         if (redirect) {
           sessionStorage.removeItem('redirect_path');
-          const baseUrl = '/project-bolt-sb1-nanr6th8';
           if (redirect !== '/') {
-            history.replaceState(null, null, baseUrl + redirect);
+            history.replaceState(null, null, redirect);
           }
         }
       })();
