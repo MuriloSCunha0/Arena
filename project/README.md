@@ -1,5 +1,9 @@
 # Arena Conexão Admin
 
+Sistema de gerenciamento para torneios e eventos esportivos.
+
+**Demo:** [https://seu-usuario.github.io/project-bolt-sb1-nanr6th8/](https://seu-usuario.github.io/project-bolt-sb1-nanr6th8/)
+
 ## Setup Instructions
 
 ### 1. Supabase Configuration
