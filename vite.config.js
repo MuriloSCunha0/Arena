@@ -5,14 +5,11 @@ import { resolve } from 'path'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: './', // Usar caminho relativo em vez de absoluto
+  base: '/Arena/', // Ajustado para o caminho correto do repositório
   build: {
     outDir: 'dist',
-    emptyOutDir: true,
-    rollupOptions: {
-      input: {
-        main: resolve(__dirname, 'index.html'),
-      },
-    }
-  },
+    assetsDir: 'assets',
+    // Removido minify: 'terser' para usar o minificador padrão
+    sourcemap: false,
+  }
 })

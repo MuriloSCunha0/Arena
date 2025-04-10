@@ -2,9 +2,12 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <!-- Usar caminho relativo para o favicon -->
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sua Arena Admin</title>
+    <!-- Meta tag para forçar o tipo MIME correto -->
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
     <script>
       // Verificar se estamos em modo demo baseado no domínio
       if (window.location.hostname.includes('github.io')) {
@@ -25,7 +28,8 @@
   </head>
   <body class="bg-brand-sand">
     <div id="root"></div>
-    <script type="module" src="./src/main.tsx"></script>
+    <!-- Usar importação de módulo com caminho relativo -->
+    <script type="module" src="src/main.tsx"></script>
   </body>
 </html>
 
