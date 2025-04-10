@@ -1,8 +1,7 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
-import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { supabase, checkSupabaseConnection } from './lib/supabase';
+import React, { useEffect, Suspense, lazy } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { supabase } from './lib/supabase';
 import { useAuthStore } from './store/authStore';
-import { useNotificationStore } from './components/ui/Notification';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { AdminLayout } from './components/layout/AdminLayout';
@@ -26,14 +25,8 @@ const LoadingFallback = () => (
   </div>
 );
 
-// Environment detection
-const isGitHubPages = window.location.hostname.includes('github.io');
-
 function App() {
   const { user, setUser, loading } = useAuthStore();
-  const [isConnected, setIsConnected] = useState(true);
-  const [isLoading, setIsLoading] = useState(true);
-  const addNotification = useNotificationStore(state => state.addNotification);
 
   useEffect(() => {
     // Check active sessions and sets the user
@@ -51,43 +44,8 @@ function App() {
     return () => subscription.unsubscribe();
   }, [setUser]);
 
-  useEffect(() => {
-    const checkConnection = async () => {
-      setIsLoading(true);
-      const { success, error } = await checkSupabaseConnection();
-
-      setIsConnected(success);
-      setIsLoading(false);
-
-      if (!success) {
-        console.error('Database connection error:', error);
-        addNotification({
-          type: 'error',
-          message: 'Erro de conexão com o banco de dados. Alguns recursos podem não funcionar corretamente.',
-        });
-      }
-
-      // If on GitHub Pages and using demo mode, show info notification
-      if (isGitHubPages) {
-        addNotification({
-          type: 'info',
-          message: 'Você está usando a versão de demonstração com dados simulados.',
-        });
-      }
-    };
-
-    checkConnection();
-  }, [addNotification]);
-
-  if (loading || isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-brand-sand">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-brand-blue border-solid mx-auto"></div>
-          <p className="mt-4 text-lg text-brand-blue">Carregando...</p>
-        </div>
-      </div>
-    );
+  if (loading) {
+    return <LoadingFallback />;
   }
 
   return (
