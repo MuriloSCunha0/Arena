@@ -29,5 +29,5 @@ jobs:
       - name: Deploy 🚀
         uses: JamesIves/github-pages-deploy-action@4.1.4
         with:
-          branch: gh-pages
+          branch: gh-page  # Alterado de gh-pages para gh-page
           folder: dist
