@@ -10,29 +10,21 @@ import {
   DollarSign,
   ChevronRight,
   PlayCircle,
-  PauseCircle
+  PauseCircle,
+  XCircle
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { formattedDate, formattedCurrency } from '../../utils/formatters';
-import { Tournament } from '../../types';
+import { Tournament, Event } from '../../types'; // Assuming Tournament might extend Event or share properties
 
-// Define a type for tournament status
-type TournamentStatus = 'CREATED' | 'STARTED' | 'FINISHED';
+// Define a type for tournament status with specific string literals
+type EventStatus = 'SCHEDULED' | 'ONGOING' | 'COMPLETED' | 'CANCELLED';
 
 interface TournamentCardProps {
-  tournament: {
-    id: string;
-    title: string;
-    description?: string;
-    date: string;
-    time: string;
-    location: string;
-    price: number;
-    max_participants: number;
-    prize?: string;
-    categories?: string[];
-    banner_image_url?: string;
-    status?: TournamentStatus;
+  // Use the Event type from src/types/index.ts if it represents the card data
+  tournament: Event & { // Combine with Event or use a specific Card type
+    // Add any specific properties needed for the card if not in Event
+    status?: EventStatus; // Make status optional if not always present
   };
   showActions?: boolean;
 }
@@ -51,32 +43,35 @@ export const TournamentCard: React.FC<TournamentCardProps> = ({
     time,
     location,
     price,
-    max_participants,
+    maxParticipants, // Changed from max_participants
     prize,
     categories,
-    banner_image_url,
+    bannerImageUrl, // Changed from banner_image_url
     status
   } = tournament;
   
-  // Type-safe status mappings
-  const statusColorMap: Record<TournamentStatus, string> = {
-    CREATED: 'bg-blue-100 text-blue-800',
-    STARTED: 'bg-green-100 text-green-800',
-    FINISHED: 'bg-purple-100 text-purple-800',
+  // Type-safe status mappings using EventStatus
+  const statusColorMap: Record<EventStatus, string> = {
+    SCHEDULED: 'bg-blue-100 text-blue-800',
+    ONGOING: 'bg-green-100 text-green-800',
+    COMPLETED: 'bg-purple-100 text-purple-800',
+    CANCELLED: 'bg-red-100 text-red-800',
   };
-  
-  const statusIconMap: Record<TournamentStatus, JSX.Element> = {
-    CREATED: <PauseCircle size={14} className="mr-1" />,
-    STARTED: <PlayCircle size={14} className="mr-1" />,
-    FINISHED: <Award size={14} className="mr-1" />,
+
+  const statusIconMap: Record<EventStatus, JSX.Element> = {
+    SCHEDULED: <PauseCircle size={14} className="mr-1" />,
+    ONGOING: <PlayCircle size={14} className="mr-1" />,
+    COMPLETED: <Award size={14} className="mr-1" />,
+    CANCELLED: <XCircle size={14} className="mr-1" />, // Assuming XCircle for cancelled
   };
-  
-  const statusTextMap: Record<TournamentStatus, string> = {
-    CREATED: 'Em breve',
-    STARTED: 'Em andamento',
-    FINISHED: 'Concluído',
+
+  const statusTextMap: Record<EventStatus, string> = {
+    SCHEDULED: 'Agendado',
+    ONGOING: 'Em andamento',
+    COMPLETED: 'Concluído',
+    CANCELLED: 'Cancelado',
   };
-  
+
   // Safe access with fallbacks
   const statusColor = status && statusColorMap[status] ? statusColorMap[status] : 'bg-gray-100 text-gray-800';
   const statusIcon = status && statusIconMap[status] ? statusIconMap[status] : null;
@@ -90,9 +85,9 @@ export const TournamentCard: React.FC<TournamentCardProps> = ({
     <div className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200 hover:shadow-lg transition-shadow duration-300">
       {/* Banner/Image */}
       <div className="h-40 bg-brand-blue/10 relative">
-        {banner_image_url ? (
+        {bannerImageUrl ? ( // Changed from banner_image_url
           <img 
-            src={banner_image_url} 
+            src={bannerImageUrl} // Changed from banner_image_url
             alt={title} 
             className="w-full h-full object-cover"
           />
@@ -136,7 +131,7 @@ export const TournamentCard: React.FC<TournamentCardProps> = ({
             <DollarSign size={16} className="mr-2 text-brand-blue" />
             <span>{formattedCurrency(price)}</span>
             <Users size={16} className="ml-3 mr-2 text-brand-blue" />
-            <span>Máx: {max_participants}</span>
+            <span>Máx: {maxParticipants}</span> {/* Changed from max_participants */}
           </div>
           
           {prize && (
@@ -147,7 +142,8 @@ export const TournamentCard: React.FC<TournamentCardProps> = ({
           )}
           
           {/* Categories */}
-          {categories && categories.length > 0 && (
+          {/* Check if categories exist and is an array */}
+          {categories && Array.isArray(categories) && categories.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-2">
               {categories.map((category: string, index: number) => (
                 <span 
@@ -182,7 +178,8 @@ export const TournamentCard: React.FC<TournamentCardProps> = ({
 };
 
 interface TournamentCardListProps {
-  tournaments: TournamentCardProps['tournament'][]; // Use Tournament[] quando tiver disponível
+  // Use Event[] if that's the correct type
+  tournaments: (Event & { status?: EventStatus })[];
   loading?: boolean;
   emptyMessage?: string;
 }

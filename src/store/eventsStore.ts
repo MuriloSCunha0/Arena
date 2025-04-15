@@ -7,10 +7,11 @@ interface EventsState {
   currentEvent: Event | null;
   loading: boolean;
   error: string | null;
-  
+
   // Actions
   fetchEvents: () => Promise<void>;
   fetchEventById: (id: string) => Promise<void>;
+  getByIdWithOrganizer: (id: string) => Promise<void>; // Add action signature
   createEvent: (event: Partial<Event>) => Promise<Event>;
   updateEvent: (id: string, event: Partial<Event>) => Promise<Event>;
   deleteEvent: (id: string) => Promise<void>;
@@ -43,6 +44,25 @@ export const useEventsStore = create<EventsState>((set, get) => ({
     } catch (error) {
       console.error(`Error fetching event ${id}:`, error);
       set({ error: 'Falha ao buscar detalhes do evento', loading: false });
+    }
+  },
+
+  // Implement getByIdWithOrganizer
+  getByIdWithOrganizer: async (id: string) => {
+    set({ loading: true, error: null, currentEvent: null });
+    try {
+      const event = await EventsService.getByIdWithOrganizer(id);
+      if (!event) {
+        throw new Error('Evento não encontrado.');
+      }
+      set({ currentEvent: event, loading: false });
+    } catch (error) {
+      console.error(`Error fetching event ${id} with organizer:`, error);
+      set({
+        error: error instanceof Error ? error.message : 'Falha ao carregar evento com organizador',
+        loading: false
+      });
+      throw error; // Re-throw for component handling
     }
   },
 

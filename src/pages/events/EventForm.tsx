@@ -1,497 +1,447 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { 
+import { useForm, Controller } from 'react-hook-form'; // Import Controller
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import {
   Calendar, ChevronLeft, Info, MapPin, Clock, 
-  DollarSign, Users, Trophy, Tag, Eye
+  DollarSign, Users, Trophy, Tag, Eye, Loader2, Link,
+  Percent, List, ShieldCheck, Save, X, Plus, Trash2
 } from 'lucide-react';
 import { Event, EventType, TeamFormationType } from '../../types';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-import { useEventsStore } from '../../store';
+import { useEventsStore, useCourtsStore, useOrganizersStore } from '../../store';
 import { useNotificationStore } from '../../components/ui/Notification';
 import { Modal } from '../../components/ui/Modal';
+import { Label } from '../../components/ui/Label';
+import { Textarea } from '../../components/ui/Textarea'; // Ensure this path and export are correct
+import { Select } from '../../components/ui/Select';
+import { Checkbox } from '../../components/ui/Checkbox'; // Ensure this path and export are correct
+import { PageHeader } from '../../components/layout/PageHeader'; // Ensure this path and export are correct
+import { TournamentCard } from '../../components/tournaments/TournamentCards'; // For preview
+
+// Update Zod schema to include new fields
+const eventSchema = z.object({
+  type: z.nativeEnum(EventType),
+  title: z.string().min(3, 'Título deve ter pelo menos 3 caracteres'),
+  description: z.string().optional(),
+  location: z.string().min(3, 'Localização deve ter pelo menos 3 caracteres'),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida'),
+  time: z.string().regex(/^\d{2}:\d{2}$/, 'Hora inválida'),
+  price: z.preprocess(
+    (val) => (typeof val === 'string' ? parseFloat(val.replace(',', '.')) : val),
+    z.number().min(0, 'Preço não pode ser negativo')
+  ),
+  maxParticipants: z.preprocess(
+    (val) => (typeof val === 'string' ? parseInt(val) : val),
+    z.number().int().min(2, 'Mínimo de 2 participantes')
+  ),
+  prize: z.string().optional(),
+  rules: z.string().optional(),
+  teamFormation: z.nativeEnum(TeamFormationType),
+  categories: z.array(z.string()).optional(),
+  bannerImageUrl: z.string().url('URL da imagem inválida').optional().or(z.literal('')),
+  organizerId: z.string().uuid('Organizador inválido').optional().nullable(), // Added
+  organizerCommissionRate: z.preprocess( // Added
+    (val) => (typeof val === 'string' ? parseFloat(val.replace(',', '.')) : val),
+    z.number().min(0).max(100, 'Comissão deve ser entre 0 e 100').optional().nullable()
+  ),
+  courtIds: z.array(z.string().uuid()).optional().nullable(), // Added
+});
+
+type EventFormValues = z.infer<typeof eventSchema>;
+
 
 export const EventForm = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEditMode = Boolean(id);
-  
+
   const { createEvent, updateEvent, currentEvent, fetchEventById, clearCurrent, loading, error } = useEventsStore();
   const addNotification = useNotificationStore(state => state.addNotification);
-  
+  const { organizers, loading: loadingOrganizers, fetchOrganizers } = useOrganizersStore(); // Use organizers store
+  const { courts, loading: loadingCourts, fetchCourts } = useCourtsStore(); // Use courts store
+
   const [showPreviewModal, setShowPreviewModal] = useState(false);
-  
-  const [formData, setFormData] = useState<Partial<Event>>({
-    type: EventType.TOURNAMENT,
-    title: '',
-    description: '',
-    location: 'Arena Conexão',
-    date: new Date().toISOString().split('T')[0],
-    time: '19:00',
-    price: 0,
-    maxParticipants: 0,
-    prize: '',
-    rules: '',
-    teamFormation: TeamFormationType.FORMED,
-    categories: [],
+  const [newCategory, setNewCategory] = useState('');
+  // No need for separate formData state, use react-hook-form's state via watch or getValues
+
+  const {
+    register,
+    handleSubmit,
+    control, // Use Controller for multi-select/checkboxes
+    setValue,
+    watch,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<EventFormValues>({
+    resolver: zodResolver(eventSchema),
+    defaultValues: {
+      type: EventType.TOURNAMENT,
+      title: '',
+      description: '',
+      location: 'Arena Conexão',
+      date: new Date().toISOString().split('T')[0],
+      time: '19:00',
+      price: 0,
+      maxParticipants: 0,
+      prize: '',
+      rules: '',
+      teamFormation: TeamFormationType.FORMED,
+      categories: [],
+      bannerImageUrl: '',
+      organizerId: null, // Default to null
+      organizerCommissionRate: null, // Default to null
+      courtIds: [], // Default to empty array
+    }
   });
 
-  const [newCategory, setNewCategory] = useState('');
-  
+  // Watch form values for dynamic updates (preview, commission rate)
+  const watchedFormData = watch();
+
   // Fetch event data if in edit mode
   useEffect(() => {
     if (isEditMode && id) {
       fetchEventById(id).catch(() => {
-        addNotification({
-          type: 'error',
-          message: 'Falha ao carregar dados do evento'
-        });
+        addNotification({ type: 'error', message: 'Falha ao carregar dados do evento' });
         navigate('/eventos');
       });
+    } else {
+      reset(); // Reset form if creating new
     }
-    
     return () => {
       clearCurrent();
     };
-  }, [isEditMode, id, fetchEventById, clearCurrent, addNotification, navigate]);
+  }, [isEditMode, id, fetchEventById, clearCurrent, addNotification, navigate, reset]);
 
-  // Populate form with event data when available
+  // Populate form with event data when available (using reset)
   useEffect(() => {
     if (currentEvent) {
-      setFormData(currentEvent);
+      reset({
+        ...currentEvent,
+        // Ensure correct types for react-hook-form
+        price: currentEvent.price ?? 0,
+        maxParticipants: currentEvent.maxParticipants ?? 0,
+        organizerId: currentEvent.organizerId ?? null,
+        organizerCommissionRate: currentEvent.organizerCommissionRate ?? null,
+        courtIds: currentEvent.courtIds ?? [],
+        categories: currentEvent.categories ?? [],
+        bannerImageUrl: currentEvent.bannerImageUrl ?? '',
+      });
     }
-  }, [currentEvent]);
+  }, [currentEvent, reset]);
 
-  // Show errors
+  // Show errors from store
   useEffect(() => {
     if (error) {
-      addNotification({
-        type: 'error',
-        message: error
-      });
+      addNotification({ type: 'error', message: error });
+      // Optionally clear the store error after showing
     }
   }, [error, addNotification]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value, type } = e.target;
-    
-    if (type === 'number') {
-      setFormData({
-        ...formData,
-        [name]: parseFloat(value)
-      });
+  // Fetch organizers and courts
+  useEffect(() => {
+    fetchOrganizers().catch(() => addNotification({ type: 'error', message: 'Falha ao carregar organizadores' }));
+    fetchCourts().catch(() => addNotification({ type: 'error', message: 'Falha ao carregar quadras' }));
+  }, [fetchOrganizers, fetchCourts, addNotification]);
+
+  // Update commission rate when organizer changes
+  const selectedOrganizerId = watch('organizerId');
+  useEffect(() => {
+    if (selectedOrganizerId) {
+      const selectedOrganizer = organizers.find(o => o.id === selectedOrganizerId);
+      if (selectedOrganizer) {
+        // Set commission rate only if it's not already set or if it differs
+        // This prevents overwriting a manually entered commission rate
+        const currentCommission = watch('organizerCommissionRate');
+        if (currentCommission === null || currentCommission === undefined) {
+           setValue('organizerCommissionRate', selectedOrganizer.defaultCommissionRate);
+        }
+      }
     } else {
-      setFormData({
-        ...formData,
-        [name]: value
-      });
+       // Optionally clear commission if organizer is deselected
+       // setValue('organizerCommissionRate', null);
     }
-  };
+  }, [selectedOrganizerId, organizers, setValue, watch]);
+
 
   const addCategory = () => {
-    if (newCategory.trim() && !formData.categories?.includes(newCategory.trim())) {
-      setFormData({
-        ...formData,
-        categories: [...(formData.categories || []), newCategory.trim()]
-      });
-      setNewCategory('');
+    if (newCategory.trim()) {
+      const currentCategories = watch('categories') || [];
+      if (!currentCategories.includes(newCategory.trim())) {
+        setValue('categories', [...currentCategories, newCategory.trim()]);
+        setNewCategory('');
+      }
     }
   };
 
-  const removeCategory = (category: string) => {
-    setFormData({
-      ...formData,
-      categories: formData.categories?.filter(c => c !== category)
-    });
+  const removeCategory = (categoryToRemove: string) => {
+    const currentCategories = watch('categories') || [];
+    setValue('categories', currentCategories.filter(cat => cat !== categoryToRemove));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
+  const onSubmit = async (data: EventFormValues) => {
     try {
+      const eventData: Partial<Event> = {
+        ...data,
+        // Ensure numbers are numbers
+        price: Number(data.price),
+        maxParticipants: Number(data.maxParticipants),
+        // Change null to undefined for optional properties
+        organizerCommissionRate: data.organizerCommissionRate !== null && data.organizerCommissionRate !== undefined ? Number(data.organizerCommissionRate) : undefined,
+        organizerId: data.organizerId || undefined,
+        bannerImageUrl: data.bannerImageUrl || undefined,
+        courtIds: data.courtIds || [],
+        categories: data.categories || [],
+      };
+
       if (isEditMode && id) {
-        await updateEvent(id, formData);
-        addNotification({
-          type: 'success',
-          message: 'Evento atualizado com sucesso!'
-        });
+        await updateEvent(id, eventData);
+        addNotification({ type: 'success', message: 'Evento atualizado com sucesso!' });
       } else {
-        await createEvent(formData);
-        addNotification({
-          type: 'success',
-          message: 'Evento criado com sucesso!'
-        });
+        await createEvent(eventData);
+        addNotification({ type: 'success', message: 'Evento criado com sucesso!' });
       }
-      
       navigate('/eventos');
     } catch (err) {
       addNotification({
         type: 'error',
-        message: `Erro ao ${isEditMode ? 'atualizar' : 'criar'} o evento`
+        message: err instanceof Error ? err.message : 'Falha ao salvar evento'
       });
     }
   };
 
-  // Preview form
-  const handlePreviewForm = () => {
-    setShowPreviewModal(true);
-  };
+  // Loading state for form submission or initial data load
+  const formLoading = loading || isSubmitting || (isEditMode && !currentEvent);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center">
-          <button 
-            onClick={() => navigate('/eventos')}
-            className="mr-4 p-2 rounded-full hover:bg-brand-gray/30"
-          >
-            <ChevronLeft size={20} />
-          </button>
-          <h1 className="text-2xl font-bold text-brand-blue">
-            {isEditMode ? 'Editar Evento' : 'Novo Evento'}
-          </h1>
-        </div>
-        
-        <Button
-          type="button"
-          variant="outline"
-          onClick={handlePreviewForm}
-          disabled={!formData.title}
-        >
-          <Eye size={18} className="mr-2" />
-          Pré-visualizar
-        </Button>
-      </div>
+    <div className="container mx-auto px-4 py-8">
+      <PageHeader
+        title={isEditMode ? 'Editar Evento' : 'Novo Evento'}
+        description={isEditMode ? 'Atualize os detalhes do evento' : 'Preencha as informações para criar um novo evento'}
+      />
 
-      <form onSubmit={handleSubmit} className="space-y-8 bg-white p-6 rounded-lg shadow border border-brand-gray">
-        {/* Form content - keeping existing JSX structure */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-brand-blue flex items-center">
-              <Info size={18} className="mr-2" />
-              Informações Básicas
-            </h2>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tipo de Evento
-                </label>
-                <select
-                  name="type"
-                  value={formData.type}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border rounded-lg shadow-sm border-brand-gray focus:outline-none focus:ring-2 focus:ring-brand-green"
-                  required
-                >
-                  <option value={EventType.TOURNAMENT}>Torneio</option>
-                  <option value={EventType.POOL}>Bolão</option>
-                </select>
-              </div>
-              
-              <Input
-                label="Nome do Evento"
-                name="title"
-                value={formData.title}
-                onChange={handleInputChange}
-                required
-                icon={<Tag size={18} />}
+      <form onSubmit={handleSubmit(onSubmit)} className="mt-6 bg-white p-6 rounded-lg shadow border border-brand-gray space-y-6">
+
+        {/* Basic Info Section */}
+        <fieldset className="border border-brand-gray p-4 rounded-lg">
+          <legend className="text-sm font-medium text-brand-blue px-2 flex items-center"><Info size={16} className="mr-1" />Informações Básicas</legend>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+            {/* ... Title, Type, Location ... */}
+             <div>
+              <Label htmlFor="title">Título do Evento</Label>
+              <Input id="title" {...register('title')} error={errors.title?.message} />
+            </div>
+             <div>
+              <Label htmlFor="type">Tipo</Label>
+              <Controller
+                name="type"
+                control={control}
+                render={({ field }) => (
+                  <Select id="type" {...field} error={!!errors.type}>
+                    <option value={EventType.TOURNAMENT}>Torneio</option>
+                    <option value={EventType.POOL}>Bolão</option>
+                  </Select>
+                )}
               />
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Descrição
-                </label>
-                <textarea
-                  name="description"
-                  value={formData.description}
-                  onChange={handleInputChange}
-                  rows={3}
-                  className="w-full px-3 py-2 border rounded-lg shadow-sm border-brand-gray focus:outline-none focus:ring-2 focus:ring-brand-green"
-                />
-              </div>
-              
-              <Input
-                label="Local"
-                name="location"
-                value={formData.location}
-                onChange={handleInputChange}
-                required
-                icon={<MapPin size={18} />}
-              />
-              
-              <div className="grid grid-cols-2 gap-4">
-                <Input
-                  type="date"
-                  label="Data"
-                  name="date"
-                  value={formData.date}
-                  onChange={handleInputChange}
-                  required
-                  icon={<Calendar size={18} />}
-                />
-                
-                <Input
-                  type="time"
-                  label="Horário"
-                  name="time"
-                  value={formData.time}
-                  onChange={handleInputChange}
-                  required
-                  icon={<Clock size={18} />}
-                />
-              </div>
+            </div>
+             <div>
+              <Label htmlFor="location">Localização</Label>
+              <Input id="location" {...register('location')} error={errors.location?.message} />
             </div>
           </div>
-          
-          <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-brand-blue flex items-center">
-              <Trophy size={18} className="mr-2" />
-              Detalhes do Evento
-            </h2>
-            
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <Input
-                  type="number"
-                  label="Valor da Inscrição (R$)"
-                  name="price"
-                  value={formData.price?.toString()}
-                  onChange={handleInputChange}
-                  min="0"
-                  step="0.01"
-                  required
-                  icon={<DollarSign size={18} />}
-                />
-                
-                <Input
-                  type="number"
-                  label="Máx. Participantes"
-                  name="maxParticipants"
-                  value={formData.maxParticipants?.toString()}
-                  onChange={handleInputChange}
-                  min="0"
-                  required
-                  icon={<Users size={18} />}
-                />
-              </div>
-              
-              <Input
-                label="Premiação"
-                name="prize"
-                value={formData.prize}
-                onChange={handleInputChange}
-                placeholder="Ex: R$ 2.000 em premiação"
-                icon={<Trophy size={18} />}
+           <div className="mt-4">
+              <Label htmlFor="description">Descrição</Label>
+              <Textarea id="description" {...register('description')} rows={3} error={errors.description?.message} />
+            </div>
+        </fieldset>
+
+        {/* Date & Time Section */}
+        <fieldset className="border border-brand-gray p-4 rounded-lg">
+           <legend className="text-sm font-medium text-brand-blue px-2 flex items-center"><Calendar size={16} className="mr-1" />Data e Hora</legend>
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+            <div>
+              <Label htmlFor="date">Data</Label>
+              <Input id="date" type="date" {...register('date')} error={errors.date?.message} />
+            </div>
+            <div>
+              <Label htmlFor="time">Hora</Label>
+              <Input id="time" type="time" {...register('time')} error={errors.time?.message} />
+            </div>
+          </div>
+        </fieldset>
+
+        {/* Details Section */}
+        <fieldset className="border border-brand-gray p-4 rounded-lg">
+          <legend className="text-sm font-medium text-brand-blue px-2 flex items-center"><List size={16} className="mr-1" />Detalhes</legend>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+            {/* ... Price, Max Participants, Prize ... */}
+             <div>
+              <Label htmlFor="price">Preço da Inscrição (R$)</Label>
+              <Input id="price" type="number" step="0.01" {...register('price')} error={errors.price?.message} />
+            </div>
+            <div>
+              <Label htmlFor="maxParticipants">Máx. Participantes</Label>
+              <Input id="maxParticipants" type="number" {...register('maxParticipants')} error={errors.maxParticipants?.message} />
+            </div>
+             <div>
+              <Label htmlFor="prize">Premiação</Label>
+              <Input id="prize" {...register('prize')} error={errors.prize?.message} />
+            </div>
+          </div>
+           <div className="mt-4">
+              <Label htmlFor="rules">Regras</Label>
+              <Textarea id="rules" {...register('rules')} rows={3} error={errors.rules?.message} />
+            </div>
+           <div className="mt-4">
+              <Label htmlFor="bannerImageUrl">URL da Imagem do Banner</Label>
+              <Input id="bannerImageUrl" {...register('bannerImageUrl')} error={errors.bannerImageUrl?.message} />
+            </div>
+        </fieldset>
+
+        {/* Configuration Section */}
+        <fieldset className="border border-brand-gray p-4 rounded-lg">
+          <legend className="text-sm font-medium text-brand-blue px-2 flex items-center"><ShieldCheck size={16} className="mr-1" />Configurações</legend>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+            {/* ... Team Formation ... */}
+             <div>
+              <Label htmlFor="teamFormation">Formação de Times</Label>
+              <Controller
+                name="teamFormation"
+                control={control}
+                render={({ field }) => (
+                  <Select id="teamFormation" {...field} error={!!errors.teamFormation}>
+                    <option value={TeamFormationType.FORMED}>Duplas Formadas</option>
+                    <option value={TeamFormationType.RANDOM}>Duplas Aleatórias</option>
+                  </Select>
+                )}
               />
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Regras
-                </label>
-                <textarea
-                  name="rules"
-                  value={formData.rules}
-                  onChange={handleInputChange}
-                  rows={3}
-                  className="w-full px-3 py-2 border rounded-lg shadow-sm border-brand-gray focus:outline-none focus:ring-2 focus:ring-brand-green"
-                  placeholder="Descreva as regras do evento"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Formação de Equipes
-                </label>
-                <select
-                  name="teamFormation"
-                  value={formData.teamFormation}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border rounded-lg shadow-sm border-brand-gray focus:outline-none focus:ring-2 focus:ring-brand-green"
-                  required
-                >
-                  <option value={TeamFormationType.FORMED}>Duplas formadas</option>
-                  <option value={TeamFormationType.RANDOM}>Duplas aleatórias</option>
-                </select>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Categorias
-                </label>
-                <div className="flex flex-wrap mb-2 gap-2">
-                  {formData.categories?.map(category => (
-                    <span
-                      key={category}
-                      className="bg-brand-purple/10 text-brand-purple text-xs px-2 py-1 rounded-full flex items-center"
-                    >
-                      {category}
-                      <button
-                        type="button"
-                        onClick={() => removeCategory(category)}
-                        className="ml-1 focus:outline-none"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    value={newCategory}
-                    onChange={(e) => setNewCategory(e.target.value)}
-                    className="flex-1 px-3 py-2 border rounded-lg shadow-sm border-brand-gray focus:outline-none focus:ring-2 focus:ring-brand-green"
-                    placeholder="Nova categoria"
-                  />
-                  <button
-                    type="button"
-                    onClick={addCategory}
-                    className="px-3 py-2 bg-brand-purple text-white rounded-lg hover:bg-opacity-90"
+            </div>
+
+            {/* Organizer Selection */}
+            <div>
+              <Label htmlFor="organizerId">Organizador</Label>
+              <Controller
+                name="organizerId"
+                control={control}
+                render={({ field }) => (
+                  <Select
+                    id="organizerId"
+                    {...field}
+                    value={field.value ?? ''} // Handle null value for select
+                    error={!!errors.organizerId}
+                    disabled={loadingOrganizers}
                   >
-                    +
-                  </button>
-                </div>
-              </div>
+                    <option value="">Nenhum (Admin)</option>
+                    {organizers.map(org => (
+                      <option key={org.id} value={org.id}>{org.name}</option>
+                    ))}
+                  </Select>
+                )}
+              />
+            </div>
+
+            {/* Organizer Commission */}
+            <div>
+              <Label htmlFor="organizerCommissionRate">Comissão do Organizador (%)</Label>
+              <Input
+                id="organizerCommissionRate"
+                type="number"
+                step="0.1"
+                {...register('organizerCommissionRate')}
+                error={errors.organizerCommissionRate?.message}
+                disabled={!selectedOrganizerId} // Disable if no organizer selected
+              />
             </div>
           </div>
-        </div>
-        
-        <div className="flex justify-end space-x-3 pt-4 border-t border-brand-gray">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => navigate('/eventos')}
-            disabled={loading}
-          >
-            Cancelar
+
+           {/* Categories */}
+           <div className="mt-4">
+              <Label>Categorias</Label>
+              <div className="flex items-center gap-2 mb-2">
+                <Input
+                  value={newCategory}
+                  onChange={(e) => setNewCategory(e.target.value)}
+                  placeholder="Nova categoria"
+                  className="flex-grow"
+                />
+                <Button type="button" variant="outline" onClick={addCategory}><Plus size={16} /></Button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {(watch('categories') || []).map(cat => (
+                  <span key={cat} className="flex items-center bg-brand-purple/10 text-brand-purple text-xs px-3 py-1 rounded-full">
+                    {cat}
+                    <button type="button" onClick={() => removeCategory(cat)} className="ml-1.5 text-brand-purple/70 hover:text-brand-purple">
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+          {/* Court Selection */}
+          <div className="mt-4">
+            <Label>Quadras Disponíveis para o Evento</Label>
+            {loadingCourts ? (
+              <p className="text-sm text-gray-500">Carregando quadras...</p>
+            ) : courts.length === 0 ? (
+              <p className="text-sm text-gray-500">Nenhuma quadra cadastrada.</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 mt-2 max-h-40 overflow-y-auto border p-2 rounded-md">
+                <Controller
+                  name="courtIds"
+                  control={control}
+                  render={({ field }) => (
+                    <>
+                      {courts.map(court => (
+                        <label key={court.id} className="flex items-center space-x-2 p-2 rounded hover:bg-gray-50 cursor-pointer">
+                          <Checkbox
+                            id={`court-${court.id}`}
+                            checked={field.value?.includes(court.id)}
+                            // Add explicit type for checked parameter
+                            onCheckedChange={(checked: boolean | 'indeterminate') => {
+                              const currentIds = field.value || [];
+                              if (checked) {
+                                field.onChange([...currentIds, court.id]);
+                              } else {
+                                field.onChange(currentIds.filter(id => id !== court.id));
+                              }
+                            }}
+                          />
+                          <span className="text-sm">{court.name} ({court.location})</span>
+                        </label>
+                      ))}
+                    </>
+                  )}
+                />
+              </div>
+            )}
+             {errors.courtIds && <p className="text-red-500 text-xs mt-1">{errors.courtIds.message}</p>}
+          </div>
+        </fieldset>
+
+        {/* Actions */}
+        <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-brand-gray">
+          <Button type="button" variant="outline" onClick={() => setShowPreviewModal(true)}>
+            <Eye size={18} className="mr-1" /> Pré-visualizar
           </Button>
-          <Button 
-            type="submit" 
-            loading={loading}
-          >
-            {isEditMode ? 'Atualizar' : 'Criar'} Evento
+          <Button type="button" variant="outline" onClick={() => navigate('/eventos')}>
+            <X size={18} className="mr-1" /> Cancelar
+          </Button>
+          <Button type="submit" disabled={formLoading}>
+            {formLoading ? <Loader2 size={18} className="mr-1 animate-spin" /> : <Save size={18} className="mr-1" />}
+            {isEditMode ? 'Salvar Alterações' : 'Criar Evento'}
           </Button>
         </div>
       </form>
-      
-      {/* Modal para pré-visualização do formulário de inscrição */}
-      <Modal
-        isOpen={showPreviewModal}
-        onClose={() => setShowPreviewModal(false)}
-        title="Pré-visualização do Formulário de Inscrição"
-      >
-        <div className="bg-white rounded-lg p-6">
-          <div className="mb-8 border-b pb-4">
-            <h3 className="text-xl font-bold text-brand-blue mb-2">{formData.title}</h3>
-            <p className="text-gray-600 mb-4">{formData.description || "Sem descrição disponível"}</p>
-            
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div className="flex items-start">
-                <Calendar size={16} className="text-brand-purple mr-2 mt-0.5" />
-                <div>
-                  <p className="font-medium">Data e Hora</p>
-                  <p className="text-gray-600">
-                    {formData.date ? new Date(formData.date).toLocaleDateString('pt-BR') : 'N/A'} às {formData.time || 'N/A'}
-                  </p>
-                </div>
-              </div>
-              
-              <div className="flex items-start">
-                <MapPin size={16} className="text-brand-purple mr-2 mt-0.5" />
-                <div>
-                  <p className="font-medium">Local</p>
-                  <p className="text-gray-600">{formData.location}</p>
-                </div>
-              </div>
-              
-              <div className="flex items-start">
-                <DollarSign size={16} className="text-brand-purple mr-2 mt-0.5" />
-                <div>
-                  <p className="font-medium">Valor da Inscrição</p>
-                  <p className="text-gray-600">
-                    {formData.price ? `R$ ${formData.price.toFixed(2).replace('.', ',')}` : 'Gratuito'}
-                  </p>
-                </div>
-              </div>
-              
-              <div className="flex items-start">
-                <Trophy size={16} className="text-brand-purple mr-2 mt-0.5" />
-                <div>
-                  <p className="font-medium">Premiação</p>
-                  <p className="text-gray-600">{formData.prize || 'N/A'}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          <div className="space-y-4">
-            <h4 className="text-lg font-semibold text-brand-blue">Formulário de Inscrição</h4>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nome Completo *
-                </label>
-                <div className="border border-brand-gray rounded-lg p-2.5 bg-gray-50">
-                  Campo de entrada do participante
-                </div>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email *
-                </label>
-                <div className="border border-brand-gray rounded-lg p-2.5 bg-gray-50">
-                  Campo de entrada do participante
-                </div>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Telefone *
-                </label>
-                <div className="border border-brand-gray rounded-lg p-2.5 bg-gray-50">
-                  Campo de entrada do participante
-                </div>
-              </div>
-              
-              {formData.teamFormation === TeamFormationType.FORMED && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Nome do Parceiro (Dupla) *
-                  </label>
-                  <div className="border border-brand-gray rounded-lg p-2.5 bg-gray-50">
-                    Campo de entrada do participante
-                  </div>
-                </div>
-              )}
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Método de Pagamento *
-                </label>
-                <div className="border border-brand-gray rounded-lg p-2.5 bg-gray-50">
-                  Seleção: PIX, Cartão, Dinheiro
-                </div>
-              </div>
-            </div>
-            
-            <div className="border-t pt-4 mt-6">
-              <p className="text-sm text-gray-500 mb-4">
-                Ao concluir sua inscrição, você concorda com os termos e regras deste evento.
-              </p>
-              
-              <Button
-                variant="outline"
-                onClick={() => setShowPreviewModal(false)}
-                className="w-full"
-              >
-                Fechar Pré-visualização
-              </Button>
-            </div>
-          </div>
-        </div>
+
+      {/* Preview Modal */}
+      <Modal isOpen={showPreviewModal} onClose={() => setShowPreviewModal(false)} title="Pré-visualização do Evento">
+        <TournamentCard
+          tournament={{ ...watchedFormData, id: id || 'preview-id' } as Event} // Cast watched data to Event for preview
+          showActions={false}
+        />
       </Modal>
     </div>
   );

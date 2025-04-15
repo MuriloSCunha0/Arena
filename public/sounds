@@ -1,0 +1,2 @@
+# Create directory for sound files
+mkdir -p public\sounds

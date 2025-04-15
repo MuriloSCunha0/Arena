@@ -8,7 +8,8 @@ import {
   Users, 
   Settings, 
   LogOut,
-  BarChart3
+  BarChart3,
+  MapPin // Novo ícone para quadras
 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 
@@ -74,6 +75,7 @@ export const Sidebar = () => {
         <NavItem to="/participantes" icon={Users} label="Participantes" />
         <NavItem to="/financeiro" icon={DollarSign} label="Financeiro" />
         <NavItem to="/relatorios" icon={BarChart3} label="Relatórios" />
+        <NavItem to="/quadras" icon={MapPin} label="Quadras" /> {/* Nova opção de menu */}
         <NavItem to="/configuracoes" icon={Settings} label="Configurações" />
       </nav>
       

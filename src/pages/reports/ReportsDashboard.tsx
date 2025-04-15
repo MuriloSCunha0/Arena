@@ -176,16 +176,21 @@ export const ReportsDashboard = () => {
   
   const categoriesData = useMemo(() => {
     if (!events || events.length === 0) return [];
-    
-    const categoryCount: Record<string, number> = {};
-    events.forEach(event => {
-      if (event.categories) {
+
+    // Explicitly type the accumulator
+    const categoryCount = events.reduce((acc: Record<string, number>, event) => {
+      // Check if event.categories exists and is an array
+      if (event.categories && Array.isArray(event.categories)) {
         event.categories.forEach(category => {
-          categoryCount[category] = (categoryCount[category] || 0) + 1;
+          // Ensure category is a string before using as key
+          if (typeof category === 'string') {
+             acc[category] = (acc[category] || 0) + 1;
+          }
         });
       }
-    });
-    
+      return acc;
+    }, {}); // Initial value is an empty object
+
     return Object.entries(categoryCount)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)

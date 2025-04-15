@@ -9,12 +9,14 @@ import { useEventsStore, useParticipantsStore } from '../../store';
 import { Select } from '../ui/Select';
 import { Loader2 } from 'lucide-react';
 import { useNotificationStore } from '../ui/Notification';
+import { CreateParticipantDTO } from '../../types'; // Import if not already
 
 // Schema de validação para o formulário de participante
 const participantSchema = z.object({
   name: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres'),
   email: z.string().email('Email inválido'),
   phone: z.string().min(8, 'Telefone deve ter pelo menos 8 dígitos'),
+  birthDate: z.string().optional(), // Add birthDate to schema if using the field
   partner_id: z.string().optional(),
 });
 
@@ -45,7 +47,8 @@ export const ParticipantForm: React.FC<ParticipantFormProps> = ({ eventId, onSuc
       name: '',
       email: '',
       phone: '',
-      partner_id: undefined,
+      birthDate: '', // Default value for birthDate
+      partner_id: '', // Use empty string for select default
     }
   });
 
@@ -63,24 +66,26 @@ export const ParticipantForm: React.FC<ParticipantFormProps> = ({ eventId, onSuc
   const onSubmit = async (data: ParticipantFormValues) => {
     setIsSubmitting(true);
     try {
-      // Se não for duplas formadas, garantir que não haja partner_id
-      if (!isFormedTeams) {
-        data.partner_id = undefined;
-      }
-      
-      await createParticipant({
+      // Prepare data according to CreateParticipantDTO
+      const participantData: CreateParticipantDTO = {
         eventId,
         name: data.name,
         email: data.email,
         phone: data.phone,
-        partnerId: data.partner_id,
-      });
-      
+        // Pass null if birthDate is empty/undefined
+        birthDate: data.birthDate || null,
+        // Pass null if partner_id is empty/undefined, unless team formation is RANDOM
+        partnerId: isFormedTeams ? (data.partner_id || null) : null,
+        paymentStatus: 'PENDING', // Default status when using this form
+      };
+
+      await createParticipant(participantData);
+
       addNotification({
         type: 'success',
         message: 'Participante cadastrado com sucesso!'
       });
-      
+
       reset();
       if (onSuccess) onSuccess();
     } catch (error) {
@@ -127,6 +132,19 @@ export const ParticipantForm: React.FC<ParticipantFormProps> = ({ eventId, onSuc
         />
       </div>
       
+      {/* Optional: Add BirthDate Input here if needed for this form */}
+      {/*
+      <div>
+        <Label htmlFor="birthDate">Data de Nascimento</Label>
+        <Input
+          id="birthDate"
+          type="date"
+          {...register('birthDate')}
+          error={errors.birthDate?.message || ''}
+        />
+      </div>
+      */}
+
       {/* Mostrar campo de parceiro apenas se for duplas formadas */}
       {isFormedTeams && (
         <div>
@@ -138,7 +156,7 @@ export const ParticipantForm: React.FC<ParticipantFormProps> = ({ eventId, onSuc
             errorMessage={errors.partner_id?.message || ''}
             disabled={loading}
           >
-            <option value="">Selecione um parceiro</option>
+            <option value="">Selecione um parceiro (opcional)</option> {/* Allow no partner */}
             {availablePartners.map(partner => (
               <option key={partner.id} value={partner.id}>
                 {partner.name}
@@ -146,7 +164,7 @@ export const ParticipantForm: React.FC<ParticipantFormProps> = ({ eventId, onSuc
             ))}
           </Select>
           <p className="text-xs text-gray-500 mt-1">
-            Se o parceiro não estiver listado, registre-o primeiro.
+            Se o parceiro não estiver listado, registre-o primeiro. Apenas participantes confirmados aparecem.
           </p>
         </div>
       )}

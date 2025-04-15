@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { User, Mail, Phone, Check, Loader2 } from 'lucide-react';
+import { User, Mail, Phone, Check, Loader2, Calendar } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { useParticipantsStore, useFinancialsStore } from '../../store';
-import { Participant } from '../../types';
+import { Participant, CreateParticipantDTO } from '../../types'; // Import CreateParticipantDTO
 
 interface AddParticipantFormProps {
   eventId: string;
@@ -11,54 +11,63 @@ interface AddParticipantFormProps {
   onCancel: () => void;
 }
 
-export const AddParticipantForm: React.FC<AddParticipantFormProps> = ({ 
-  eventId, 
-  onSuccess, 
-  onCancel 
+export const AddParticipantForm: React.FC<AddParticipantFormProps> = ({
+  eventId,
+  onSuccess,
+  onCancel
 }) => {
-  const { addParticipant, loading } = useParticipantsStore();
+  const { createParticipant, loading } = useParticipantsStore();
   const { fetchEventSummary } = useFinancialsStore();
-  
-  const [formData, setFormData] = useState<Partial<Participant>>({
+
+  // Use state matching CreateParticipantDTO structure more closely
+  const [formData, setFormData] = useState<Partial<CreateParticipantDTO>>({
     eventId,
     name: '',
     email: '',
     phone: '',
+    birthDate: '', // Keep as string for input compatibility, convert to null on submit if empty
     paymentStatus: 'PENDING',
+    paymentId: undefined, // Initialize paymentId
+    partnerId: undefined, // Initialize partnerId
   });
-  
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
-  
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    try {
-      // Se o status é confirmado, geramos um ID de pagamento fictício
-      const paymentId = formData.paymentStatus === 'CONFIRMED' 
-        ? `pix_${Date.now()}_manual` 
-        : undefined;
 
-      // Incluir o paymentId no formData se estiver definido
-      const participantData = paymentId 
-        ? { ...formData, paymentId }
-        : formData;
-      
-      await addParticipant(participantData);
-      
-      // Se o pagamento foi confirmado, atualizar o resumo financeiro
+    try {
+      // Prepare data strictly according to CreateParticipantDTO
+      const participantData: CreateParticipantDTO = {
+        eventId: formData.eventId!, // Assume eventId is always present
+        name: formData.name!,
+        email: formData.email!,
+        phone: formData.phone!,
+        // Convert empty string to null for birthDate before sending
+        birthDate: formData.birthDate || null, // Send null if empty
+        paymentStatus: formData.paymentStatus || 'PENDING',
+        // Generate paymentId only if confirming payment manually here
+        paymentId: formData.paymentStatus === 'CONFIRMED' ? `manual_${Date.now()}` : null,
+        partnerId: formData.partnerId || null, // Send null if empty/undefined
+      };
+
+      await createParticipant(participantData);
+
+      // If the payment was confirmed, update the financial summary
       if (formData.paymentStatus === 'CONFIRMED') {
         await fetchEventSummary(eventId);
       }
-      
+
       onSuccess();
     } catch (error) {
       console.error('Error adding participant:', error);
+      // Consider showing error notification to user
     }
   };
-  
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <Input
@@ -70,7 +79,7 @@ export const AddParticipantForm: React.FC<AddParticipantFormProps> = ({
         icon={<User size={18} />}
         placeholder="Digite o nome do participante"
       />
-      
+
       <Input
         type="email"
         label="Email"
@@ -81,7 +90,7 @@ export const AddParticipantForm: React.FC<AddParticipantFormProps> = ({
         icon={<Mail size={18} />}
         placeholder="Digite o email do participante"
       />
-      
+
       <Input
         label="Telefone"
         name="phone"
@@ -91,7 +100,20 @@ export const AddParticipantForm: React.FC<AddParticipantFormProps> = ({
         icon={<Phone size={18} />}
         placeholder="(00) 00000-0000"
       />
-      
+
+      {/* Added birthDate field */}
+      <Input
+        type="date"
+        label="Data de Nascimento"
+        name="birthDate" // Match state key
+        value={formData.birthDate || ''} // Ensure value is string or undefined
+        onChange={handleChange}
+        icon={<Calendar size={18} />}
+        placeholder="Data de nascimento"
+        // Add max date validation if needed (e.g., max={new Date().toISOString().split('T')[0]})
+      />
+
+      {/* Payment Status */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
           Status de Pagamento
@@ -121,9 +143,11 @@ export const AddParticipantForm: React.FC<AddParticipantFormProps> = ({
           </label>
         </div>
       </div>
-      
+
+      {/* Action Buttons */}
       <div className="flex justify-end space-x-3 pt-4">
-        <Button
+        {/* ... Cancel and Submit buttons ... */}
+         <Button
           type="button"
           variant="outline"
           onClick={onCancel}
@@ -131,8 +155,8 @@ export const AddParticipantForm: React.FC<AddParticipantFormProps> = ({
         >
           Cancelar
         </Button>
-        <Button 
-          type="submit" 
+        <Button
+          type="submit"
           disabled={loading}
         >
           {loading ? (

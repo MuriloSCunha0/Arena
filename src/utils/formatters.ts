@@ -7,40 +7,37 @@
  */
 export const formatCurrency = (value: number): string => {
   return value.toLocaleString('pt-BR', {
-    style: 'decimal',
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2
+    maximumFractionDigits: 2,
   });
 };
 
 /**
  * Formata data e hora para o formato brasileiro
  */
-export const formatDateTime = (dateString: string): string => {
-  if (!dateString) return '';
+export const formatDateTime = (dateTime: string): string => {
+  if (!dateTime) return '';
   
-  const date = new Date(dateString);
-  if (isNaN(date.getTime())) return '';
-  
-  return date.toLocaleString('pt-BR', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  try {
+    const date = new Date(dateTime);
+    
+    return `${date.toLocaleDateString('pt-BR')} ${date.toTimeString().substring(0, 5)}`;
+  } catch {
+    return '';
+  }
 };
 
 /**
  * Formata apenas a data para o formato brasileiro
  */
-export const formatDate = (dateString: string): string => {
-  if (!dateString) return '';
+export const formatDate = (date: string): string => {
+  if (!date) return '';
   
-  const date = new Date(dateString);
-  if (isNaN(date.getTime())) return '';
-  
-  return date.toLocaleDateString('pt-BR');
+  try {
+    return new Date(date).toLocaleDateString('pt-BR');
+  } catch {
+    return '';
+  }
 };
 
 /**
@@ -170,4 +167,13 @@ export const formattedPhone = (phone: string): string => {
   }
   
   return phone;
+};
+
+/**
+ * Formata um valor de tempo para o formato HH:MM
+ */
+export const formatTime = (time: string): string => {
+  if (!time) return '';
+  
+  return time.substring(0, 5); // Pegando apenas HH:MM
 };

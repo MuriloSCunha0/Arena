@@ -1,14 +1,34 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Define common headers we want to use globally
+const globalHeaders = {
+  'Accept': 'application/json',
+  'Content-Type': 'application/json' // Add Content-Type globally
+};
+
+// Create Supabase client with proper global configuration
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  global: {
+    headers: globalHeaders // Apply global headers
+  },
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true
+  }
+});
 
 // Add connection status check
 export const checkSupabaseConnection = async () => {
   try {
-    const { data, error } = await supabase.from('events').select('id').limit(1);
+    // Global headers are applied automatically
+    const { data, error } = await supabase
+      .from('events')
+      .select('id')
+      .limit(1);
+      
     if (error) throw error;
     return { success: true, data };
   } catch (error) {
@@ -16,3 +36,6 @@ export const checkSupabaseConnection = async () => {
     return { success: false, error };
   }
 };
+
+// Remove the enhancedQuery helper as it's replaced by supabaseApi in supabaseHelpers.ts
+// export const enhancedQuery = { ... };

@@ -1,5 +1,6 @@
 import { supabase } from '../../lib/supabase';
-import { Participant } from '../../types';
+// Import CreateParticipantDTO
+import { Participant, CreateParticipantDTO } from '../../types';
 
 // Função para converter dados do Supabase para nosso tipo Participant
 const transformParticipant = (data: any): Participant => ({
@@ -13,19 +14,42 @@ const transformParticipant = (data: any): Participant => ({
   paymentId: data.payment_id,
   paymentDate: data.payment_date,
   registeredAt: data.registered_at,
+  birthDate: data.birth_date, // Add birthDate mapping
+  // Add other fields if they exist in your DB table (e.g., pix codes)
+  pixPaymentCode: data.pix_payment_code,
+  pixQrcodeUrl: data.pix_qrcode_url,
+  paymentTransactionId: data.payment_transaction_id,
+  partnerName: data.partner_name, // Assuming partner_name exists if needed
 });
 
-// Função para converter nosso tipo Participant para o formato do Supabase
-const toSupabaseParticipant = (participant: Partial<Participant>) => ({
+// Função para converter nosso tipo CreateParticipantDTO para o formato do Supabase
+// Note: This now takes CreateParticipantDTO
+const toSupabaseParticipantCreate = (participant: CreateParticipantDTO) => ({
   event_id: participant.eventId,
   name: participant.name,
   email: participant.email,
   phone: participant.phone,
+  birth_date: participant.birthDate, // Add birthDate mapping
+  partner_id: participant.partnerId,
+  payment_status: participant.paymentStatus || 'PENDING', // Default to PENDING
+  payment_id: participant.paymentId,
+  // payment_date is set below based on status
+});
+
+// Keep a version for updates if needed, accepting Partial<Participant>
+const toSupabaseParticipantUpdate = (participant: Partial<Participant>) => ({
+  event_id: participant.eventId,
+  name: participant.name,
+  email: participant.email,
+  phone: participant.phone,
+  birth_date: participant.birthDate, // Add birthDate mapping
   partner_id: participant.partnerId,
   payment_status: participant.paymentStatus,
   payment_id: participant.paymentId,
   payment_date: participant.paymentDate,
+  // Add other updatable fields
 });
+
 
 export const ParticipantsService = {
   // Buscar todos os participantes
@@ -64,36 +88,63 @@ export const ParticipantsService = {
     return transformParticipant(data);
   },
 
-  // Criar um novo participante
-  async create(participant: Partial<Participant>): Promise<Participant> {
-    // Verificar se há um pagamento confirmado e um ID de pagamento
-    const hasPayment = participant.paymentStatus === 'CONFIRMED' && participant.paymentId;
-    
-    const supabaseData = {
-      ...toSupabaseParticipant(participant),
+  // Criar um novo participante - Update signature to use CreateParticipantDTO
+  async create(participantData: CreateParticipantDTO): Promise<Participant> {
+    const supabaseData: any = {
+      ...toSupabaseParticipantCreate(participantData),
       registered_at: new Date().toISOString(),
     };
-    
-    // Se temos um pagamento confirmado, adicionar a data do pagamento
-    if (hasPayment) {
+
+    // Set payment_date only if status is CONFIRMED
+    if (participantData.paymentStatus === 'CONFIRMED') {
       supabaseData.payment_date = new Date().toISOString();
+      // Ensure paymentId is set if confirming payment (might be generated in form or service)
+      if (!supabaseData.payment_id) {
+          supabaseData.payment_id = `manual_${Date.now()}`; // Example manual ID
+          console.warn("Confirmed payment status without paymentId, generated manual ID:", supabaseData.payment_id);
+      }
+    } else {
+        // Ensure payment_date and payment_id are null if PENDING
+        supabaseData.payment_date = null;
+        supabaseData.payment_id = null;
     }
-    
+
+
     const { data, error } = await supabase
       .from('participants')
       .insert(supabaseData)
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+        console.error("Supabase error creating participant:", error);
+        throw error;
+    }
+
+    // Handle partner linking if necessary (check event type, etc.)
+    // This logic might be better placed in the store or component depending on requirements
+    // Example:
+    // if (participantData.partnerId) {
+    //   try {
+    //     await supabase
+    //       .from('participants')
+    //       .update({ partner_id: data.id })
+    //       .eq('id', participantData.partnerId);
+    //   } catch (linkError) {
+    //     console.error("Error linking partner:", linkError);
+    //     // Decide how to handle linking errors (e.g., notify user)
+    //   }
+    // }
+
+
     return transformParticipant(data);
   },
 
-  // Atualizar um participante existente
+  // Atualizar um participante existente - Use the update transformer
   async update(id: string, participant: Partial<Participant>): Promise<Participant> {
     const { data, error } = await supabase
       .from('participants')
-      .update(toSupabaseParticipant(participant))
+      .update(toSupabaseParticipantUpdate(participant)) // Use update transformer
       .eq('id', id)
       .select()
       .single();

@@ -1,5 +1,5 @@
 import { supabase } from '../../lib/supabase';
-import { Event, EventType, TeamFormationType } from '../../types';
+import { Event, EventType, TeamFormationType, Organizer } from '../../types'; // Import Organizer
 
 // Função para converter dados do Supabase para nosso tipo Event
 const transformEvent = (data: any): Event => ({
@@ -19,6 +19,22 @@ const transformEvent = (data: any): Event => ({
   categories: data.categories || [],
   createdAt: data.created_at,
   updatedAt: data.updated_at,
+  organizerId: data.organizer_id, // Added
+  organizerCommissionRate: data.organizer_commission_rate, // Added
+  courtIds: data.court_ids || [], // Added, assuming 'court_ids' is the column name (adjust if different)
+  // Organizer data might be joined separately, handle in getByIdWithOrganizer
+  organizer: data.organizers ? { // Assuming 'organizers' is the alias used in join
+      id: data.organizers.id,
+      name: data.organizers.name,
+      phone: data.organizers.phone,
+      email: data.organizers.email,
+      pixKey: data.organizers.pix_key,
+      defaultCommissionRate: data.organizers.default_commission_rate,
+      active: data.organizers.active,
+      createdAt: data.organizers.created_at,
+      updatedAt: data.organizers.updated_at,
+  } : undefined, // Return undefined instead of null
+  status: data.status, // Assuming status might come from a related tournament or event table itself
 });
 
 // Função para converter nosso tipo Event para o formato do Supabase
@@ -36,6 +52,10 @@ const toSupabaseEvent = (event: Partial<Event>) => ({
   banner_image_url: event.bannerImageUrl,
   team_formation: event.teamFormation,
   categories: event.categories || [],
+  organizer_id: event.organizerId, // Added
+  organizer_commission_rate: event.organizerCommissionRate, // Added
+  court_ids: event.courtIds || [], // Added, assuming 'court_ids' is the column name
+  // Don't include 'organizer' object when sending to Supabase
 });
 
 export const EventsService = {
@@ -87,9 +107,11 @@ export const EventsService = {
   // Criar um novo evento
   async create(event: Partial<Event>): Promise<Event> {
     try {
+      const supabaseData = toSupabaseEvent(event);
+      console.log("Creating event with data:", supabaseData); // Log data being sent
       const { data, error } = await supabase
         .from('events')
-        .insert(toSupabaseEvent(event))
+        .insert(supabaseData)
         .select()
         .single();
 
@@ -97,7 +119,7 @@ export const EventsService = {
         console.error('Supabase error creating event:', error);
         throw new Error(`Failed to create event: ${error.message}`);
       }
-      
+
       return transformEvent(data);
     } catch (error) {
       console.error('Error in create event:', error);
@@ -108,9 +130,11 @@ export const EventsService = {
   // Atualizar um evento existente
   async update(id: string, event: Partial<Event>): Promise<Event> {
     try {
+      const supabaseData = toSupabaseEvent(event);
+      console.log(`Updating event ${id} with data:`, supabaseData); // Log data being sent
       const { data, error } = await supabase
         .from('events')
-        .update(toSupabaseEvent(event))
+        .update(supabaseData)
         .eq('id', id)
         .select()
         .single();
@@ -119,7 +143,7 @@ export const EventsService = {
         console.error(`Supabase error updating event ${id}:`, error);
         throw new Error(`Failed to update event: ${error.message}`);
       }
-      
+
       return transformEvent(data);
     } catch (error) {
       console.error(`Error in update event ${id}:`, error);
@@ -163,5 +187,102 @@ export const EventsService = {
       console.error(`Error in getParticipantCount for event ${eventId}:`, error);
       throw error;
     }
-  }
+  },
+
+  // Get event with organizer
+  async getByIdWithOrganizer(id: string): Promise<Event | null> {
+    try {
+      const { data, error } = await supabase
+        .from('events')
+        .select(`
+          *,
+          organizers:organizer_id(*)
+        `) // Ensure the foreign table name is correct ('organizers' or similar)
+        .eq('id', id)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return null; // No rows returned
+        }
+        console.error(`Supabase error fetching event ${id} with organizer:`, error);
+        throw new Error(`Failed to fetch event with organizer: ${error.message}`);
+      }
+
+      if (!data) return null;
+
+      // Transform the event data and include organizer if available
+      return transformEvent(data); // transformEvent now handles the joined organizer data
+
+    } catch (error) {
+      console.error(`Error in getByIdWithOrganizer event ${id}:`, error);
+      throw error;
+    }
+  },
+  
+  // Generate registration form link
+  async generateRegistrationLink(eventId: string): Promise<string> {
+    // In a production app, this might involve creating a unique token or signature
+    // For now, we'll just return a formatted URL with the event ID
+    const baseUrl = 'https://arena-conexao.com.br/inscricao';
+    return `${baseUrl}/${eventId}`;
+  },
+
+  /**
+   * Register a participant for an event
+   * @param eventId ID of the event
+   * @param participant Participant data
+   */
+  async registerParticipant(eventId: string, participant: {
+    name: string;
+    birthDate?: string;
+    phone: string;
+    email: string;
+    partnerName?: string;
+    paymentMethod: string;
+    paymentStatus: string;
+  }): Promise<any> {
+    try {
+      // Convert to the format expected by Supabase
+      const participantData = {
+        event_id: eventId,
+        name: participant.name,
+        birth_date: participant.birthDate,
+        phone: participant.phone,
+        email: participant.email,
+        partner_name: participant.partnerName,
+        payment_method: participant.paymentMethod,
+        payment_status: participant.paymentStatus,
+        registered_at: new Date().toISOString()
+      };
+
+      const { data, error } = await supabase
+        .from('participants')
+        .insert(participantData)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error registering participant:', error);
+        throw new Error(`Failed to register participant: ${error.message}`);
+      }
+
+      // Transform the Supabase response to match our frontend types
+      return {
+        id: data.id,
+        eventId: data.event_id,
+        name: data.name,
+        birthDate: data.birth_date,
+        phone: data.phone,
+        email: data.email,
+        partnerName: data.partner_name,
+        paymentStatus: data.payment_status,
+        paymentMethod: data.payment_method,
+        registeredAt: data.registered_at
+      };
+    } catch (error) {
+      console.error('Error in registerParticipant:', error);
+      throw error;
+    }
+  },
 };
