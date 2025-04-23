@@ -12,7 +12,9 @@ import {
   Calendar,
   XCircle,
   List,
-  HelpCircle
+  HelpCircle,
+  MinusCircle,
+  PlusCircle
 } from 'lucide-react';
 import { useTournamentStore, useParticipantsStore, useCourtsStore } from '../../store';
 import { useNotificationStore } from '../ui/Notification';
@@ -91,6 +93,16 @@ const MatchCard: React.FC<MatchCardProps> = ({
               <span>{scheduledTime}</span>
             </div>
           )}
+        </div>
+      )}
+
+      {/* BYE indicator with improved styling */}
+      {byeMatch && (
+        <div className="mt-2 bg-blue-50 border border-blue-100 rounded-md p-2 text-center">
+          <span className="text-blue-600 font-medium flex items-center justify-center">
+            <XCircle size={14} className="mr-1" />
+            BYE (Avanço Automático)
+          </span>
         </div>
       )}
     </div>
@@ -311,6 +323,24 @@ interface FetchedEventData {
   type: EventType;
 }
 
+// Função auxiliar para obter detalhes da equipe
+const getTeamDetails = (teamIds: string[] | null, eventParticipants: Participant[]) => {
+  if (!teamIds || !teamIds.length) return null;
+  
+  const players = teamIds.map(id => {
+    const participant = eventParticipants.find(p => p.id === id);
+    return {
+      name: participant?.name || 'Desconhecido',
+      ranking: participant?.ranking || 0
+    };
+  });
+  
+  return {
+    players,
+    averageRanking: players.reduce((sum, p) => sum + p.ranking, 0) / players.length
+  };
+};
+
 export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId }) => {
   const {
     tournament,
@@ -341,6 +371,9 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
   const [selectedCourtId, setSelectedCourtId] = useState<string | null>(null);
   const [showGroupRankingsModal, setShowGroupRankingsModal] = useState(false);
   const [calculatedRankings, setCalculatedRankings] = useState<Record<number, GroupRanking[]>>({});
+  const [zoomLevel, setZoomLevel] = useState(100);
+  const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
+  const [resetInProgress, setResetInProgress] = useState(false);
 
   const participantMap = useMemo(() => {
       const map = new Map<string, string>();
@@ -459,6 +492,54 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     }
   };
 
+  const handleResetTournament = () => {
+    setShowResetConfirmModal(true);
+  };
+
+  const confirmResetTournament = async () => {
+    try {
+      setResetInProgress(true);
+      
+      // Chamar API para resetar o torneio - removendo o campo matches que não existe
+      const { data: tournament, error } = await supabase
+        .from('tournaments')
+        .update({
+          status: 'CREATED',
+          updated_at: new Date().toISOString()
+        })
+        .eq('event_id', eventId)
+        .select()
+        .single();
+        
+      if (error) throw error;
+      
+      // Deletar todas as partidas associadas ao torneio
+      const { error: deleteError } = await supabase
+        .from('tournament_matches')
+        .delete()
+        .eq('tournament_id', tournament.id);
+        
+      if (deleteError) throw deleteError;
+      
+      addNotification({
+        type: 'success',
+        message: 'Torneio reiniciado com sucesso! Você pode gerar novamente a estrutura.'
+      });
+      
+      // Recarregar o torneio
+      await fetchTournament(eventId);
+    } catch (error) {
+      console.error('Erro ao reiniciar torneio:', error);
+      addNotification({
+        type: 'error',
+        message: 'Erro ao reiniciar o torneio. Tente novamente.'
+      });
+    } finally {
+      setResetInProgress(false);
+      setShowResetConfirmModal(false);
+    }
+  };
+
   const handleMatchClick = (match: Match) => {
     if (match.team1 && match.team2 && !match.completed) {
       selectMatch(match);
@@ -474,6 +555,32 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
   const handleSaveMatchResults = async (matchId: string, score1: number, score2: number) => {
     try {
       await updateMatchResults(matchId, score1, score2);
+      
+      // Trigger animation for winner
+      setTimeout(() => {
+        const winnerId = score1 > score2 ? 'team1' : 'team2';
+        const match = tournament?.matches.find(m => m.id === matchId);
+        
+        if (match && match.round < eliminationRoundsArray.length) {
+          const nextRound = match.round + 1;
+          const nextPosition = Math.ceil(match.position / 2);
+          
+          const nextMatchId = eliminationMatches.find(
+            m => m.round === nextRound && m.position === nextPosition
+          )?.id;
+          
+          if (nextMatchId && matchCardRefs.current[nextMatchId]) {
+            // Adicionar classe temporariamente para acionar a animação
+            matchCardRefs.current[nextMatchId].classList.add('winner-animation');
+            setTimeout(() => {
+              if (matchCardRefs.current[nextMatchId]) {
+                matchCardRefs.current[nextMatchId].classList.remove('winner-animation');
+              }
+            }, 2000);
+          }
+        }
+      }, 300);
+      
       addNotification({ type: 'success', message: 'Resultado atualizado!' });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro ao atualizar resultado.';
@@ -581,12 +688,14 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
   const groupNumbers = Object.keys(matchesByStage.GROUP).map(Number).sort((a, b) => a - b);
   const eliminationMatches = matchesByStage.ELIMINATION;
 
-  const currentStage: 'GROUP' | 'ELIMINATION' | 'NONE' = useMemo(() => {
-      if (!tournament) return 'NONE';
-      if (eliminationMatches.length > 0) return 'ELIMINATION';
-      if (groupNumbers.length > 0) return 'GROUP';
-      return 'NONE';
-  }, [tournament, eliminationMatches, groupNumbers]);
+  const currentStage = useMemo<'NONE' | 'GROUP' | 'ELIMINATION'>(() => {
+    if (!tournament || tournament.matches.length === 0) return 'NONE';
+    const hasGroup = tournament.matches.some(m => m.stage === 'GROUP');
+    const hasElim = tournament.matches.some(m => m.stage === 'ELIMINATION');
+    if (hasElim) return 'ELIMINATION';
+    if (hasGroup) return 'GROUP';
+    return 'NONE';
+  }, [tournament]);
 
   const isGroupStageComplete = useMemo(() => {
       if (currentStage !== 'GROUP') return false;
@@ -642,6 +751,12 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     return { eliminationRoundsArray: roundsArray, bracketLines: lines };
   }, [eliminationMatches]);
 
+  const getRoundName = (roundIndex: number, totalRounds: number) => {
+    if (roundIndex === totalRounds - 1) return 'Final';
+    if (roundIndex === totalRounds - 2) return 'Semi-Final';
+    return `Rodada ${roundIndex + 1}`;
+  };
+
   if (isDataLoading) {
      return (
       <div className="flex justify-center items-center py-12">
@@ -651,241 +766,516 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     );
   }
 
-  if (tournament) {
+  if (tournament && tournament.matches.length > 0) {
     return (
-      <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h3 className="text-lg font-semibold text-brand-blue">
-                {currentStage === 'GROUP' ? 'Fase de Grupos' :
-                 currentStage === 'ELIMINATION' ? 'Fase Eliminatória' :
-                 'Chaveamento do Torneio'}
-            </h3>
-            <p className="text-sm text-gray-500">
-              {currentStage === 'GROUP' ? 'Resultados e classificação dos grupos.' :
-               currentStage === 'ELIMINATION' ? 'Clique em uma partida para agendar ou atualizar.' :
-               'Gerencie o chaveamento do torneio.'}
-            </p>
-          </div>
+      <TooltipProvider>
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h3 className="text-lg font-semibold text-brand-blue">
+                  {currentStage === 'GROUP' ? 'Fase de Grupos' :
+                   currentStage === 'ELIMINATION' ? 'Fase Eliminatória' :
+                   'Chaveamento do Torneio'}
+              </h3>
+              <p className="text-sm text-gray-500">
+                {currentStage === 'GROUP' ? 'Resultados e classificação dos grupos.' :
+                 currentStage === 'ELIMINATION' ? 'Clique em uma partida para agendar ou atualizar.' :
+                 'Gerencie o chaveamento do torneio.'}
+              </p>
+            </div>
 
-          <div className="flex flex-wrap gap-2">
-            {tournament.status === 'CREATED' && currentStage !== 'NONE' && (
-              <Button onClick={handleStartTournament}>
-                <PlayCircle size={18} className="mr-1" /> Iniciar Torneio
-              </Button>
-            )}
-            {currentStage === 'GROUP' && (
-                 <Button variant="outline" onClick={handleShowRankings}>
-                    <List size={18} className="mr-1" /> Ver Ranking Grupos
-                 </Button>
-            )}
-            {currentStage === 'GROUP' && isGroupStageComplete && tournament.status === 'STARTED' && (
-                 <Button
-                    onClick={handleGenerateElimination}
-                    disabled={generatingStructure}
-                    loading={generatingStructure}
-                 >
-                    <RefreshCw size={18} className="mr-1" /> Gerar Fase Eliminatória
-                 </Button>
-            )}
-          </div>
-        </div>
-
-        {currentStage === 'GROUP' && (
-          <div className="space-y-6">
-            <h4 className="text-md font-semibold text-brand-blue">Partidas dos Grupos</h4>
-            {groupNumbers.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {groupNumbers.map(groupNum => (
-                  <div key={groupNum} className="bg-white border border-gray-200 rounded-lg p-4">
-                    <h5 className="font-medium text-brand-purple mb-3">Grupo {groupNum}</h5>
-                    <div className="space-y-3">
-                      {matchesByStage.GROUP[groupNum]
-                        .sort((a, b) => (a.id > b.id ? 1 : -1))
-                        .map(match => {
-                          const teamA = match.team1 && match.team1.length > 0 ? participantMap.get(match.team1[0]) : 'TBD';
-                          const teamB = match.team2 && match.team2.length > 0 ? participantMap.get(match.team2[0]) : 'TBD';
-                          const court = match.courtId ? courts.find(c => c.id === match.courtId)?.name : undefined;
-                          const scheduledTime = match.scheduledTime ? formatDateTime(match.scheduledTime).split(' ')[1] : undefined;
-
-                          return (
-                            <div key={match.id} className="border-b pb-3 last:border-b-0">
-                               <MatchCard
-                                  teamA={teamA}
-                                  teamB={teamB}
-                                  scoreA={match.score1 ?? undefined}
-                                  scoreB={match.score2 ?? undefined}
-                                  winner={match.winnerId || undefined}
-                                  onClick={() => handleMatchClick(match)}
-                                  highlighted={selectedMatch?.id === match.id}
-                                  court={court}
-                                  scheduledTime={scheduledTime}
-                                  completed={match.completed}
-                               />
-                            </div>
-                          );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-gray-500">Nenhum grupo encontrado.</p>
-            )}
-          </div>
-        )}
-
-        {currentStage === 'ELIMINATION' && (
-          <div ref={bracketContainerRef} className="overflow-x-auto bg-gray-50 p-4 rounded-lg relative">
-            {bracketLines.length > 0 && (
-              <svg
-                className="absolute top-0 left-0 w-full h-full pointer-events-none"
-                style={{ minWidth: `${eliminationRoundsArray.length * (256 + 32)}px` }}
+            <div className="flex flex-wrap gap-2">
+              {tournament.status === 'CREATED' && currentStage !== 'NONE' && (
+                <Button onClick={handleStartTournament}>
+                  <PlayCircle size={18} className="mr-1" /> Iniciar Torneio
+                </Button>
+              )}
+              {currentStage === 'GROUP' && (
+                   <Button variant="outline" onClick={handleShowRankings}>
+                      <List size={18} className="mr-1" /> Ver Ranking Grupos
+                   </Button>
+              )}
+              {currentStage === 'GROUP' && isGroupStageComplete && tournament.status === 'STARTED' && (
+                   <Button
+                      onClick={handleGenerateElimination}
+                      disabled={generatingStructure}
+                      loading={generatingStructure}
+                   >
+                      <RefreshCw size={18} className="mr-1" /> Gerar Fase Eliminatória
+                   </Button>
+              )}
+              <Button
+                variant="outline"
+                onClick={handleResetTournament}
+                disabled={generatingStructure}
               >
-                <defs></defs>
-                {bracketLines.map(line => (
-                  <path
-                    key={line.key}
-                    d={line.d}
-                    stroke="#cbd5e1"
-                    strokeWidth="2"
-                    fill="none"
-                  />
-                ))}
-              </svg>
-            )}
-            <div className="inline-flex space-x-8 p-4 min-w-full relative z-10">
-              {eliminationRoundsArray.map(({ round, matches }) => (
-                <div key={round} className="space-y-6 flex-shrink-0 w-64">
-                  <h4 className="font-medium text-center text-brand-blue">
-                    {round === eliminationRoundsArray.length ? 'Final' :
-                     round === eliminationRoundsArray.length -1 && eliminationRoundsArray.length > 1 ? 'Semi-Final' :
-                     `Rodada ${round}`}
-                  </h4>
-                  <div className="flex flex-col space-y-6">
-                    {matches.filter(match => match !== null).map((match) => {
-                      const teamAName = match.team1?.map(id => participantMap.get(id) || 'N/A').join(' & ') || null;
-                      const teamBName = match.team2?.map(id => participantMap.get(id) || 'N/A').join(' & ') || null;
-                      const isByeMatch = !!(match.completed && (match.team1 === null || match.team2 === null) && !(match.team1 === null && match.team2 === null));
-                      const court = match.courtId ? courts.find(c => c.id === match.courtId)?.name : undefined;
-                      const scheduledTime = match.scheduledTime ? formatDateTime(match.scheduledTime).split(' ')[1] : undefined;
-
-                      return (
-                        <div
-                          key={match.id}
-                          ref={el => matchCardRefs.current[match.id] = el}
-                          className="flex items-center justify-center"
-                        >
-                          <MatchCard
-                            teamA={teamAName}
-                            teamB={teamBName}
-                            scoreA={match.score1 ?? undefined}
-                            scoreB={match.score2 ?? undefined}
-                            winner={match.winnerId || undefined}
-                            onClick={() => handleMatchClick(match)}
-                            highlighted={selectedMatch?.id === match.id}
-                            byeMatch={isByeMatch}
-                            court={court}
-                            scheduledTime={scheduledTime}
-                            completed={match.completed}
-                          />
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
+                <RefreshCw size={18} className="mr-1" /> Reiniciar Torneio
+              </Button>
             </div>
           </div>
-        )}
 
-        {currentStage === 'NONE' && (
-            <div className="text-center py-10 text-gray-500">
-                A estrutura do torneio ainda não foi gerada.
-            </div>
-        )}
+          {currentStage === 'GROUP' && (
+            <div className="space-y-6">
+              <h4 className="text-md font-semibold text-brand-blue">Partidas dos Grupos</h4>
+              {groupNumbers.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {groupNumbers.map(groupNum => (
+                    <div key={groupNum} className="bg-white border border-gray-200 rounded-lg p-4">
+                      <h5 className="font-medium text-brand-purple mb-3">Grupo {groupNum}</h5>
+                      <div className="space-y-3">
+                        {matchesByStage.GROUP[groupNum]
+                          .sort((a, b) => (a.id > b.id ? 1 : -1))
+                          .map(match => {
+                            const teamA = match.team1 && match.team1.length > 0 ? participantMap.get(match.team1[0]) : 'TBD';
+                            const teamB = match.team2 && match.team2.length > 0 ? participantMap.get(match.team2[0]) : 'TBD';
+                            const court = match.courtId ? courts.find(c => c.id === match.courtId)?.name : undefined;
+                            const scheduledTime = match.scheduledTime ? formatDateTime(match.scheduledTime).split(' ')[1] : undefined;
 
-        {selectedMatch && (
-          <Modal isOpen={showMatchEditor} onClose={() => setShowMatchEditor(false)} title="Editar Resultado">
-            <MatchEditor match={selectedMatch} onSave={handleSaveMatchResults} onClose={() => setShowMatchEditor(false)} participantMap={participantMap} />
-          </Modal>
-        )}
-        {selectedMatch && (
-          <Modal isOpen={showScheduleModal} onClose={() => setShowScheduleModal(false)} title="Agendar Partida">
-            <ScheduleMatch match={selectedMatch} courts={courts} onSave={handleScheduleMatch} onClose={() => setShowScheduleModal(false)} />
-          </Modal>
-        )}
-        <Modal
-          isOpen={showGroupRankingsModal}
-          onClose={() => setShowGroupRankingsModal(false)}
-          title="Ranking da Fase de Grupos"
-          size="large"
-        >
-          <TooltipProvider>
-            <div className="space-y-6 max-h-[70vh] overflow-y-auto p-1">
-              {Object.entries(calculatedRankings).length > 0 ? (
-                Object.entries(calculatedRankings)
-                  .sort(([numA], [numB]) => parseInt(numA) - parseInt(numB))
-                  .map(([groupNum, rankings]) => (
-                    <div key={groupNum} className="border border-gray-200 rounded-lg p-4">
-                      <h4 className="font-semibold text-brand-purple mb-3">Grupo {groupNum}</h4>
-                      <table className="min-w-full divide-y divide-gray-200 text-sm">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">#</th>
-                            <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Dupla</th>
-                            <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">
-                              <Tooltip>
-                                <TooltipTrigger className="flex items-center justify-center w-full">V <HelpCircle size={12} className="ml-1 opacity-50" /></TooltipTrigger>
-                                <TooltipContent>Vitórias</TooltipContent>
-                              </Tooltip>
-                            </th>
-                            <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">
-                              <Tooltip>
-                                <TooltipTrigger className="flex items-center justify-center w-full">SG <HelpCircle size={12} className="ml-1 opacity-50" /></TooltipTrigger>
-                                <TooltipContent>Saldo de Games (Games Ganhos - Games Perdidos)</TooltipContent>
-                              </Tooltip>
-                            </th>
-                            <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">
-                              <Tooltip>
-                                <TooltipTrigger className="flex items-center justify-center w-full">PG <HelpCircle size={12} className="ml-1 opacity-50" /></TooltipTrigger>
-                                <TooltipContent>Total de Games Ganhos</TooltipContent>
-                              </Tooltip>
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                          {rankings.map((entry, index) => {
-                            const teamName = entry.teamId.map(id => participantMap.get(id) || 'N/A').join(' & ');
-                            const isQualifier = entry.rank <= 2;
                             return (
-                              <tr key={entry.teamId.join('-')} className={`hover:bg-gray-50 ${isQualifier ? 'bg-green-50' : ''}`}>
-                                <td className={`px-3 py-2 whitespace-nowrap font-medium ${isQualifier ? 'text-green-700' : ''}`}>
-                                  {entry.rank}
-                                  {isQualifier && <Award size={12} className="inline ml-1 text-yellow-500" />}
-                                </td>
-                                <td className="px-3 py-2 whitespace-nowrap">{teamName}</td>
-                                <td className="px-3 py-2 whitespace-nowrap text-center">{entry.stats.wins}</td>
-                                <td className="px-3 py-2 whitespace-nowrap text-center">{entry.stats.gameDifference > 0 ? `+${entry.stats.gameDifference}` : entry.stats.gameDifference}</td>
-                                <td className="px-3 py-2 whitespace-nowrap text-center">{entry.stats.gamesWon}</td>
-                              </tr>
+                              <div key={match.id} className="border-b pb-3 last:border-b-0">
+                                 <MatchCard
+                                    teamA={teamA}
+                                    teamB={teamB}
+                                    scoreA={match.score1 ?? undefined}
+                                    scoreB={match.score2 ?? undefined}
+                                    winner={match.winnerId || undefined}
+                                    onClick={() => handleMatchClick(match)}
+                                    highlighted={selectedMatch?.id === match.id}
+                                    court={court}
+                                    scheduledTime={scheduledTime}
+                                    completed={match.completed}
+                                 />
+                              </div>
                             );
-                          })}
-                        </tbody>
-                      </table>
+                        })}
+                      </div>
                     </div>
-                  ))
+                  ))}
+                </div>
               ) : (
-                <p className="text-gray-500 text-center">Nenhum ranking calculado.</p>
+                <p className="text-gray-500">Nenhum grupo encontrado.</p>
               )}
             </div>
-          </TooltipProvider>
-          <div className="mt-6 flex justify-end">
-            <Button variant="outline" onClick={() => setShowGroupRankingsModal(false)}>Fechar</Button>
-          </div>
-        </Modal>
-      </div>
+          )}
+
+          {currentStage === 'ELIMINATION' && (
+            <>
+              <div className="flex items-center justify-end mb-2 space-x-2">
+                <span className="text-sm text-gray-500">Zoom:</span>
+                <button 
+                  onClick={() => setZoomLevel(Math.max(50, zoomLevel - 10))}
+                  className="p-1 rounded-full hover:bg-gray-100"
+                  disabled={zoomLevel <= 50}
+                >
+                  <MinusCircle size={18} className={zoomLevel <= 50 ? "text-gray-300" : "text-gray-600"} />
+                </button>
+                <span className="text-sm font-medium w-12 text-center">{zoomLevel}%</span>
+                <button 
+                  onClick={() => setZoomLevel(Math.min(150, zoomLevel + 10))}
+                  className="p-1 rounded-full hover:bg-gray-100"
+                  disabled={zoomLevel >= 150}
+                >
+                  <PlusCircle size={18} className={zoomLevel >= 150 ? "text-gray-300" : "text-gray-600"} />
+                </button>
+                <button 
+                  onClick={() => setZoomLevel(100)}
+                  className="text-xs text-blue-600 hover:underline px-2"
+                >
+                  Redefinir
+                </button>
+              </div>
+              <div 
+                ref={bracketContainerRef} 
+                className="overflow-x-auto bg-gradient-to-r from-blue-50 to-gray-50 p-6 rounded-lg relative border border-gray-200 shadow-inner"
+              >
+                <div style={{ 
+                  transform: `scale(${zoomLevel / 100})`, 
+                  transformOrigin: 'top left',
+                  width: zoomLevel > 100 ? `${100 * 100 / zoomLevel}%` : '100%'
+                }}>
+                  {/* Cabeçalho da fase eliminatória */}
+                  <div className="text-center mb-6">
+                    <h3 className="text-xl font-bold text-brand-blue">Fase Eliminatória</h3>
+                    <p className="text-sm text-gray-500">Clique nas partidas para registrar resultados</p>
+                  </div>
+                  
+                  {/* Linhas conectoras das chaves com animação sutil */}
+                  {bracketLines.length > 0 && (
+                    <svg
+                      className="absolute top-0 left-0 w-full h-full pointer-events-none"
+                      style={{ minWidth: `${eliminationRoundsArray.length * (256 + 32)}px` }}
+                    >
+                      {bracketLines.map(line => (
+                        <path
+                          key={line.key}
+                          d={line.d}
+                          stroke="rgb(203, 213, 225)"
+                          strokeWidth="2"
+                          fill="none"
+                          className="transition-all duration-300"
+                        />
+                      ))}
+                    </svg>
+                  )}
+                  
+                  {/* Grid de rounds com espaçamento aprimorado */}
+                  <div className="relative z-10 flex flex-nowrap items-start gap-8">
+                    {eliminationRoundsArray.map((round, roundIndex) => (
+                      <div 
+                        key={`round-${roundIndex}`} 
+                        className="flex-shrink-0 w-64"
+                      >
+                        <div className="text-center font-semibold text-brand-purple mb-4 rounded-full bg-brand-purple/10 py-1">
+                          {getRoundName(roundIndex, eliminationRoundsArray.length)}
+                        </div>
+                        
+                        <div className="flex flex-col gap-y-8">
+                          {round.matches.filter(match => match !== null).map((match) => {
+                            const teamAName = match.team1?.map(id => participantMap.get(id) || 'N/A').join(' & ') || null;
+                            const teamBName = match.team2?.map(id => participantMap.get(id) || 'N/A').join(' & ') || null;
+                            const isByeMatch = !!(match.completed && (match.team1 === null || match.team2 === null));
+                            const court = match.courtId ? courts.find(c => c.id === match.courtId)?.name : undefined;
+                            const scheduledTime = match.scheduledTime ? formatDateTime(match.scheduledTime).split(' ')[1] : undefined;
+
+                            return (
+                              <div 
+                                key={match.id}
+                                ref={el => matchCardRefs.current[match.id] = el}
+                                className={`
+                                  border rounded-lg overflow-hidden shadow-sm transition-all
+                                  ${match.completed ? 'bg-white border-green-200' : 'bg-white border-gray-200 hover:border-brand-blue hover:shadow-md'}
+                                  ${isByeMatch ? 'opacity-75' : ''}
+                                  ${(match.team1 && match.team2) ? 'cursor-pointer' : 'opacity-75'}
+                                `}
+                                onClick={() => (match.team1 || match.team2) && handleMatchClick(match)}
+                              >
+                                <div className="px-3 py-2 text-xs text-gray-500 bg-gray-50 border-b border-gray-100 flex justify-between">
+                                  <span>Partida #{match.position}</span>
+                                  {match.courtId && courts.find(c => c.id === match.courtId) && (
+                                    <span className="font-medium text-brand-green">
+                                      {courts.find(c => c.id === match.courtId)?.name}
+                                    </span>
+                                  )}
+                                </div>
+                                
+                                <div className="p-3">
+                                  {/* Time 1 - com estilização melhorada */}
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div className={`
+                                        flex justify-between items-center mb-2 p-2 rounded-md
+                                        ${match.completed && match.winnerId === 'team1' ? 'bg-green-50 border border-green-100' : ''}
+                                      `}>
+                                        <div className="font-medium truncate max-w-[150px]">
+                                          {teamAName || 'TBD'}
+                                        </div>
+                                        <div className="font-bold ml-2 text-gray-700">
+                                          {match.completed ? match.score1 : '-'}
+                                        </div>
+                                      </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="p-0 overflow-hidden">
+                                      {match.team1 ? (
+                                        <div className="w-64">
+                                          <div className="bg-gray-50 p-2 font-medium border-b">Detalhes da Dupla</div>
+                                          <div className="p-3 space-y-2">
+                                            {getTeamDetails(match.team1, eventParticipants)?.players.map((player, idx) => (
+                                              <div key={idx} className="flex items-center">
+                                                <span>{player.name}</span>
+                                                {player.ranking > 0 && (
+                                                  <span className="ml-auto text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
+                                                    Ranking: {player.ranking}
+                                                  </span>
+                                                )}
+                                              </div>
+                                            ))}
+                                            {match.completed && match.winnerId === 'team1' && (
+                                              <div className="mt-2 text-green-600 flex items-center">
+                                                <Award size={14} className="mr-1" /> Vencedor
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="p-3">
+                                          <span className="text-gray-500">Aguardando definição...</span>
+                                        </div>
+                                      )}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                  
+                                  {/* Time 2 - com estilização melhorada */}
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div className={`
+                                        flex justify-between items-center p-2 rounded-md
+                                        ${match.completed && match.winnerId === 'team2' ? 'bg-green-50 border border-green-100' : ''}
+                                      `}>
+                                        <div className="font-medium truncate max-w-[150px]">
+                                          {teamBName || 'TBD'}
+                                        </div>
+                                        <div className="font-bold ml-2 text-gray-700">
+                                          {match.completed ? match.score2 : '-'}
+                                        </div>
+                                      </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="p-0 overflow-hidden">
+                                      {match.team2 ? (
+                                        <div className="w-64">
+                                          <div className="bg-gray-50 p-2 font-medium border-b">Detalhes da Dupla</div>
+                                          <div className="p-3 space-y-2">
+                                            {getTeamDetails(match.team2, eventParticipants)?.players.map((player, idx) => (
+                                              <div key={idx} className="flex items-center">
+                                                <span>{player.name}</span>
+                                                {player.ranking > 0 && (
+                                                  <span className="ml-auto text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
+                                                    Ranking: {player.ranking}
+                                                  </span>
+                                                )}
+                                              </div>
+                                            ))}
+                                            {match.completed && match.winnerId === 'team2' && (
+                                              <div className="mt-2 text-green-600 flex items-center">
+                                                <Award size={14} className="mr-1" /> Vencedor
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="p-3">
+                                          <span className="text-gray-500">Aguardando definição...</span>
+                                        </div>
+                                      )}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </div>
+                                
+                                {/* Metadados da partida - com ícones e layout melhorado */}
+                                {(scheduledTime || court) && (
+                                  <div className="px-3 py-2 border-t border-gray-100 bg-gray-50 text-xs text-gray-500 flex items-center justify-between">
+                                    {scheduledTime && (
+                                      <div className="flex items-center">
+                                        <Calendar size={12} className="mr-1" />
+                                        <span>{scheduledTime}</span>
+                                      </div>
+                                    )}
+                                    <div className="flex-grow"></div>
+                                    {isByeMatch && <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-500">BYE</span>}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {currentStage === 'NONE' && (
+              <div className="text-center py-10 text-gray-500">
+                  A estrutura do torneio ainda não foi gerada.
+              </div>
+          )}
+
+          {selectedMatch && (
+            <Modal isOpen={showMatchEditor} onClose={() => setShowMatchEditor(false)} title="Editar Resultado">
+              <MatchEditor match={selectedMatch} onSave={handleSaveMatchResults} onClose={() => setShowMatchEditor(false)} participantMap={participantMap} />
+            </Modal>
+          )}
+          {selectedMatch && (
+            <Modal isOpen={showScheduleModal} onClose={() => setShowScheduleModal(false)} title="Agendar Partida">
+              <ScheduleMatch match={selectedMatch} courts={courts} onSave={handleScheduleMatch} onClose={() => setShowScheduleModal(false)} />
+            </Modal>
+          )}
+          <Modal
+            isOpen={showGroupRankingsModal}
+            onClose={() => setShowGroupRankingsModal(false)}
+            title="Ranking da Fase de Grupos"
+            size="large"
+          >
+            <TooltipProvider>
+              <div className="space-y-6 max-h-[70vh] overflow-y-auto p-1">
+                {Object.entries(calculatedRankings).length > 0 ? (
+                  Object.entries(calculatedRankings)
+                    .sort(([numA], [numB]) => parseInt(numA) - parseInt(numB))
+                    .map(([groupNum, rankings]) => (
+                      <div key={groupNum} className="border border-gray-200 rounded-lg p-4">
+                        <h4 className="font-semibold text-brand-purple mb-3">Grupo {groupNum}</h4>
+                        <table className="min-w-full divide-y divide-gray-200 text-sm">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">#</th>
+                              <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Dupla</th>
+                              <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">
+                                <Tooltip>
+                                  <TooltipTrigger className="flex items-center justify-center w-full">V <HelpCircle size={12} className="ml-1 opacity-50" /></TooltipTrigger>
+                                  <TooltipContent>Vitórias</TooltipContent>
+                                </Tooltip>
+                              </th>
+                              <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">
+                                <Tooltip>
+                                  <TooltipTrigger className="flex items-center justify-center w-full">SG <HelpCircle size={12} className="ml-1 opacity-50" /></TooltipTrigger>
+                                  <TooltipContent>Saldo de Games (Games Ganhos - Games Perdidos)</TooltipContent>
+                                </Tooltip>
+                              </th>
+                              <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">
+                                <Tooltip>
+                                  <TooltipTrigger className="flex items-center justify-center w-full">PG <HelpCircle size={12} className="ml-1 opacity-50" /></TooltipTrigger>
+                                  <TooltipContent>Total de Games Ganhos</TooltipContent>
+                                </Tooltip>
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {rankings.map((entry, index) => {
+                              const teamName = entry.teamId.map(id => participantMap.get(id) || 'N/A').join(' & ');
+                              const isQualifier = entry.rank <= 2;
+                              return (
+                                <tr key={entry.teamId.join('-')} className={`hover:bg-gray-50 ${isQualifier ? 'bg-green-50' : ''}`}>
+                                  <td className={`px-3 py-2 whitespace-nowrap font-medium ${isQualifier ? 'text-green-700' : ''}`}>
+                                    {entry.rank}
+                                    {isQualifier && <Award size={12} className="inline ml-1 text-yellow-500" />}
+                                  </td>
+                                  <td className="px-3 py-2 whitespace-nowrap">{teamName}</td>
+                                  <td className="px-3 py-2 whitespace-nowrap text-center">{entry.stats.wins}</td>
+                                  <td className="px-3 py-2 whitespace-nowrap text-center">{entry.stats.gameDifference > 0 ? `+${entry.stats.gameDifference}` : entry.stats.gameDifference}</td>
+                                  <td className="px-3 py-2 whitespace-nowrap text-center">{entry.stats.gamesWon}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ))
+                ) : (
+                  <p className="text-gray-500 text-center">Nenhum ranking calculado.</p>
+                )}
+              </div>
+            </TooltipProvider>
+            <div className="mt-6 flex justify-end">
+              <Button variant="outline" onClick={() => setShowGroupRankingsModal(false)}>Fechar</Button>
+            </div>
+          </Modal>
+          <Modal
+            isOpen={showResetConfirmModal}
+            onClose={() => setShowResetConfirmModal(false)}
+            title="Reiniciar Torneio"
+          >
+            <div className="p-1">
+              <div className="flex items-center mb-4 text-amber-600 bg-amber-50 p-3 rounded-lg border border-amber-200">
+                <AlertCircle size={24} className="mr-3 flex-shrink-0" />
+                <div>
+                  <h4 className="font-medium">Atenção: Esta ação não pode ser desfeita</h4>
+                  <p className="text-sm">
+                    Reiniciar o torneio apagará todos os dados de partidas, grupos e chaveamento.
+                    {currentEvent?.team_formation === TeamFormationType.RANDOM 
+                      ? ' O torneio voltará para a etapa de formação de duplas.'
+                      : ' O torneio voltará para a etapa de geração de grupos.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowResetConfirmModal(false)}
+                  disabled={resetInProgress}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={confirmResetTournament}
+                  loading={resetInProgress}
+                >
+                  Sim, Reiniciar Torneio
+                </Button>
+              </div>
+            </div>
+          </Modal>
+        </div>
+      </TooltipProvider>
     );
+  } else if (tournament && tournament.matches.length === 0) {
+    // Torneio existe mas foi reinicializado (sem partidas)
+    if (!currentEvent) {
+      return <div className="text-center text-gray-500 py-8">Carregando detalhes do evento...</div>;
+    }
+    
+    if (currentEvent.team_formation === TeamFormationType.RANDOM) {
+      if (eventParticipants.length < 4) {
+        return (
+          <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-lg shadow">
+            <p className="text-yellow-700">
+              É necessário pelo menos 4 participantes confirmados para iniciar o sorteio de duplas.
+            </p>
+          </div>
+        );
+      }
+      if (courts.length === 0) {
+        return (
+          <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-lg shadow">
+            <p className="text-yellow-700">
+              Nenhuma quadra disponível para o sorteio. Verifique as configurações do evento.
+            </p>
+          </div>
+        );
+      }
+      
+      return (
+        <div className="bg-white p-6 md:p-8 rounded-lg shadow border border-brand-gray">
+          <h3 className="text-lg font-medium text-brand-blue mb-4">
+            Gerar Grupos e Chaveamento Aleatório
+          </h3>
+          <p className="text-gray-600 mb-6">
+            Use a roleta para sortear as duplas, formar os grupos e atribuir as quadras iniciais.
+          </p>
+          <TournamentRandomizer
+            eventId={eventId}
+            participants={eventParticipants}
+            courts={courts}
+            onComplete={(
+              teams: Array<[string, string]>,
+              courtAssignments: Record<string, string[]>
+            ) => {
+              console.log("Randomization complete, calling generateRandomStructure action.");
+              generateRandomStructure(eventId, teams, { forceReset: true })
+                .then(() => addNotification({ type: 'success', message: 'Grupos e partidas aleatórias gerados e salvos!' }))
+                .catch((err: any) => addNotification({ type: 'error', message: `Erro ao salvar estrutura: ${err.message}` }));
+            }}
+          />
+        </div>
+      );
+    } else {
+      return (
+        <div className="bg-white p-8 text-center rounded-lg shadow border border-brand-gray">
+          <PlayCircle className="mx-auto h-12 w-12 text-gray-300" />
+          <h3 className="mt-2 text-sm font-semibold text-gray-900">Estrutura não gerada</h3>
+          <p className="mt-1 text-sm text-gray-500">
+            Gere os grupos e a fase inicial do torneio quando todos os participantes estiverem inscritos.
+          </p>
+          <div className="mt-6 flex flex-col md:flex-row justify-center gap-3">
+            <Button
+              onClick={handleGenerateFormedStructure}
+              disabled={eventParticipants.length < 2 || generatingStructure}
+              loading={generatingStructure}
+            >
+              <RefreshCw size={18} className="mr-1" />
+              Gerar Grupos e Partidas
+            </Button>
+          </div>
+          {eventParticipants.length < 2 && (
+            <p className="mt-4 text-sm text-brand-orange">
+              Mínimo de 2 participantes/duplas para gerar estrutura.
+            </p>
+          )}
+        </div>
+      );
+    }
   } else {
     if (!currentEvent) {
        return <div className="text-center text-gray-500 py-8">Carregando detalhes do evento...</div>;

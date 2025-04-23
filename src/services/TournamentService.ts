@@ -125,14 +125,22 @@ export const TournamentService = {
     teamFormationType: TeamFormationType,
     options: { groupSize?: number; forceReset?: boolean } = {}
   ): Promise<Tournament> => {
-    const { groupSize = 4, forceReset = false } = options;
+    // No método que gera a estrutura do torneio
+    // Valide o tamanho do grupo
+    if (options?.groupSize) {
+      if (options.groupSize < 3 || options.groupSize > 5) {
+        throw new Error("O tamanho do grupo deve estar entre 3 e 5 duplas, preferencialmente 4.");
+      }
+    }
+
+    // Use um valor padrão de 4 se não for especificado
+    const groupSize = options?.groupSize || 4;
+
+    const { forceReset = false } = options;
 
     try {
       if (!eventId || !teams || teams.length < 2) {
         throw new Error("É necessário pelo menos 2 times/duplas para gerar o torneio");
-      }
-      if (groupSize < 3) {
-        throw new Error("O tamanho do grupo deve ser pelo menos 3");
       }
 
       let existingTournament: Tournament | null = null;
@@ -202,12 +210,28 @@ export const TournamentService = {
         const { error: insertMatchesError } = await supabase
           .from('tournament_matches')
           .insert(allGroupMatches.map(match => ({
-            ...match,
+            // Mapeamento explícito para snake_case
+            tournament_id: match.tournamentId,
+            event_id: match.eventId,
+            round: match.round,
+            position: match.position, // Posição inicial (pode ser 0 ou 1 dependendo da lógica)
             team1: match.team1,
             team2: match.team2,
+            score1: match.score1, // Será null inicialmente
+            score2: match.score2, // Será null inicialmente
+            winner_id: match.winnerId, // Será null inicialmente
+            completed: match.completed, // Será false inicialmente
+            court_id: match.courtId, // Será null inicialmente
+            scheduled_time: match.scheduledTime, // Será null inicialmente
+            stage: match.stage, // Será 'GROUP'
+            group_number: match.groupNumber,
           })));
 
-        if (insertMatchesError) throw insertMatchesError;
+        if (insertMatchesError) {
+             // Logar o erro detalhado para depuração
+             console.error("Erro detalhado ao inserir partidas de grupo:", insertMatchesError);
+             handleSupabaseError(insertMatchesError, 'inserting group matches'); // Re-lançar usando o handler
+        }
       }
 
       const finalTournament = await TournamentService.getByEventId(eventId);

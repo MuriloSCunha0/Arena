@@ -54,6 +54,7 @@ export interface Participant {
   paymentTransactionId?: string;
   birthDate?: string | null;
   partnerName?: string | null;
+  ranking?: number;
 }
 
 // Nova interface para resultados de participantes

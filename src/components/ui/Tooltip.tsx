@@ -86,7 +86,7 @@ type TooltipTriggerProps = {
 };
 
 export const TooltipTrigger = React.forwardRef<HTMLSpanElement, TooltipTriggerProps>(
-  ({ children, className = '', ...props }, forwardedRef) => {
+  ({ children, className = '', asChild, ...props }, forwardedRef) => {
     const { setOpen } = useTooltip();
     const ref = useRef<HTMLSpanElement>(null);
     
