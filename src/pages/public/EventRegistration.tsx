@@ -8,6 +8,9 @@ import { Input } from '../../components/ui/Input';
 import { PaymentQRCode } from '../../components/registration/PaymentQRCode';
 import { PixPaymentService } from '../../services/payment/pixProcessor';
 import { formatCurrency } from '../../utils/formatters';
+import { useForm } from 'react-hook-form';
+import { z } from 'zod';
+import { zodResolver } from '@hookform/resolvers/zod';
 
 enum RegistrationStep {
   LOADING,
@@ -15,6 +18,14 @@ enum RegistrationStep {
   PAYMENT,
   CONFIRMATION
 }
+
+const formSchema = z.object({
+  name: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres'),
+  cpf: z.string().min(11, 'CPF é obrigatório'),
+  phone: z.string().min(8, 'Telefone deve ter pelo menos 8 dígitos'),
+  email: z.string().email('Email inválido').optional(),
+  paymentMethod: z.enum(['PIX', 'CASH']),
+});
 
 export const EventRegistration: React.FC = () => {
   const { eventId } = useParams<{ eventId: string }>();
@@ -24,15 +35,10 @@ export const EventRegistration: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<RegistrationStep>(RegistrationStep.LOADING);
+  const [submittedData, setSubmittedData] = useState<any>(null); // Store submitted form data
   
-  // Form state
-  const [formData, setFormData] = useState({
-    name: '',
-    birthDate: '',
-    phone: '',
-    email: '',
-    partnerName: '',
-    paymentMethod: 'PIX'
+  const { register, handleSubmit, formState: { errors } } = useForm({
+    resolver: zodResolver(formSchema),
   });
   
   // Payment state
@@ -70,40 +76,34 @@ export const EventRegistration: React.FC = () => {
     
     fetchEvent();
   }, [eventId]);
-  
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-  
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
+  const onSubmit = async (data: any) => {
     if (!event) return;
     
     setPaymentProcessing(true);
+    setSubmittedData(data); // Store form data
     
     try {
       // 1. Register participant
+      // 1. Register participant
       const participant = await EventsService.registerParticipant(event.id, {
-        name: formData.name,
-        birthDate: formData.birthDate,
-        phone: formData.phone,
-        email: formData.email,
-        partnerName: event.teamFormation === TeamFormationType.FORMED ? formData.partnerName : undefined,
-        paymentMethod: formData.paymentMethod,
+        name: data.name,
+        birthDate: data.birthDate,
+        phone: data.phone,
+        email: data.email,
+        partnerName: event.teamFormation === TeamFormationType.FORMED ? data.partnerName : undefined,
+        paymentMethod: data.paymentMethod,
         paymentStatus: 'PENDING'
       });
       
       setParticipantId(participant.id);
       
       // 2. Process payment if PIX
-      if (formData.paymentMethod === 'PIX') {
+      if (data.paymentMethod === 'PIX') {
         const paymentResult = await PixPaymentService.generatePayment(
           event.id,
           participant.id,
           event.price || 0,
-          formData.name
+          data.name
         );
         
         if (paymentResult.success) {
@@ -224,48 +224,52 @@ export const EventRegistration: React.FC = () => {
             <div className="bg-white rounded-lg shadow p-6 border border-gray-200">
               <h2 className="text-xl font-bold text-brand-blue mb-4">Formulário de Inscrição</h2>
               
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <Input
-                  label="Nome Completo"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  required
-                />
+              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+                {/* Campo de nome */}
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Nome completo *</label>
+                  <input
+                    {...register('name')}
+                    className="w-full px-3 py-2 border rounded"
+                  />
+                  {errors.name && <p className="text-red-500 text-xs">{errors.name.message}</p>}
+                </div>
                 
-                <Input
-                  type="date"
-                  label="Data de Nascimento"
-                  name="birthDate"
-                  value={formData.birthDate}
-                  onChange={handleInputChange}
-                  required
-                />
+                {/* Campo de CPF - Adicionar */}
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">CPF *</label>
+                  <input
+                    {...register('cpf')}
+                    placeholder="000.000.000-00"
+                    className="w-full px-3 py-2 border rounded"
+                  />
+                  {errors.cpf && <p className="text-red-500 text-xs">{errors.cpf.message}</p>}
+                </div>
                 
-                <Input
-                  label="Telefone (WhatsApp)"
-                  name="phone"
-                  value={formData.phone}
-                  onChange={handleInputChange}
-                  placeholder="DDD + número"
-                  required
-                />
+                {/* Campo de telefone */}
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Telefone *</label>
+                  <input
+                    {...register('phone')}
+                    className="w-full px-3 py-2 border rounded"
+                  />
+                  {errors.phone && <p className="text-red-500 text-xs">{errors.phone.message}</p>}
+                </div>
                 
-                <Input
-                  type="email"
-                  label="Email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  required
-                />
+                {/* Campo de email - agora opcional */}
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Email (opcional)</label>
+                  <input
+                    {...register('email')}
+                    className="w-full px-3 py-2 border rounded"
+                  />
+                  {errors.email && <p className="text-red-500 text-xs">{errors.email.message}</p>}
+                </div>
                 
                 {event.teamFormation === TeamFormationType.FORMED && (
                   <Input
                     label="Nome do Parceiro (Dupla)"
                     name="partnerName"
-                    value={formData.partnerName}
-                    onChange={handleInputChange}
                     required
                   />
                 )}
@@ -275,9 +279,7 @@ export const EventRegistration: React.FC = () => {
                     Método de Pagamento
                   </label>
                   <select
-                    name="paymentMethod"
-                    value={formData.paymentMethod}
-                    onChange={handleInputChange}
+                    {...register('paymentMethod')}
                     className="w-full px-3 py-2 border rounded-lg shadow-sm border-brand-gray focus:outline-none focus:ring-2 focus:ring-brand-green"
                     required
                   >
@@ -332,25 +334,24 @@ export const EventRegistration: React.FC = () => {
               <div className="bg-green-100 rounded-full p-4">
                 <Check className="text-green-600" size={36} />
               </div>
-            </div>
-            
             <h2 className="text-xl font-bold text-brand-blue mb-2">Inscrição Realizada!</h2>
             <p className="text-gray-600 mb-6">
-              {formData.paymentMethod === 'PIX' 
+              {submittedData?.paymentMethod === 'PIX' 
                 ? 'Sua inscrição foi recebida e será confirmada assim que o pagamento for identificado.'
                 : 'Sua inscrição foi recebida. Realize o pagamento no dia do evento.'}
             </p>
             
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
               <div className="text-sm">
-                <p className="font-medium">Nome: {formData.name}</p>
+                <p className="font-medium">Nome: {submittedData?.name}</p>
                 <p className="font-medium mt-1">Evento: {event.title}</p>
                 <p className="text-gray-500 mt-1">
                   {new Date(event.date).toLocaleDateString('pt-BR')} às {event.time}
                 </p>
-                {formData.paymentMethod === 'PIX' && (
+                {submittedData?.paymentMethod === 'PIX' && (
                   <p className="text-green-600 mt-1">PIX enviado - aguardando confirmação</p>
                 )}
+              </div>
               </div>
             </div>
             

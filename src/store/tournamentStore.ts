@@ -1,31 +1,36 @@
 import { create } from 'zustand';
-import { Tournament, Match, Court, Participant } from '../types'; // Import Participant
-import { TournamentService, generateBracketWithCourts as generateBracketService } from '../services/supabase/tournament'; // Import the service function directly
+import { Tournament, Match, TeamFormationType } from '../types';
+import { TournamentService } from '../services/TournamentService'; // Use the updated service
 
 interface TournamentState {
   tournament: Tournament | null;
   selectedMatch: Match | null;
   loading: boolean;
   error: string | null;
+  isNewTournament?: boolean; // Flag to indicate if a new tournament was just created
 
-  // Actions
   fetchTournament: (eventId: string) => Promise<void>;
-  // createTournament is for 'FORMED' teams or manual generation
-  createTournament: (eventId: string, participantIds: string[], skipTeamIds?: string[], courts?: Court[], options?: { forceReset?: boolean }) => Promise<void>;
-  // generateBracket is specifically for the output of the 'RANDOM' animation
-  generateBracket: (
-      eventId: string,
-      matches: Array<[string, string]>, // Array of participant ID pairs
-      courtAssignments: Record<string, string[]>, // Map of matchKey ('pId1|pId2') to courtId array
-      options?: { forceReset?: boolean }
-  ) => Promise<any>;
+  // Renamed actions
+  generateFormedStructure: (
+    eventId: string,
+    teams: string[][],
+    options?: { groupSize?: number; forceReset?: boolean }
+  ) => Promise<void>;
+  generateRandomStructure: (
+    eventId: string,
+    teams: Array<[string, string]>, // Pairs from randomizer
+    options?: { groupSize?: number; forceReset?: boolean }
+  ) => Promise<void>;
+  // New action for elimination stage
+  generateEliminationBracket: (tournamentId: string) => Promise<void>;
   updateMatchResults: (matchId: string, score1: number, score2: number) => Promise<void>;
   startTournament: (tournamentId: string) => Promise<void>;
-  finishTournament: (tournamentId: string) => Promise<void>; // Assuming this exists or is needed
   selectMatch: (match: Match | null) => void;
-  clearTournament: () => void;
+  updateMatchSchedule: (matchId: string, courtId: string | null, scheduledTime: string | null) => Promise<void>;
   clearError: () => void;
-  updateMatchSchedule: (matchId: string, courtId: string, scheduledTime: string) => Promise<void>;
+  resetTournamentState: () => void; // Added reset function
+  generateFormedBracket: (eventId: string, teams: string[][], options?: { forceReset?: boolean }) => Promise<void>;
+  generateRandomBracketAndGroups: (eventId: string, teams: string[][], options?: { forceReset?: boolean }) => Promise<void>;
 }
 
 export const useTournamentStore = create<TournamentState>((set, get) => ({
@@ -33,213 +38,179 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
   selectedMatch: null,
   loading: false,
   error: null,
+  isNewTournament: false,
 
   fetchTournament: async (eventId: string) => {
-    // ... (fetchTournament implementation remains the same) ...
-     set({ loading: true, error: null });
+    set({ loading: true, error: null });
     try {
       const tournament = await TournamentService.getByEventId(eventId);
       set({ tournament, loading: false });
     } catch (error) {
       console.error(`Error fetching tournament for event ${eventId}:`, error);
-      // Avoid setting error if it's just 'Not Found' or similar non-critical errors during initial load
-      if (error instanceof Error && !error.message.includes('Failed to fetch') && !error.message.includes('Not Found')) {
-         set({
-            error: error.message,
-            loading: false
-         });
-      } else {
-         set({ loading: false }); // Still set loading false
-      }
-      // Don't re-throw here unless necessary upstream
-      // throw error;
+      set({ error: error instanceof Error ? error.message : 'Falha ao buscar torneio', loading: false });
     }
   },
 
-  // createTournament: Used for 'FORMED' teams or manual generation
-  createTournament: async (eventId: string, participantIds: string[], skipTeamIds = [], courts = [], options = { forceReset: false }) => {
-    set({ loading: true, error: null });
-    try {
-      if (participantIds.length < 2) {
-        throw new Error('É necessário pelo menos 2 participantes para gerar o chaveamento');
-      }
-      
-      // Pass the options with forceReset flag to the service function
-      await TournamentService.generateBracketWithCourts(eventId, participantIds, skipTeamIds, courts, options);
-
-      // After generating, fetch the updated tournament data
-      await get().fetchTournament(eventId);
-    } catch (error) {
-      console.error('Error generating tournament (createTournament):', error);
-      const errorMsg = error instanceof Error ? error.message : 'Erro ao gerar chaveamento do torneio';
-      set({ error: errorMsg, loading: false });
-      throw new Error(errorMsg); // Re-throw for component handling
-    } finally {
-      // set({ loading: false }); // fetchTournament will set loading false
-    }
-  },
-
-  // generateBracket: Used specifically after the RANDOM animation
-  generateBracket: async (
+  // Renamed from createTournament
+  generateFormedStructure: async (
     eventId: string,
-    matches: Array<[string, string]>, // Participant ID pairs from animation
-    courtAssignments: Record<string, string[]>, // MatchKey to CourtID array from animation
-    options: { forceReset?: boolean } = {}
-  ): Promise<any> => {
-    set({ loading: true, error: null });
+    teams: string[][],
+    options?: { groupSize?: number; forceReset?: boolean }
+  ) => {
+    set({ loading: true, error: null, isNewTournament: false });
     try {
-      // Adapt the data from animation to what generateBracketService expects
-      // The service might need adjustment or we adapt the data here.
-      // For now, let's assume generateBracketService can handle this structure
-      // or needs to be called differently.
-      // Let's call the dedicated service function:
-      const result = await generateBracketService(
-          eventId,
-          matches, // Pass the pairs directly
-          courtAssignments, // Pass court assignments
-          options
+      // Use the updated service method
+      const resultTournament = await TournamentService.generateTournamentStructure(
+        eventId,
+        teams,
+        TeamFormationType.FORMED, // Specify formation type
+        options
       );
-
-      // Fetch the tournament data to update the store
-      await get().fetchTournament(eventId);
-
-      // set({ loading: false }); // fetchTournament handles loading state
-      return result;
+      set({
+        tournament: resultTournament,
+        loading: false,
+        isNewTournament: resultTournament.isNewTournament // Set flag from result
+      });
     } catch (error) {
-      console.error('Error generating tournament bracket (generateBracket):', error);
-      const errorMsg = error instanceof Error ? error.message : 'Failed to generate tournament bracket';
-      set({ error: errorMsg, loading: false });
-      throw new Error(errorMsg); // Re-throw for component handling
+      console.error('Error generating formed tournament structure:', error);
+      set({ error: error instanceof Error ? error.message : 'Falha ao gerar estrutura do torneio', loading: false });
+      throw error; // Re-throw for component handling
     }
   },
 
+  // Renamed from generateBracket
+  generateRandomStructure: async (
+    eventId: string,
+    teams: Array<[string, string]>, // Pairs from randomizer
+    options?: { groupSize?: number; forceReset?: boolean }
+  ) => {
+    set({ loading: true, error: null, isNewTournament: false });
+    try {
+      // Convert pairs [string, string] to teams string[][]
+      const teamArray: string[][] = teams.map(pair => [pair[0], pair[1]]);
+
+      // Use the updated service method
+      const resultTournament = await TournamentService.generateTournamentStructure(
+        eventId,
+        teamArray,
+        TeamFormationType.RANDOM, // Specify formation type
+        options
+      );
+      set({
+        tournament: resultTournament,
+        loading: false,
+        isNewTournament: resultTournament.isNewTournament // Set flag from result
+      });
+    } catch (error) {
+      console.error('Error generating random tournament structure:', error);
+      set({ error: error instanceof Error ? error.message : 'Falha ao gerar estrutura aleatória do torneio', loading: false });
+      throw error; // Re-throw for component handling
+    }
+  },
+
+  // New action implementation
+  generateEliminationBracket: async (tournamentId: string) => {
+     set({ loading: true, error: null });
+     try {
+        const updatedTournament = await TournamentService.generateEliminationBracket(tournamentId);
+        set({ tournament: updatedTournament, loading: false });
+     } catch (error) {
+        console.error('Error generating elimination bracket:', error);
+        set({ error: error instanceof Error ? error.message : 'Falha ao gerar fase eliminatória', loading: false });
+        throw error; // Re-throw for component handling
+     }
+  },
 
   updateMatchResults: async (matchId: string, score1: number, score2: number) => {
-    // ... (updateMatchResults implementation remains the same) ...
-     set({ loading: true, error: null });
+    set({ loading: true, error: null });
     try {
+      // Call the updated service method which now handles advancement internally
+      // This service function returns the updated match data, including eventId
       const updatedMatch = await TournamentService.updateMatch(matchId, score1, score2);
 
-      const tournament = get().tournament;
-      if (tournament) {
-        // Find the next match to potentially update its teams
-        const currentMatch = tournament.matches.find(m => m.id === matchId);
-        let nextMatchPotentiallyUpdated = false;
-        let updatedMatches = tournament.matches.map(match =>
-          match.id === matchId ? updatedMatch : match
-        );
-
-        // Logic to find and update the *next* match in the bracket
-        if (currentMatch && updatedMatch.winnerId) {
-            const nextRound = currentMatch.round + 1;
-            const nextPosition = Math.ceil(currentMatch.position / 2);
-            const isOddPosition = currentMatch.position % 2 === 1;
-            const teamField = isOddPosition ? 'team1' : 'team2';
-            const winningTeam = updatedMatch.winnerId === 'team1' ? updatedMatch.team1 : updatedMatch.team2;
-
-            updatedMatches = updatedMatches.map(match => {
-                if (match.round === nextRound && match.position === nextPosition) {
-                    nextMatchPotentiallyUpdated = true;
-                    return { ...match, [teamField]: winningTeam };
-                }
-                return match;
-            });
-        }
-
-
-        set({
-          tournament: { ...tournament, matches: updatedMatches },
-          selectedMatch: get().selectedMatch?.id === matchId ? updatedMatch : get().selectedMatch,
-          loading: false
-        });
-
-        // Optional: If a next match was updated, refetch to ensure consistency,
-        // especially if auto-advancement (WO) logic exists in the backend/service.
-        // if (nextMatchPotentiallyUpdated) {
-        //    await get().fetchTournament(eventId);
-        // }
-
+      // Refetch the tournament using the eventId from the updated match
+      if (updatedMatch && updatedMatch.eventId) { // Check if updatedMatch and eventId exist
+        const updatedTournament = await TournamentService.getByEventId(updatedMatch.eventId); // Use eventId from updatedMatch
+        set({ tournament: updatedTournament, loading: false, selectedMatch: null }); // Deselect match after update
       } else {
-        set({ loading: false });
+         console.error("Could not get eventId from updated match data.");
+         set({ loading: false, error: "Falha ao obter ID do evento após atualização." }); // Handle missing eventId
       }
+
     } catch (error) {
-      console.error(`Error updating match ${matchId}:`, error);
-      set({
-        error: error instanceof Error ? error.message : 'Falha ao atualizar resultado',
-        loading: false
-      });
-      throw error;
+      console.error(`Error updating match results for ${matchId}:`, error);
+      set({ error: error instanceof Error ? error.message : 'Falha ao atualizar resultado da partida', loading: false });
+      throw error; // Re-throw for component handling
     }
   },
 
   startTournament: async (tournamentId: string) => {
-    // ... (startTournament implementation remains the same) ...
-     set({ loading: true, error: null });
+    set({ loading: true, error: null });
     try {
-      // Assuming updateStatus returns the updated Tournament object
       const updatedTournament = await TournamentService.updateStatus(tournamentId, 'STARTED');
-      set({ tournament: updatedTournament, loading: false });
-    } catch (error) {
-      console.error(`Error starting tournament ${tournamentId}:`, error);
-      set({
-        error: error instanceof Error ? error.message : 'Falha ao iniciar o torneio',
-        loading: false
-      });
-      throw error;
-    }
-  },
-
-  finishTournament: async (tournamentId: string) => {
-    // ... (finishTournament implementation remains the same) ...
-     set({ loading: true, error: null });
-    try {
-      // Assuming updateStatus returns the updated Tournament object
-      const updatedTournament = await TournamentService.updateStatus(tournamentId, 'FINISHED');
-      set({ tournament: updatedTournament, loading: false });
-    } catch (error) {
-      console.error(`Error finishing tournament ${tournamentId}:`, error);
-      set({
-        error: error instanceof Error ? error.message : 'Falha ao finalizar o torneio',
-        loading: false
-      });
-      throw error;
-    }
-  },
-
-  selectMatch: (match: Match | null) => set({ selectedMatch: match }),
-
-  clearTournament: () => set({ tournament: null, selectedMatch: null }),
-
-  clearError: () => set({ error: null }),
-
-  updateMatchSchedule: async (matchId: string, courtId: string, scheduledTime: string) => {
-    // ... (updateMatchSchedule implementation remains the same) ...
-     set({ loading: true, error: null });
-    try {
-      // Service might handle both court and time update, or call separately
-      // Assuming TournamentService.updateMatchSchedule handles both or we adjust
-      // Let's assume updateMatchSchedule can take courtId too, or we call assignCourt first
-      await TournamentService.assignCourtToMatch(matchId, courtId); // Assign court first
-      const updatedMatch = await TournamentService.updateMatchSchedule(matchId, scheduledTime); // Then update time
-
-      // Update the match in the store's tournament state
       set(state => ({
-        tournament: state.tournament ? {
-          ...state.tournament,
-          matches: state.tournament.matches.map(match =>
-            match.id === matchId ? updatedMatch : match
-          )
-        } : null,
-        selectedMatch: state.selectedMatch?.id === matchId ? updatedMatch : state.selectedMatch, // Update selected match too
+        tournament: state.tournament ? { ...state.tournament, status: 'STARTED' } : updatedTournament,
         loading: false
       }));
     } catch (error) {
-      console.error('Error scheduling match:', error);
-      set({ error: error instanceof Error ? error.message : 'Erro ao agendar partida', loading: false });
-      throw error;
-    } finally {
-      // set({ loading: false }); // Handled within try/catch
+      console.error(`Error starting tournament ${tournamentId}:`, error);
+      set({ error: error instanceof Error ? error.message : 'Falha ao iniciar torneio', loading: false });
+      throw error; // Re-throw for component handling
     }
   },
 
+  selectMatch: (match: Match | null) => {
+    set({ selectedMatch: match });
+  },
+
+  updateMatchSchedule: async (matchId: string, courtId: string | null, scheduledTime: string | null) => {
+    set({ loading: true, error: null });
+    try {
+      const updatedMatch = await TournamentService.updateMatchSchedule(matchId, courtId, scheduledTime);
+      set(state => ({
+        tournament: state.tournament ? {
+          ...state.tournament,
+          matches: state.tournament.matches.map(m => m.id === matchId ? updatedMatch : m)
+        } : null,
+        selectedMatch: state.selectedMatch?.id === matchId ? updatedMatch : state.selectedMatch,
+        loading: false
+      }));
+    } catch (error) {
+      console.error(`Error updating schedule for match ${matchId}:`, error);
+      set({ error: error instanceof Error ? error.message : 'Falha ao atualizar agendamento da partida', loading: false });
+      throw error; // Re-throw for component handling
+    }
+  },
+
+  clearError: () => set({ error: null }),
+
+  resetTournamentState: () => set({ // Reset function
+     tournament: null,
+     selectedMatch: null,
+     loading: false,
+     error: null,
+     isNewTournament: false,
+  }),
+
+  // Alias para manter compatibilidade com código existente
+  generateFormedBracket: async (eventId: string, teams: string[][], options?: { forceReset?: boolean }) => {
+    // Reutiliza a implementação existente
+    return get().generateFormedStructure(eventId, teams, {
+      ...options,
+      groupSize: options?.forceReset ? 4 : undefined // Use um valor padrão ou mantenha undefined
+    });
+  },
+
+  // Alias para manter compatibilidade com código existente
+  generateRandomBracketAndGroups: async (eventId: string, teams: string[][], options?: { forceReset?: boolean }) => {
+    // Converta teams: string[][] para Array<[string, string]> esperado por generateRandomStructure
+    const teamPairs = teams
+      .filter(team => team.length === 2)
+      .map(team => [team[0], team[1]] as [string, string]);
+    
+    return get().generateRandomStructure(eventId, teamPairs, {
+      ...options,
+      groupSize: options?.forceReset ? 4 : undefined // Use um valor padrão ou mantenha undefined
+    });
+  },
 }));

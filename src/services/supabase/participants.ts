@@ -14,6 +14,7 @@ const transformParticipant = (data: any): Participant => ({
   paymentId: data.payment_id,
   paymentDate: data.payment_date,
   registeredAt: data.registered_at,
+  cpf: data.cpf, // Adicione esta linha
   birthDate: data.birth_date, // Add birthDate mapping
   // Add other fields if they exist in your DB table (e.g., pix codes)
   pixPaymentCode: data.pix_payment_code,
@@ -23,13 +24,13 @@ const transformParticipant = (data: any): Participant => ({
 });
 
 // Função para converter nosso tipo CreateParticipantDTO para o formato do Supabase
-// Note: This now takes CreateParticipantDTO
 const toSupabaseParticipantCreate = (participant: CreateParticipantDTO) => ({
   event_id: participant.eventId,
   name: participant.name,
   email: participant.email,
   phone: participant.phone,
-  birth_date: participant.birthDate, // Add birthDate mapping
+  cpf: participant.cpf, // Certifique-se de que esta linha exista
+  birth_date: participant.birthDate,
   partner_id: participant.partnerId,
   payment_status: participant.paymentStatus || 'PENDING', // Default to PENDING
   payment_id: participant.paymentId,
@@ -47,6 +48,7 @@ const toSupabaseParticipantUpdate = (participant: Partial<Participant>) => ({
   payment_status: participant.paymentStatus,
   payment_id: participant.paymentId,
   payment_date: participant.paymentDate,
+  cpf: participant.cpf, // Adicione esta linha
   // Add other updatable fields
 });
 

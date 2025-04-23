@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
-import { User, Mail, Phone, Check, Loader2, Calendar } from 'lucide-react';
-import { Button } from '../ui/Button';
+import { useForm } from 'react-hook-form';
 import { Input } from '../ui/Input';
-import { useParticipantsStore, useFinancialsStore } from '../../store';
-import { Participant, CreateParticipantDTO } from '../../types'; // Import CreateParticipantDTO
+import { Button } from '../ui/Button';
+import { useParticipantsStore } from '../../store/participantsStore';
 
 interface AddParticipantFormProps {
   eventId: string;
@@ -11,165 +10,110 @@ interface AddParticipantFormProps {
   onCancel: () => void;
 }
 
+interface ParticipantFormData {
+  name: string;
+  email: string;
+  phone: string;
+  cpf: string; // Campo CPF adicionado
+  category?: string;
+}
+
 export const AddParticipantForm: React.FC<AddParticipantFormProps> = ({
   eventId,
   onSuccess,
   onCancel
 }) => {
-  const { createParticipant, loading } = useParticipantsStore();
-  const { fetchEventSummary } = useFinancialsStore();
-
-  // Use state matching CreateParticipantDTO structure more closely
-  const [formData, setFormData] = useState<Partial<CreateParticipantDTO>>({
-    eventId,
-    name: '',
-    email: '',
-    phone: '',
-    birthDate: '', // Keep as string for input compatibility, convert to null on submit if empty
-    paymentStatus: 'PENDING',
-    paymentId: undefined, // Initialize paymentId
-    partnerId: undefined, // Initialize partnerId
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const createParticipant = useParticipantsStore(state => state.createParticipant);
+  
+  const { register, handleSubmit, formState: { errors } } = useForm<ParticipantFormData>({
+    defaultValues: {
+      name: '',
+      email: '',
+      phone: '',
+      cpf: '', // Valor padrão para CPF
+    }
   });
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
+  const onSubmit = async (data: ParticipantFormData) => {
+    setIsSubmitting(true);
     try {
-      // Prepare data strictly according to CreateParticipantDTO
-      const participantData: CreateParticipantDTO = {
-        eventId: formData.eventId!, // Assume eventId is always present
-        name: formData.name!,
-        email: formData.email!,
-        phone: formData.phone!,
-        // Convert empty string to null for birthDate before sending
-        birthDate: formData.birthDate || null, // Send null if empty
-        paymentStatus: formData.paymentStatus || 'PENDING',
-        // Generate paymentId only if confirming payment manually here
-        paymentId: formData.paymentStatus === 'CONFIRMED' ? `manual_${Date.now()}` : null,
-        partnerId: formData.partnerId || null, // Send null if empty/undefined
-      };
-
-      await createParticipant(participantData);
-
-      // If the payment was confirmed, update the financial summary
-      if (formData.paymentStatus === 'CONFIRMED') {
-        await fetchEventSummary(eventId);
-      }
-
+      await createParticipant({
+        eventId,
+        name: data.name,
+        email: data.email,
+        phone: data.phone,
+        cpf: data.cpf, 
+      });
+      
       onSuccess();
     } catch (error) {
       console.error('Error adding participant:', error);
-      // Consider showing error notification to user
+      // Adicione um alerta ou notificação para o usuário
+      alert(`Erro ao adicionar participante: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <Input
-        label="Nome completo"
-        name="name"
-        value={formData.name}
-        onChange={handleChange}
-        required
-        icon={<User size={18} />}
-        placeholder="Digite o nome do participante"
+        label="Nome"
+        placeholder="Nome completo"
+        {...register("name", { required: "Nome é obrigatório" })}
+        error={errors.name?.message}
       />
-
+      
       <Input
+        label="E-mail"
+        placeholder="email@exemplo.com"
         type="email"
-        label="Email"
-        name="email"
-        value={formData.email}
-        onChange={handleChange}
-        required
-        icon={<Mail size={18} />}
-        placeholder="Digite o email do participante"
+        {...register("email", { 
+          required: "E-mail é obrigatório",
+          pattern: {
+            value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+            message: "E-mail inválido"
+          }
+        })}
+        error={errors.email?.message}
       />
-
+      
       <Input
         label="Telefone"
-        name="phone"
-        value={formData.phone}
-        onChange={handleChange}
-        required
-        icon={<Phone size={18} />}
         placeholder="(00) 00000-0000"
+        {...register("phone", { required: "Telefone é obrigatório" })}
+        error={errors.phone?.message}
       />
-
-      {/* Added birthDate field */}
+      
+      {/* Campo CPF com register aplicado corretamente */}
       <Input
-        type="date"
-        label="Data de Nascimento"
-        name="birthDate" // Match state key
-        value={formData.birthDate || ''} // Ensure value is string or undefined
-        onChange={handleChange}
-        icon={<Calendar size={18} />}
-        placeholder="Data de nascimento"
-        // Add max date validation if needed (e.g., max={new Date().toISOString().split('T')[0]})
+        label="CPF"
+        placeholder="000.000.000-00"
+        {...register("cpf", { 
+          required: "CPF é obrigatório",
+          pattern: {
+            value: /^\d{3}\.\d{3}\.\d{3}-\d{2}$|^\d{11}$/,
+            message: "Formato de CPF inválido"
+          }
+        })}
+        error={errors.cpf?.message}
       />
-
-      {/* Payment Status */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Status de Pagamento
-        </label>
-        <div className="flex space-x-4">
-          <label className="inline-flex items-center">
-            <input
-              type="radio"
-              name="paymentStatus"
-              value="PENDING"
-              checked={formData.paymentStatus === 'PENDING'}
-              onChange={handleChange}
-              className="h-4 w-4 text-brand-green border-gray-300 focus:ring-brand-green"
-            />
-            <span className="ml-2 text-sm text-gray-700">Pendente</span>
-          </label>
-          <label className="inline-flex items-center">
-            <input
-              type="radio"
-              name="paymentStatus"
-              value="CONFIRMED"
-              checked={formData.paymentStatus === 'CONFIRMED'}
-              onChange={handleChange}
-              className="h-4 w-4 text-brand-green border-gray-300 focus:ring-brand-green"
-            />
-            <span className="ml-2 text-sm text-gray-700">Pago</span>
-          </label>
-        </div>
-      </div>
-
-      {/* Action Buttons */}
-      <div className="flex justify-end space-x-3 pt-4">
-        {/* ... Cancel and Submit buttons ... */}
-         <Button
-          type="button"
-          variant="outline"
+      
+      <div className="flex justify-end space-x-3">
+        <Button 
+          type="button" 
+          variant="outline" 
           onClick={onCancel}
-          disabled={loading}
+          disabled={isSubmitting}
         >
           Cancelar
         </Button>
-        <Button
+        <Button 
           type="submit"
-          disabled={loading}
+          loading={isSubmitting}
         >
-          {loading ? (
-            <>
-              <Loader2 size={16} className="mr-2 animate-spin" />
-              Adicionando...
-            </>
-          ) : (
-            <>
-              <Check size={16} className="mr-2" />
-              Adicionar Participante
-            </>
-          )}
+          Adicionar
         </Button>
       </div>
     </form>

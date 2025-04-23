@@ -15,6 +15,7 @@ CREATE TYPE court_type AS ENUM ('PADEL', 'BEACH_TENNIS', 'OTHER');
 CREATE TYPE reservation_status AS ENUM ('CONFIRMED', 'PENDING', 'CANCELED');
 CREATE TYPE organizer_role AS ENUM ('ADMIN', 'ORGANIZER', 'ASSISTANT');
 
+-- 1. Tabelas independentes sem referências externas
 -- USERS
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -54,6 +55,7 @@ CREATE TABLE courts (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 2. Tabela principal de eventos
 -- EVENTS
 CREATE TABLE events (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -78,6 +80,7 @@ CREATE TABLE events (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 3. Tabelas que dependem de eventos e tabelas básicas
 -- EVENT-COURTS RELATIONSHIP
 CREATE TABLE event_courts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -99,14 +102,14 @@ CREATE TABLE event_organizers (
     UNIQUE(event_id, user_id)
 );
 
--- PARTICIPANTS (com alterações)
+-- PARTICIPANTS
 CREATE TABLE participants (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
-    cpf VARCHAR(14) NOT NULL, -- CPF com formato XXX.XXX.XXX-XX
-    phone VARCHAR(20) NOT NULL, -- Campo principal de identificação
-    email VARCHAR(255), -- Email agora é opcional
+    cpf VARCHAR(14) NOT NULL, 
+    phone VARCHAR(20) NOT NULL, 
+    email VARCHAR(255), 
     birth_date DATE,
     partner_id UUID REFERENCES participants(id),
     partner_name VARCHAR(255),
@@ -119,43 +122,12 @@ CREATE TABLE participants (
     payment_transaction_id UUID,
     registered_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    -- Restrições adicionais para evitar duplicatas
     CONSTRAINT unique_participant_event_phone UNIQUE(event_id, phone),
     CONSTRAINT unique_participant_event_cpf UNIQUE(event_id, cpf)
 );
 
--- NOVA TABELA: RESULTADOS DE PARTICIPANTES
-CREATE TABLE participant_results (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    participant_id UUID NOT NULL REFERENCES participants(id) ON DELETE CASCADE,
-    tournament_id UUID NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
-    event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    position INTEGER, -- Posição final no torneio (1º, 2º, 3º, etc.)
-    stage VARCHAR(50), -- Fase alcançada (grupo, oitavas, quartas, semi, final)
-    points INTEGER, -- Pontos ganhos neste torneio (se aplicável)
-    eliminated_by UUID[] REFERENCES participants(id), -- Quem eliminou o participante
-    notes TEXT, -- Observações adicionais
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(participant_id, tournament_id)
-);
-
--- FINANCIAL TRANSACTIONS
-CREATE TABLE financial_transactions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    participant_id UUID REFERENCES participants(id) ON DELETE SET NULL,
-    amount DECIMAL(10,2) NOT NULL,
-    type transaction_type NOT NULL,
-    description TEXT NOT NULL,
-    payment_method payment_method NOT NULL,
-    status payment_status NOT NULL DEFAULT 'PENDING',
-    transaction_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- TOURNAMENTS
+-- 4. Tabelas com dependências circulares - criamos primeiro sem as restrições
+-- TOURNAMENTS - Movida para antes de participant_results
 CREATE TABLE tournaments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -168,12 +140,12 @@ CREATE TABLE tournaments (
     UNIQUE(event_id)
 );
 
--- COURT RESERVATIONS
+-- COURT RESERVATIONS - Criada sem a restrição de match_id
 CREATE TABLE court_reservations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     court_id UUID NOT NULL REFERENCES courts(id) ON DELETE CASCADE,
     event_id UUID REFERENCES events(id) ON DELETE SET NULL,
-    match_id UUID,
+    match_id UUID, -- Restrição adicionada depois
     title VARCHAR(255) NOT NULL,
     start_time TIMESTAMP WITH TIME ZONE NOT NULL,
     end_time TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -205,16 +177,56 @@ CREATE TABLE tournament_matches (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Adicionar chaves estrangeiras após todas as tabelas estarem criadas
+-- 5. Tabelas dependentes que agora podem ser criadas
+-- PARTICIPANT RESULTS - Agora tournaments já existe
+CREATE TABLE participant_results (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    participant_id UUID NOT NULL REFERENCES participants(id) ON DELETE CASCADE,
+    tournament_id UUID NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+    event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    position INTEGER, 
+    stage VARCHAR(50), 
+    points INTEGER,
+    notes TEXT, 
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(participant_id, tournament_id)
+);
+
+CREATE TABLE participant_eliminators (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    result_id UUID NOT NULL REFERENCES participant_results(id) ON DELETE CASCADE,
+    eliminator_id UUID NOT NULL REFERENCES participants(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(result_id, eliminator_id)
+);
+
+
+-- FINANCIAL TRANSACTIONS
+CREATE TABLE financial_transactions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    participant_id UUID REFERENCES participants(id) ON DELETE SET NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    type transaction_type NOT NULL,
+    description TEXT NOT NULL,
+    payment_method payment_method NOT NULL,
+    status payment_status NOT NULL DEFAULT 'PENDING',
+    transaction_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 6. Adicionar restrições de chave estrangeira que faltam
 ALTER TABLE court_reservations ADD CONSTRAINT fk_court_reservations_match 
     FOREIGN KEY (match_id) REFERENCES tournament_matches(id) ON DELETE SET NULL;
 
--- Índices para otimização de consultas
+-- 7. Índices para otimização de consultas
 CREATE INDEX idx_participants_event_id ON participants(event_id);
 CREATE INDEX idx_participants_partner_id ON participants(partner_id);
 CREATE INDEX idx_participants_payment_status ON participants(payment_status);
-CREATE INDEX idx_participants_cpf ON participants(cpf); -- Índice para busca por CPF
-CREATE INDEX idx_participants_phone ON participants(phone); -- Índice para busca por telefone
+CREATE INDEX idx_participants_cpf ON participants(cpf);
+CREATE INDEX idx_participants_phone ON participants(phone);
 CREATE INDEX idx_participant_results_participant ON participant_results(participant_id);
 CREATE INDEX idx_participant_results_tournament ON participant_results(tournament_id);
 CREATE INDEX idx_participant_results_position ON participant_results(position);

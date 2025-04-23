@@ -14,15 +14,15 @@ import confetti from 'canvas-confetti';
 import { Participant, Court } from '../../types';
 
 interface BracketAnimationProps {
-  participants: Participant[];
+  participants: Participant[]; // Individual participants
   courts: Court[];
-  // Update signature to match store action generateBracket
+  // Updated signature: returns pairs (teams) and initial court assignments
   onComplete: (
-    matches: Array<[string, string]>, // Array of participant ID pairs
+    teams: Array<[string, string]>, // Array of participant ID pairs representing teams
     courtAssignments: Record<string, string[]> // Map of matchKey ('pId1|pId2') to courtId array
   ) => void | Promise<void>;
   autoPlay?: boolean;
-  speed?: number; // 1 = normal, 2 = double speed, etc.
+  speed?: number;
 }
 
 export const BracketAnimation: React.FC<BracketAnimationProps> = ({
@@ -36,26 +36,28 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const wheelRef = useRef<HTMLDivElement>(null);
   const tickerRef = useRef<HTMLDivElement>(null);
-  
+
   // Estados
   const [isPlaying, setIsPlaying] = useState(autoPlay);
-  const [currentStep, setCurrentStep] = useState<'teams' | 'courts'>('teams');
+  // Step could be: 'pairing', 'grouping', 'courting'
+  const [currentStep, setCurrentStep] = useState<'pairing' | 'grouping' | 'courting'>('pairing');
   const [selectedParticipants, setSelectedParticipants] = useState<Participant[]>([]);
-  const [matches, setMatches] = useState<Array<[Participant, Participant]>>([]);
-  // Store court assignments with matchKey -> court object initially
+  const [formedPairs, setFormedPairs] = useState<Array<[Participant, Participant]>>([]); // Store formed pairs
+  const [groups, setGroups] = useState<Array<Array<[Participant, Participant]>>>([]); // Store groups of pairs
+  // Store court assignments with matchKey -> court object internally
   const [courtAssignmentsInternal, setCourtAssignmentsInternal] = useState<Record<string, Court>>({});
-  const [currentPair, setCurrentPair] = useState<[Participant | null, Participant | null]>([null, null]);
+  const [currentPairing, setCurrentPairing] = useState<[Participant | null, Participant | null]>([null, null]); // For pairing step
   const [spinning, setSpinning] = useState(false);
   const [completed, setCompleted] = useState(false);
-  
+
   // Copia dos participantes para sorteio (para não modificar o array original)
   const [remainingParticipants, setRemainingParticipants] = useState<Participant[]>([]);
   const [remainingCourts, setRemainingCourts] = useState<Court[]>([]);
-  
+
   // Animação
   const spinTimeout = useRef<NodeJS.Timeout | null>(null);
   const spinDuration = 5000 / (speed || 1);
-  
+
   // Inicializar participantes
   useEffect(() => {
     // Embaralhar participantes
@@ -63,80 +65,64 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
     setRemainingParticipants(shuffled);
     setRemainingCourts([...courts]);
     setSelectedParticipants([]);
-    setMatches([]);
+    setFormedPairs([]); // Reset formed pairs
+    setGroups([]); // Reset groups
     setCourtAssignmentsInternal({}); // Use internal state
-    setCurrentStep('teams');
+    setCurrentPairing([null, null]); // Reset pairing step
+    setCurrentStep('pairing'); // Start with pairing
+    setSpinning(false);
     setCompleted(false);
   }, [participants, courts]);
-  
+
   // Function to call onComplete with correctly formatted data
   const finalizeAndComplete = () => {
-      setCompleted(true);
-      setSpinning(false);
+    setCompleted(true);
+    setSpinning(false);
 
-      // Efeito visual para finalização
-      confetti({
-          particleCount: 200,
-          spread: 160,
-          origin: { y: 0.6, x: 0.5 }
+    // Efeito visual para finalização
+    confetti({
+      particleCount: 200,
+      spread: 160,
+      origin: { y: 0.6, x: 0.5 }
+    });
+
+    if (onComplete) {
+      // Convert formedPairs to ID pairs
+      const teamData = formedPairs.map(pair => [pair[0].id, pair[1].id] as [string, string]);
+
+      // Convert internal court assignments to expected format
+      const finalCourtAssignments: Record<string, string[]> = {};
+      Object.entries(courtAssignmentsInternal).forEach(([matchKey, court]) => {
+        // Match key might need adjustment if courts are assigned per group match later
+        finalCourtAssignments[matchKey] = [court.id];
       });
 
-      if (onComplete) {
-          // Convert matches to ID pairs
-          const matchData = matches.map(match => [match[0].id, match[1].id] as [string, string]);
-
-          // Convert internal court assignments (matchKey -> Court) to expected format (matchKey -> string[])
-          const finalCourtAssignments: Record<string, string[]> = {};
-          Object.entries(courtAssignmentsInternal).forEach(([matchKey, court]) => {
-              finalCourtAssignments[matchKey] = [court.id]; // Wrap court ID in an array
-          });
-
-          console.log("Finalizing animation. Calling onComplete with:", matchData, finalCourtAssignments);
-          onComplete(matchData, finalCourtAssignments);
-      }
+      console.log("Finalizing animation. Calling onComplete with:", teamData, finalCourtAssignments);
+      // Pass the formed teams (pairs) and any initial court assignments
+      onComplete(teamData, finalCourtAssignments);
+    }
   };
 
-  // Função para girar a roleta
+  // spinWheel function needs significant changes:
+  // 1. Handle 'pairing' step: Form pairs [Participant, Participant]
+  // 2. Handle 'grouping' step: Assign formed pairs to groups (visualize this)
+  // 3. Handle 'courting' step: Assign courts to initial matches (if needed)
   const spinWheel = () => {
-    if (spinning || completed) return; // Prevent spinning if already spinning or completed
-
+    if (spinning || completed) return;
     setSpinning(true);
 
-    if (currentStep === 'teams') {
-      // Se não houver mais participantes, passar para o próximo passo
-      if (remainingParticipants.length === 0) {
-        setCurrentStep('courts');
-        setSpinning(false);
-        // If autoPlay, immediately spin for courts if needed
-        if (isPlaying && matches.length > 0 && remainingCourts.length > 0) {
-            setTimeout(() => spinWheel(), 500); // Short delay before starting court spin
-        }
-        return;
-      }
-
-      // Sortear próximo participante
-      const nextParticipant = remainingParticipants[0];
-
-      // Animar a roleta
-      if (wheelRef.current) {
-        wheelRef.current.style.transition = `transform ${spinDuration/1000}s cubic-bezier(0.1, 0.7, 0.1, 1)`;
-        wheelRef.current.style.transform = `rotate(${Math.random() * 1080 + 720}deg)`;
-        wheelRef.current.classList.add('animate-pulse');
-      }
-
-      // Após o tempo de animação, atualizar o participante selecionado
+    if (currentStep === 'pairing') {
+      // Logic to pair participants (similar to existing 'teams' step but store in formedPairs)
       spinTimeout.current = setTimeout(() => {
+        const nextParticipant = remainingParticipants[0]; // Example
         setSelectedParticipants(prev => [...prev, nextParticipant]);
 
-        // Atualizar pares
-        if (currentPair[0] === null) {
-          setCurrentPair([nextParticipant, null]);
+        if (currentPairing[0] === null) {
+          setCurrentPairing([nextParticipant, null]);
         } else {
-          // Formar par completo
-          const newPair: [Participant, Participant] = [currentPair[0], nextParticipant];
-          setMatches(prev => [...prev, newPair]);
-          setCurrentPair([null, null]);
-
+          const newPair: [Participant, Participant] = [currentPairing[0], nextParticipant];
+          setFormedPairs(prev => [...prev, newPair]); // Store the formed pair
+          setCurrentPairing([null, null]);
           // Efeito visual para o match formado
           if (containerRef.current) {
             confetti({
@@ -146,79 +132,34 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
             });
           }
         }
-
-        // Remover participante sorteado
         setRemainingParticipants(prev => prev.slice(1));
         setSpinning(false);
 
-        // Remove pulse animation
-        if (wheelRef.current) {
-          wheelRef.current.classList.remove('animate-pulse');
-        }
-
-        // Se auto-play estiver ativo, continuar sorteio
-        if (isPlaying && remainingParticipants.length > 0) { // Check if there are participants left to pair
-          setTimeout(() => spinWheel(), 1000);
-        } else if (isPlaying && remainingParticipants.length === 0) {
-           // If autoplay and no more participants, move to courts
-           setCurrentStep('courts');
-           if (matches.length > 0 && remainingCourts.length > 0) {
-               setTimeout(() => spinWheel(), 500);
-           } else {
-               finalizeAndComplete(); // No courts or matches, just complete
-           }
+        // Check if pairing is complete
+        if (remainingParticipants.length <= 1) { // <= 1 because the last one is removed after timeout
+          console.log("Pairing complete. Moving to grouping.");
+          setCurrentStep('grouping'); // Move to next step
+          // If autoplay, trigger next step spin
+          if (isPlaying) setTimeout(() => spinWheel(), 500);
+        } else if (isPlaying) {
+          setTimeout(() => spinWheel(), 1000); // Continue pairing
         }
       }, spinDuration);
 
-    } else if (currentStep === 'courts') {
-      // Atribuir quadras aos matches
-      const assignedMatchKeys = Object.keys(courtAssignmentsInternal);
-      if (matches.length === 0 || remainingCourts.length === 0 || assignedMatchKeys.length >= matches.length) {
-        // If no matches, no courts left, or all matches assigned, finalize
-        finalizeAndComplete();
-        return;
-      }
+    } else if (currentStep === 'grouping') {
+      // Logic to assign formed pairs to groups (e.g., groups of 4 pairs)
+      // This requires visualizing groups and adding pairs to them.
+      // For simplicity now, let's just skip to completion after pairing.
+      console.warn("Grouping animation step not implemented. Finalizing after pairing.");
+      finalizeAndComplete(); // TEMPORARY: Finalize after pairing for now
+      // TODO: Implement grouping animation and logic
 
-      // Sortear próxima quadra
-      const nextCourt = remainingCourts[0];
-      // Find the next match that hasn't been assigned a court
-      const nextMatchToAssign = matches.find(match => !courtAssignmentsInternal[`${match[0].id}|${match[1].id}`]);
-
-      if (!nextMatchToAssign) {
-          // Should not happen if checks above are correct, but handle defensively
-          finalizeAndComplete();
-          return;
-      }
-
-      // Animar a roleta
-      if (wheelRef.current) {
-        wheelRef.current.style.transition = `transform ${spinDuration/1000}s cubic-bezier(0.1, 0.7, 0.1, 1)`;
-        wheelRef.current.style.transform = `rotate(${Math.random() * 1080 + 720}deg)`;
-      }
-
-      // Após o tempo de animação, atualizar a quadra selecionada
-      spinTimeout.current = setTimeout(() => {
-        // Atribuir quadra ao match atual
-        const matchKey = `${nextMatchToAssign[0].id}|${nextMatchToAssign[1].id}`;
-        setCourtAssignmentsInternal(prev => ({
-          ...prev,
-          [matchKey]: nextCourt
-        }));
-
-        // Remover quadra sorteada
-        setRemainingCourts(prev => prev.slice(1));
-        setSpinning(false);
-
-        const newAssignmentsCount = Object.keys(courtAssignmentsInternal).length + 1; // Count after this assignment
-
-        // Se auto-play estiver ativo, continuar sorteio
-        if (isPlaying && newAssignmentsCount < matches.length && remainingCourts.length > 1) { // Check if courts remain
-          setTimeout(() => spinWheel(), 1000);
-        } else if (newAssignmentsCount >= matches.length || remainingCourts.length <= 1) {
-          // Finalizou todas as atribuições ou ran out of courts
-          finalizeAndComplete();
-        }
-      }, spinDuration);
+    } else if (currentStep === 'courting') {
+      // Logic to assign courts (similar to existing 'courts' step)
+      // ...
+      // finalizeAndComplete() when done.
+      console.warn("Courting animation step not implemented. Finalizing after pairing.");
+      finalizeAndComplete(); // TEMPORARY
     }
   };
 
@@ -256,10 +197,11 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
     setRemainingParticipants(shuffled);
     setRemainingCourts([...courts]);
     setSelectedParticipants([]);
-    setMatches([]);
+    setFormedPairs([]); // Reset pairs
+    setGroups([]); // Reset groups
     setCourtAssignmentsInternal({}); // Reset internal state
-    setCurrentPair([null, null]);
-    setCurrentStep('teams');
+    setCurrentPairing([null, null]);
+    setCurrentStep('pairing'); // Reset to pairing step
     setSpinning(false);
     setCompleted(false);
     setIsPlaying(false); // Stop autoplay on reset
@@ -285,11 +227,10 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
     <div className="space-y-6" ref={containerRef}>
       <div className="flex justify-between items-center">
         <h3 className="text-lg font-medium text-brand-blue">
-          {currentStep === 'teams' 
-            ? 'Sorteio de Duplas' 
-            : completed 
-              ? 'Sorteio Concluído!' 
-              : 'Atribuição de Quadras'}
+          {currentStep === 'pairing' ? 'Sorteio de Duplas' :
+            currentStep === 'grouping' ? 'Formação de Grupos' :
+              currentStep === 'courting' ? 'Atribuição de Quadras' :
+                completed ? 'Sorteio Concluído!' : 'Sorteio'}
         </h3>
         <div className="flex space-x-2">
           <Button
@@ -330,198 +271,48 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
           </Button>
         </div>
       </div>
-      
+
       <div className="flex flex-col md:flex-row gap-6">
         <div className="w-full md:w-1/2">
-          {currentStep === 'teams' ? (
-            <div className="relative bg-white border border-gray-200 rounded-lg overflow-hidden p-6">
-              <h4 className="text-center text-sm font-medium text-gray-700 mb-3">
-                <Users size={16} className="inline-block mr-1" />
-                Sorteio de Participantes
-              </h4>
-              
-              {/* Roleta */}
-              <div className="relative h-64 flex items-center justify-center my-6">
-                <div className="absolute h-full w-full flex items-center justify-center">
-                  <div className="h-1 w-1/2 bg-brand-green absolute top-1/2 right-1/2"></div>
-                  <div className="h-60 w-60 border-4 border-dashed border-brand-green rounded-full"></div>
-                  <div className="absolute top-1/2 right-8 transform -translate-y-1/2">
-                    <div className="h-6 w-6 bg-brand-green transform rotate-45"></div>
-                  </div>
-                </div>
-                
-                {remainingParticipants.length > 0 && (
-                  <div 
-                    ref={wheelRef} 
-                    className="wheel relative h-48 w-48 bg-brand-blue/5 rounded-full flex items-center justify-center"
-                  >
-                    <div className="text-center">
-                      <span className="text-lg font-bold text-brand-blue">
-                        {remainingParticipants[0]?.name}
-                      </span>
-                    </div>
-                  </div>
-                )}
-                
-                {remainingParticipants.length === 0 && (
-                  <div className="text-center text-gray-500">
-                    <Users size={32} className="mx-auto mb-2 text-gray-400" />
-                    <p>Todos os participantes foram sorteados!</p>
-                    <p className="mt-2 text-sm">Clique em "Próximo" para continuar para o sorteio das quadras.</p>
-                  </div>
-                )}
-              </div>
-              
-              {/* Ticker */}
-              <div 
-                ref={tickerRef}
-                className="h-10 bg-brand-blue/10 rounded-lg overflow-hidden border border-brand-blue/20 mt-6 flex items-center px-2"
-              >
-                {spinning && remainingParticipants.length > 0 ? (
-                  <div className="flex items-center space-x-1 text-brand-blue">
-                    <Zap size={16} className="animate-pulse" />
-                    <span>Sorteando...</span>
-                  </div>
-                ) : currentPair[0] && !currentPair[1] ? (
-                  <div className="flex items-center text-brand-blue">
-                    <span>Selecionado: <strong>{currentPair[0].name}</strong> (aguardando dupla)</span>
-                  </div>
-                ) : (
-                  <div className="text-gray-500">
-                    {remainingParticipants.length === 0 
-                      ? 'Sorteio de participantes concluído!' 
-                      : 'Pressione "Próximo" para sortear um participante'}
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="relative bg-white border border-gray-200 rounded-lg overflow-hidden p-6">
-              <h4 className="text-center text-sm font-medium text-gray-700 mb-3">
-                <MapPin size={16} className="inline-block mr-1" />
-                Sorteio de Quadras
-              </h4>
-              
-              {/* Roleta para quadras */}
-              <div className="relative h-64 flex items-center justify-center my-6">
-                <div className="absolute h-full w-full flex items-center justify-center">
-                  <div className="h-1 w-1/2 bg-brand-purple absolute top-1/2 right-1/2"></div>
-                  <div className="h-60 w-60 border-4 border-dashed border-brand-purple rounded-full"></div>
-                  <div className="absolute top-1/2 right-8 transform -translate-y-1/2">
-                    <div className="h-6 w-6 bg-brand-purple transform rotate-45"></div>
-                  </div>
-                </div>
-                
-                {remainingCourts.length > 0 && matches.length > Object.keys(courtAssignmentsInternal).length && (
-                  <div 
-                    ref={wheelRef} 
-                    className="wheel relative h-48 w-48 bg-brand-purple/5 rounded-full flex items-center justify-center"
-                  >
-                    <div className="text-center p-4">
-                      <span className="text-lg font-bold text-brand-purple">
-                        {remainingCourts[0]?.name}
-                      </span>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {remainingCourts[0]?.location}
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                {(remainingCourts.length === 0 || matches.length <= Object.keys(courtAssignmentsInternal).length) && (
-                  <div className="text-center text-gray-500">
-                    <MapPin size={32} className="mx-auto mb-2 text-gray-400" />
-                    <p>Todas as quadras foram atribuídas!</p>
-                    {completed ? (
-                      <p className="mt-2 text-sm">Sorteio concluído com sucesso.</p>
-                    ) : (
-                      <p className="mt-2 text-sm">Clique em "Próximo" para finalizar.</p>
-                    )}
-                  </div>
-                )}
-              </div>
-              
-              {/* Ticker */}
-              <div 
-                className="h-10 bg-brand-purple/10 rounded-lg overflow-hidden border border-brand-purple/20 mt-6 flex items-center px-2"
-              >
-                {spinning && remainingCourts.length > 0 ? (
-                  <div className="flex items-center space-x-1 text-brand-purple">
-                    <Zap size={16} className="animate-pulse" />
-                    <span>Sorteando quadra...</span>
-                  </div>
-                ) : matches.length > Object.keys(courtAssignmentsInternal).length && remainingCourts.length > 0 ? (
-                  <div className="text-gray-500">
-                    Pressione "Próximo" para sortear uma quadra
-                  </div>
-                ) : (
-                  <div className="text-brand-purple font-medium">
-                    <Award size={16} className="inline-block mr-1 mb-0.5" />
-                    Sorteio de quadras concluído!
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          <div className="relative bg-white border border-gray-200 rounded-lg overflow-hidden p-6 h-[400px] flex items-center justify-center">
+            <p className="text-gray-500">Visualização da Animação ({currentStep})</p>
+            <div ref={wheelRef} className="absolute h-48 w-48 border-4 border-dashed rounded-full border-brand-blue"></div>
+          </div>
+          <div ref={tickerRef} className="h-10 bg-gray-100 rounded-lg mt-4 flex items-center px-2">
+            <p className="text-gray-600 text-sm">Status: {spinning ? 'Girando...' : 'Aguardando'}</p>
+          </div>
         </div>
-        
+
         <div className="w-full md:w-1/2 space-y-4">
-          {/* Resultados do sorteio */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6">
-            <h4 className="font-medium text-gray-700 mb-4">Resultados do Sorteio</h4>
-            
-            {matches.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                Os resultados aparecerão aqui após o sorteio.
+          <div className="bg-white border border-gray-200 rounded-lg p-6 min-h-[400px]">
+            <h4 className="font-medium text-gray-700 mb-4">Resultados Parciais</h4>
+            {formedPairs.length > 0 && (
+              <div>
+                <h5 className="text-sm font-semibold mb-2">Duplas Formadas:</h5>
+                <ul className="list-disc pl-5 space-y-1 text-sm">
+                  {formedPairs.map((pair, index) => (
+                    <li key={index}>{pair[0].name} & {pair[1].name}</li>
+                  ))}
+                </ul>
               </div>
-            ) : (
-              <div className="space-y-4">
-                {matches.map((match, index) => {
-                  const matchKey = `${match[0].id}|${match[1].id}`;
-                  const court = courtAssignmentsInternal[matchKey];
-                  
-                  return (
-                    <div 
-                      key={index} 
-                      className={`p-3 border rounded-lg ${
-                        court 
-                          ? 'border-brand-green bg-brand-green/5' 
-                          : 'border-gray-200'
-                      }`}
-                    >
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <div className="font-medium">{match[0].name}</div>
-                          <div className="font-medium">{match[1].name}</div>
-                        </div>
-                        
-                        {court && (
-                          <div className="flex items-center bg-white px-2 py-1 rounded-lg border border-brand-green/20">
-                            <MapPin size={14} className="text-brand-green mr-1" />
-                            <span className="text-sm text-brand-green">{court.name}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+            )}
+            {groups.length > 0 && <p className="mt-4 text-gray-500">Grupos serão exibidos aqui...</p>}
+            {formedPairs.length === 0 && groups.length === 0 && (
+              <p className="text-gray-400 text-center pt-10">Resultados aparecerão aqui.</p>
             )}
           </div>
         </div>
       </div>
-      
+
       {completed && (
         <div className="bg-brand-green/10 border border-brand-green rounded-lg p-4 text-center">
           <Award size={24} className="mx-auto mb-2 text-brand-green" />
           <h4 className="font-medium text-brand-green">Sorteio Finalizado com Sucesso!</h4>
           <p className="text-sm text-gray-600 mt-1">
-            Todas as duplas foram formadas e as quadras foram atribuídas.
+            As duplas foram formadas. A estrutura de grupos será criada.
           </p>
-          
           <Button onClick={handleReset} className="mt-4">
-            <RotateCw size={16} className="mr-1" />
-            Iniciar Novo Sorteio
+            <RotateCw size={16} className="mr-1" /> Iniciar Novo Sorteio
           </Button>
         </div>
       )}

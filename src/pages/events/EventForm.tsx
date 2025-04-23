@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useForm, Controller } from 'react-hook-form'; // Import Controller
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
@@ -15,13 +15,12 @@ import { useEventsStore, useCourtsStore, useOrganizersStore } from '../../store'
 import { useNotificationStore } from '../../components/ui/Notification';
 import { Modal } from '../../components/ui/Modal';
 import { Label } from '../../components/ui/Label';
-import { Textarea } from '../../components/ui/Textarea'; // Ensure this path and export are correct
+import { Textarea } from '../../components/ui/Textarea';
 import { Select } from '../../components/ui/Select';
-import { Checkbox } from '../../components/ui/Checkbox'; // Ensure this path and export are correct
-import { PageHeader } from '../../components/layout/PageHeader'; // Ensure this path and export are correct
-import { TournamentCard } from '../../components/tournaments/TournamentCards'; // For preview
+import { Checkbox } from '../../components/ui/Checkbox';
+import { PageHeader } from '../../components/layout/PageHeader';
+import { TournamentCard } from '../../components/tournaments/TournamentCards';
 
-// Update Zod schema to include new fields
 const eventSchema = z.object({
   type: z.nativeEnum(EventType),
   title: z.string().min(3, 'Título deve ter pelo menos 3 caracteres'),
@@ -42,16 +41,19 @@ const eventSchema = z.object({
   teamFormation: z.nativeEnum(TeamFormationType),
   categories: z.array(z.string()).optional(),
   bannerImageUrl: z.string().url('URL da imagem inválida').optional().or(z.literal('')),
-  organizerId: z.string().uuid('Organizador inválido').optional().nullable(), // Added
-  organizerCommissionRate: z.preprocess( // Added
+  organizerId: z.string().uuid('Organizador inválido').optional().nullable(),
+  organizerCommissionRate: z.preprocess(
     (val) => (typeof val === 'string' ? parseFloat(val.replace(',', '.')) : val),
     z.number().min(0).max(100, 'Comissão deve ser entre 0 e 100').optional().nullable()
   ),
-  courtIds: z.array(z.string().uuid()).optional().nullable(), // Added
+  courtIds: z.array(z.string().uuid()).optional().nullable(),
+  settings: z.object({
+    qualifiersPerGroup: z.number().min(1, 'Deve haver pelo menos 1 classificado por grupo').optional(),
+    groupSize: z.number().min(2, 'Tamanho do grupo deve ser pelo menos 2').optional(),
+  }).optional(),
 });
 
 type EventFormValues = z.infer<typeof eventSchema>;
-
 
 export const EventForm = () => {
   const navigate = useNavigate();
@@ -60,17 +62,16 @@ export const EventForm = () => {
 
   const { createEvent, updateEvent, currentEvent, fetchEventById, clearCurrent, loading, error } = useEventsStore();
   const addNotification = useNotificationStore(state => state.addNotification);
-  const { organizers, loading: loadingOrganizers, fetchOrganizers } = useOrganizersStore(); // Use organizers store
-  const { courts, loading: loadingCourts, fetchCourts } = useCourtsStore(); // Use courts store
+  const { organizers, loading: loadingOrganizers, fetchOrganizers } = useOrganizersStore();
+  const { courts, loading: loadingCourts, fetchCourts } = useCourtsStore();
 
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [newCategory, setNewCategory] = useState('');
-  // No need for separate formData state, use react-hook-form's state via watch or getValues
 
   const {
     register,
     handleSubmit,
-    control, // Use Controller for multi-select/checkboxes
+    control,
     setValue,
     watch,
     reset,
@@ -91,16 +92,18 @@ export const EventForm = () => {
       teamFormation: TeamFormationType.FORMED,
       categories: [],
       bannerImageUrl: '',
-      organizerId: null, // Default to null
-      organizerCommissionRate: null, // Default to null
-      courtIds: [], // Default to empty array
+      organizerId: null,
+      organizerCommissionRate: null,
+      courtIds: [],
+      settings: {
+        qualifiersPerGroup: 2,
+        groupSize: 4,
+      },
     }
   });
 
-  // Watch form values for dynamic updates (preview, commission rate)
   const watchedFormData = watch();
 
-  // Fetch event data if in edit mode
   useEffect(() => {
     if (isEditMode && id) {
       fetchEventById(id).catch(() => {
@@ -108,19 +111,17 @@ export const EventForm = () => {
         navigate('/eventos');
       });
     } else {
-      reset(); // Reset form if creating new
+      reset();
     }
     return () => {
       clearCurrent();
     };
   }, [isEditMode, id, fetchEventById, clearCurrent, addNotification, navigate, reset]);
 
-  // Populate form with event data when available (using reset)
   useEffect(() => {
     if (currentEvent) {
       reset({
         ...currentEvent,
-        // Ensure correct types for react-hook-form
         price: currentEvent.price ?? 0,
         maxParticipants: currentEvent.maxParticipants ?? 0,
         organizerId: currentEvent.organizerId ?? null,
@@ -128,43 +129,34 @@ export const EventForm = () => {
         courtIds: currentEvent.courtIds ?? [],
         categories: currentEvent.categories ?? [],
         bannerImageUrl: currentEvent.bannerImageUrl ?? '',
+        settings: currentEvent.settings ?? { qualifiersPerGroup: 2, groupSize: 4 },
       });
     }
   }, [currentEvent, reset]);
 
-  // Show errors from store
   useEffect(() => {
     if (error) {
       addNotification({ type: 'error', message: error });
-      // Optionally clear the store error after showing
     }
   }, [error, addNotification]);
 
-  // Fetch organizers and courts
   useEffect(() => {
     fetchOrganizers().catch(() => addNotification({ type: 'error', message: 'Falha ao carregar organizadores' }));
     fetchCourts().catch(() => addNotification({ type: 'error', message: 'Falha ao carregar quadras' }));
   }, [fetchOrganizers, fetchCourts, addNotification]);
 
-  // Update commission rate when organizer changes
   const selectedOrganizerId = watch('organizerId');
   useEffect(() => {
     if (selectedOrganizerId) {
       const selectedOrganizer = organizers.find(o => o.id === selectedOrganizerId);
       if (selectedOrganizer) {
-        // Set commission rate only if it's not already set or if it differs
-        // This prevents overwriting a manually entered commission rate
         const currentCommission = watch('organizerCommissionRate');
         if (currentCommission === null || currentCommission === undefined) {
-           setValue('organizerCommissionRate', selectedOrganizer.defaultCommissionRate);
+          setValue('organizerCommissionRate', selectedOrganizer.defaultCommissionRate);
         }
       }
-    } else {
-       // Optionally clear commission if organizer is deselected
-       // setValue('organizerCommissionRate', null);
     }
   }, [selectedOrganizerId, organizers, setValue, watch]);
-
 
   const addCategory = () => {
     if (newCategory.trim()) {
@@ -185,10 +177,8 @@ export const EventForm = () => {
     try {
       const eventData: Partial<Event> = {
         ...data,
-        // Ensure numbers are numbers
         price: Number(data.price),
         maxParticipants: Number(data.maxParticipants),
-        // Change null to undefined for optional properties
         organizerCommissionRate: data.organizerCommissionRate !== null && data.organizerCommissionRate !== undefined ? Number(data.organizerCommissionRate) : undefined,
         organizerId: data.organizerId || undefined,
         bannerImageUrl: data.bannerImageUrl || undefined,
@@ -212,7 +202,6 @@ export const EventForm = () => {
     }
   };
 
-  // Loading state for form submission or initial data load
   const formLoading = loading || isSubmitting || (isEditMode && !currentEvent);
 
   return (
@@ -224,16 +213,14 @@ export const EventForm = () => {
 
       <form onSubmit={handleSubmit(onSubmit)} className="mt-6 bg-white p-6 rounded-lg shadow border border-brand-gray space-y-6">
 
-        {/* Basic Info Section */}
         <fieldset className="border border-brand-gray p-4 rounded-lg">
           <legend className="text-sm font-medium text-brand-blue px-2 flex items-center"><Info size={16} className="mr-1" />Informações Básicas</legend>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-            {/* ... Title, Type, Location ... */}
-             <div>
+            <div>
               <Label htmlFor="title">Título do Evento</Label>
               <Input id="title" {...register('title')} error={errors.title?.message} />
             </div>
-             <div>
+            <div>
               <Label htmlFor="type">Tipo</Label>
               <Controller
                 name="type"
@@ -246,21 +233,20 @@ export const EventForm = () => {
                 )}
               />
             </div>
-             <div>
+            <div>
               <Label htmlFor="location">Localização</Label>
               <Input id="location" {...register('location')} error={errors.location?.message} />
             </div>
           </div>
-           <div className="mt-4">
-              <Label htmlFor="description">Descrição</Label>
-              <Textarea id="description" {...register('description')} rows={3} error={errors.description?.message} />
-            </div>
+          <div className="mt-4">
+            <Label htmlFor="description">Descrição</Label>
+            <Textarea id="description" {...register('description')} rows={3} error={errors.description?.message} />
+          </div>
         </fieldset>
 
-        {/* Date & Time Section */}
         <fieldset className="border border-brand-gray p-4 rounded-lg">
-           <legend className="text-sm font-medium text-brand-blue px-2 flex items-center"><Calendar size={16} className="mr-1" />Data e Hora</legend>
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+          <legend className="text-sm font-medium text-brand-blue px-2 flex items-center"><Calendar size={16} className="mr-1" />Data e Hora</legend>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
             <div>
               <Label htmlFor="date">Data</Label>
               <Input id="date" type="date" {...register('date')} error={errors.date?.message} />
@@ -272,12 +258,10 @@ export const EventForm = () => {
           </div>
         </fieldset>
 
-        {/* Details Section */}
         <fieldset className="border border-brand-gray p-4 rounded-lg">
           <legend className="text-sm font-medium text-brand-blue px-2 flex items-center"><List size={16} className="mr-1" />Detalhes</legend>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
-            {/* ... Price, Max Participants, Prize ... */}
-             <div>
+            <div>
               <Label htmlFor="price">Preço da Inscrição (R$)</Label>
               <Input id="price" type="number" step="0.01" {...register('price')} error={errors.price?.message} />
             </div>
@@ -285,27 +269,25 @@ export const EventForm = () => {
               <Label htmlFor="maxParticipants">Máx. Participantes</Label>
               <Input id="maxParticipants" type="number" {...register('maxParticipants')} error={errors.maxParticipants?.message} />
             </div>
-             <div>
+            <div>
               <Label htmlFor="prize">Premiação</Label>
               <Input id="prize" {...register('prize')} error={errors.prize?.message} />
             </div>
           </div>
-           <div className="mt-4">
-              <Label htmlFor="rules">Regras</Label>
-              <Textarea id="rules" {...register('rules')} rows={3} error={errors.rules?.message} />
-            </div>
-           <div className="mt-4">
-              <Label htmlFor="bannerImageUrl">URL da Imagem do Banner</Label>
-              <Input id="bannerImageUrl" {...register('bannerImageUrl')} error={errors.bannerImageUrl?.message} />
-            </div>
+          <div className="mt-4">
+            <Label htmlFor="rules">Regras</Label>
+            <Textarea id="rules" {...register('rules')} rows={3} error={errors.rules?.message} />
+          </div>
+          <div className="mt-4">
+            <Label htmlFor="bannerImageUrl">URL da Imagem do Banner</Label>
+            <Input id="bannerImageUrl" {...register('bannerImageUrl')} error={errors.bannerImageUrl?.message} />
+          </div>
         </fieldset>
 
-        {/* Configuration Section */}
         <fieldset className="border border-brand-gray p-4 rounded-lg">
           <legend className="text-sm font-medium text-brand-blue px-2 flex items-center"><ShieldCheck size={16} className="mr-1" />Configurações</legend>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-            {/* ... Team Formation ... */}
-             <div>
+            <div>
               <Label htmlFor="teamFormation">Formação de Times</Label>
               <Controller
                 name="teamFormation"
@@ -319,7 +301,6 @@ export const EventForm = () => {
               />
             </div>
 
-            {/* Organizer Selection */}
             <div>
               <Label htmlFor="organizerId">Organizador</Label>
               <Controller
@@ -329,7 +310,7 @@ export const EventForm = () => {
                   <Select
                     id="organizerId"
                     {...field}
-                    value={field.value ?? ''} // Handle null value for select
+                    value={field.value ?? ''}
                     error={!!errors.organizerId}
                     disabled={loadingOrganizers}
                   >
@@ -342,7 +323,6 @@ export const EventForm = () => {
               />
             </div>
 
-            {/* Organizer Commission */}
             <div>
               <Label htmlFor="organizerCommissionRate">Comissão do Organizador (%)</Label>
               <Input
@@ -351,36 +331,62 @@ export const EventForm = () => {
                 step="0.1"
                 {...register('organizerCommissionRate')}
                 error={errors.organizerCommissionRate?.message}
-                disabled={!selectedOrganizerId} // Disable if no organizer selected
+                disabled={!selectedOrganizerId}
               />
+            </div>
+
+            {watch('type') === EventType.TOURNAMENT && (
+              <>
+                <div>
+                  <Label htmlFor="settings.groupSize">Tamanho dos Grupos</Label>
+                  <Input
+                    id="settings.groupSize"
+                    type="number"
+                    min="2"
+                    {...register('settings.groupSize', { valueAsNumber: true })}
+                    error={errors.settings?.groupSize?.message}
+                    placeholder="Ex: 4"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="settings.qualifiersPerGroup">Classificados por Grupo</Label>
+                  <Input
+                    id="settings.qualifiersPerGroup"
+                    type="number"
+                    min="1"
+                    {...register('settings.qualifiersPerGroup', { valueAsNumber: true })}
+                    error={errors.settings?.qualifiersPerGroup?.message}
+                    placeholder="Ex: 2"
+                  />
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="mt-4">
+            <Label>Categorias</Label>
+            <div className="flex items-center gap-2 mb-2">
+              <Input
+                value={newCategory}
+                onChange={(e) => setNewCategory(e.target.value)}
+                placeholder="Nova categoria"
+                className="flex-grow"
+              />
+              <Button type="button" variant="outline" onClick={addCategory}><Plus size={16} /></Button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(watch('categories') || []).map(cat => (
+                <span key={cat} className="flex items-center bg-brand-purple/10 text-brand-purple text-xs px-3 py-1 rounded-full">
+                  {cat}
+                  <button type="button" onClick={() => removeCategory(cat)} className="ml-1.5 text-brand-purple/70 hover:text-brand-purple">
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
             </div>
           </div>
 
-           {/* Categories */}
-           <div className="mt-4">
-              <Label>Categorias</Label>
-              <div className="flex items-center gap-2 mb-2">
-                <Input
-                  value={newCategory}
-                  onChange={(e) => setNewCategory(e.target.value)}
-                  placeholder="Nova categoria"
-                  className="flex-grow"
-                />
-                <Button type="button" variant="outline" onClick={addCategory}><Plus size={16} /></Button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {(watch('categories') || []).map(cat => (
-                  <span key={cat} className="flex items-center bg-brand-purple/10 text-brand-purple text-xs px-3 py-1 rounded-full">
-                    {cat}
-                    <button type="button" onClick={() => removeCategory(cat)} className="ml-1.5 text-brand-purple/70 hover:text-brand-purple">
-                      <X size={12} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            </div>
-
-          {/* Court Selection */}
           <div className="mt-4">
             <Label>Quadras Disponíveis para o Evento</Label>
             {loadingCourts ? (
@@ -399,7 +405,6 @@ export const EventForm = () => {
                           <Checkbox
                             id={`court-${court.id}`}
                             checked={field.value?.includes(court.id)}
-                            // Add explicit type for checked parameter
                             onCheckedChange={(checked: boolean | 'indeterminate') => {
                               const currentIds = field.value || [];
                               if (checked) {
@@ -417,11 +422,10 @@ export const EventForm = () => {
                 />
               </div>
             )}
-             {errors.courtIds && <p className="text-red-500 text-xs mt-1">{errors.courtIds.message}</p>}
+            {errors.courtIds && <p className="text-red-500 text-xs mt-1">{errors.courtIds.message}</p>}
           </div>
         </fieldset>
 
-        {/* Actions */}
         <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-brand-gray">
           <Button type="button" variant="outline" onClick={() => setShowPreviewModal(true)}>
             <Eye size={18} className="mr-1" /> Pré-visualizar
@@ -436,10 +440,9 @@ export const EventForm = () => {
         </div>
       </form>
 
-      {/* Preview Modal */}
       <Modal isOpen={showPreviewModal} onClose={() => setShowPreviewModal(false)} title="Pré-visualização do Evento">
         <TournamentCard
-          tournament={{ ...watchedFormData, id: id || 'preview-id' } as Event} // Cast watched data to Event for preview
+          tournament={{ ...watchedFormData, id: id || 'preview-id' } as Event}
           showActions={false}
         />
       </Modal>

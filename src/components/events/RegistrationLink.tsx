@@ -247,7 +247,18 @@ export const RegistrationLink: React.FC<RegistrationLinkProps> = ({ event }) => 
               
               <div className="transition-all duration-200 hover:shadow-md">
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Email <span className="text-brand-orange">*</span>
+                  Email <span className="text-gray-500">(opcional)</span>
+                </label>
+                <div className="border border-brand-gray/50 rounded-lg p-3 bg-gray-50 focus-within:ring-1 focus-within:ring-brand-green focus-within:border-brand-green">
+                  <div className="flex items-center text-gray-500 text-sm">
+                    <span>Campo de entrada do participante</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="transition-all duration-200 hover:shadow-md">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  CPF <span className="text-brand-orange">*</span>
                 </label>
                 <div className="border border-brand-gray/50 rounded-lg p-3 bg-gray-50 focus-within:ring-1 focus-within:ring-brand-green focus-within:border-brand-green">
                   <div className="flex items-center text-gray-500 text-sm">

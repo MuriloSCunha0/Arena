@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Button } from '../ui/Button';
 import {
@@ -11,14 +11,17 @@ import {
   MapPin,
   Calendar,
   XCircle,
-  List
+  List,
+  HelpCircle
 } from 'lucide-react';
 import { useTournamentStore, useParticipantsStore, useCourtsStore } from '../../store';
 import { useNotificationStore } from '../ui/Notification';
-import { Match, Participant, Court, TeamFormationType, EventType } from '../../types'; // Import Event type and enums
+import { Match, Participant, Court, TeamFormationType, EventType, Tournament } from '../../types';
 import { Modal } from '../ui/Modal';
 import { formatDateTime } from '../../utils/formatters';
 import { TournamentRandomizer } from './TournamentRandomizer';
+import { calculateGroupRankings, GroupRanking } from '../../utils/rankingUtils';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip';
 
 interface TournamentBracketProps {
   eventId: string;
@@ -33,8 +36,9 @@ interface MatchCardProps {
   onClick?: () => void;
   highlighted?: boolean;
   byeMatch?: boolean;
-  court?: string; // Nome da quadra
-  scheduledTime?: string; // Horário agendado
+  court?: string;
+  scheduledTime?: string;
+  completed?: boolean;
 }
 
 const MatchCard: React.FC<MatchCardProps> = ({ 
@@ -47,7 +51,8 @@ const MatchCard: React.FC<MatchCardProps> = ({
   highlighted = false,
   byeMatch = false,
   court,
-  scheduledTime
+  scheduledTime,
+  completed = false
 }) => {
   const hasTeams = teamA && teamB;
   const isCompleted = scoreA !== undefined && scoreB !== undefined;
@@ -72,7 +77,6 @@ const MatchCard: React.FC<MatchCardProps> = ({
         <span className="font-bold">{isCompleted ? scoreB : '-'}</span>
       </div>
       
-      {/* Informações da quadra e horário */}
       {(court || scheduledTime) && (
         <div className="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-500">
           {court && (
@@ -125,7 +129,6 @@ const MatchEditor: React.FC<MatchEditorProps> = ({ match, onSave, onClose, parti
     }
   };
   
-  // Obter nomes reais dos times
   const team1Name = match.team1 && match.team1.length > 0 
     ? participantMap.get(match.team1[0]) || 'Time 1' 
     : 'Time 1';
@@ -181,7 +184,6 @@ const MatchEditor: React.FC<MatchEditorProps> = ({ match, onSave, onClose, parti
   );
 };
 
-// Adicionar novo componente para agendar partida
 interface ScheduleMatchProps {
   match: Match;
   courts: Court[];
@@ -202,10 +204,9 @@ const ScheduleMatch: React.FC<ScheduleMatchProps> = ({ match, courts, onSave, on
       setScheduledDate(dateTime.toISOString().split('T')[0]);
       setScheduledTime(dateTime.toTimeString().substring(0, 5));
     } else {
-      // Padrão para hoje
       const now = new Date();
       setScheduledDate(now.toISOString().split('T')[0]);
-      setScheduledTime('10:00'); // Hora padrão
+      setScheduledTime('10:00');
     }
   }, [match]);
   
@@ -302,46 +303,46 @@ const ScheduleMatch: React.FC<ScheduleMatchProps> = ({ match, courts, onSave, on
   );
 };
 
-// Update the type for the fetched event data
 interface FetchedEventData {
   id: string;
   title: string;
-  team_formation: TeamFormationType; // Use the enum
+  team_formation: TeamFormationType;
   max_participants: number;
-  type: EventType; // Add type
-  // Other fields from DB if needed
+  type: EventType;
 }
-
 
 export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId }) => {
   const {
     tournament,
     selectedMatch,
-    loading: loadingTournament, // Rename for clarity
-    error: tournamentError, // Rename for clarity
+    loading: loadingTournament,
+    error: tournamentError,
     fetchTournament,
-    createTournament,
+    generateFormedBracket: generateFormedStructure,
+    generateRandomBracketAndGroups: generateRandomStructure,
+    generateEliminationBracket,
     updateMatchResults,
     startTournament,
     selectMatch,
     updateMatchSchedule,
-    generateBracket, // Action called by TournamentRandomizer
   } = useTournamentStore();
 
   const { eventParticipants, loading: loadingParticipants, fetchParticipantsByEvent } = useParticipantsStore();
   const { courts, loading: loadingCourts, fetchCourts } = useCourtsStore();
   const addNotification = useNotificationStore((state) => state.addNotification);
   const [showMatchEditor, setShowMatchEditor] = useState(false);
-  const [generatingBracket, setGeneratingBracket] = useState(false); // For 'FORMED' type
+  const [generatingStructure, setGeneratingStructure] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [skipTeamIds, setSkipTeamIds] = useState<string[]>([]);
   const [showSkipTeamModal, setShowSkipTeamModal] = useState(false);
-  const [currentEvent, setCurrentEvent] = useState<FetchedEventData | null>(null); // Use updated type
+  const [currentEvent, setCurrentEvent] = useState<FetchedEventData | null>(null);
   const [loadingEventDetails, setLoadingEventDetails] = useState(true);
   const [viewMode, setViewMode] = useState<'all' | 'by-court'>('all');
   const [selectedCourtId, setSelectedCourtId] = useState<string | null>(null);
+  const [showGroupRankingsModal, setShowGroupRankingsModal] = useState(false);
+  const [calculatedRankings, setCalculatedRankings] = useState<Record<number, GroupRanking[]>>({});
 
-  const participantMap = useMemo(() => { // Memoize participant map
+  const participantMap = useMemo(() => {
       const map = new Map<string, string>();
       eventParticipants.forEach((participant: Participant) => {
           map.set(participant.id, participant.name);
@@ -349,14 +350,15 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       return map;
   }, [eventParticipants]);
 
-  // Fetch necessary data
+  const bracketContainerRef = useRef<HTMLDivElement>(null);
+  const matchCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
   useEffect(() => {
     if (eventId) {
-      // Fetch event details first
       setLoadingEventDetails(true);
       supabase
         .from('events')
-        .select('id, title, team_formation, max_participants, type') // Fetch needed fields including type
+        .select('id, title, team_formation, max_participants, type')
         .eq('id', eventId)
         .single()
         .then(({ data, error }) => {
@@ -364,7 +366,6 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
             console.error("Error fetching event details:", error);
             addNotification({ type: 'error', message: 'Erro ao buscar detalhes do evento.' });
           } else if (data) {
-            // Store as FetchedEventData
             setCurrentEvent(data as FetchedEventData);
           } else {
              addNotification({ type: 'error', message: 'Evento não encontrado.' });
@@ -372,10 +373,8 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
           setLoadingEventDetails(false);
         });
 
-      // Fetch other data concurrently
       fetchTournament(eventId).catch((err) => {
         console.log("Tournament might not exist yet:", err.message);
-        // Avoid showing error if it's just not found initially
         if (err.message && !err.message.includes('JSON object requested') && !err.message.includes('Not Found')) {
           addNotification({ type: 'warning', message: 'Não foi possível buscar dados do torneio existente.' });
         }
@@ -389,44 +388,68 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     }
   }, [eventId, fetchTournament, fetchParticipantsByEvent, fetchCourts, addNotification]);
 
-
-  // Show errors from tournament store
   useEffect(() => {
     if (tournamentError) {
       addNotification({ type: 'error', message: tournamentError });
-      // Consider clearing the error in the store after displaying
     }
   }, [tournamentError, addNotification]);
 
-  // Handler for generating bracket for FORMED teams
-  const handleGenerateFormedBracket = async () => {
+  const handleGenerateFormedStructure = async () => {
     if (!eventId || eventParticipants.length < 2) {
-      addNotification({ type: 'warning', message: 'É necessário pelo menos 2 participantes para gerar o chaveamento' });
+      addNotification({ type: 'warning', message: 'É necessário pelo menos 2 participantes/duplas para gerar a estrutura' });
       return;
     }
+    if (!currentEvent) return;
 
-    // Always use forceReset if tournament exists (confirmation dialog has already been shown)
     const forceReset = !!tournament;
+    if (forceReset && !window.confirm('Já existe um torneio. Deseja recriar a estrutura? Isso apagará todas as partidas existentes.')) {
+        return;
+    }
 
     try {
-      setGeneratingBracket(true);
-      const participantIds = eventParticipants.map(p => p.id);
-      
-      // Pass forceReset option to createTournament
-      await createTournament(eventId, participantIds, skipTeamIds, courts, { forceReset });
-      
-      addNotification({ type: 'success', message: 'Chaveamento gerado com sucesso!' });
-      setSkipTeamIds([]); // Reset byes
+      setGeneratingStructure(true);
+      const teams: string[][] = [];
+      const processedIds = new Set<string>();
+      eventParticipants.forEach(p => {
+          if (!processedIds.has(p.id)) {
+              if (p.partnerId && eventParticipants.find(partner => partner.id === p.partnerId)) {
+                  teams.push([p.id, p.partnerId]);
+                  processedIds.add(p.id);
+                  processedIds.add(p.partnerId);
+              } else {
+                  teams.push([p.id]);
+                  processedIds.add(p.id);
+              }
+          }
+      });
+
+      await generateFormedStructure(eventId, teams, { forceReset });
+
+      addNotification({ type: 'success', message: 'Estrutura do torneio gerada com sucesso!' });
+      setSkipTeamIds([]);
     } catch (err) {
-      console.error('Error generating formed bracket:', err);
-      addNotification({ type: 'error', message: err instanceof Error ? err.message : 'Erro ao gerar chaveamento' });
+      console.error('Error generating formed structure:', err);
+      addNotification({ type: 'error', message: err instanceof Error ? err.message : 'Erro ao gerar estrutura' });
     } finally {
-      setGeneratingBracket(false);
+      setGeneratingStructure(false);
     }
   };
 
-  // ... (handleStartTournament, handleMatchClick, handleSaveMatchResults, handleScheduleMatch, toggleSkipTeam, filterMatchesByCourt, handleAutoAssignCourts remain the same) ...
-   const handleStartTournament = async () => {
+  const handleGenerateElimination = async () => {
+      if (!tournament) return;
+      try {
+          setGeneratingStructure(true);
+          await generateEliminationBracket(tournament.id);
+          addNotification({ type: 'success', message: 'Fase eliminatória gerada com sucesso!' });
+      } catch (err) {
+          console.error('Error generating elimination bracket:', err);
+          addNotification({ type: 'error', message: err instanceof Error ? err.message : 'Erro ao gerar fase eliminatória' });
+      } finally {
+          setGeneratingStructure(false);
+      }
+  };
+
+  const handleStartTournament = async () => {
     if (!tournament) return;
     try {
       await startTournament(tournament.id);
@@ -437,13 +460,12 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
   };
 
   const handleMatchClick = (match: Match) => {
-    // Allow scheduling even if teams are not defined yet
     if (match.team1 && match.team2 && !match.completed) {
       selectMatch(match);
-      setShowMatchEditor(true); // Show score editor
+      setShowMatchEditor(true);
     } else if (!match.completed) {
        selectMatch(match);
-       setShowScheduleModal(true); // Show schedule editor if not completed
+       setShowScheduleModal(true);
     } else {
       addNotification({ type: 'info', message: 'Esta partida já foi concluída.' });
     }
@@ -453,11 +475,10 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     try {
       await updateMatchResults(matchId, score1, score2);
       addNotification({ type: 'success', message: 'Resultado atualizado!' });
-      // fetchTournament(eventId); // Store should update automatically
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro ao atualizar resultado.';
       addNotification({ type: 'error', message: errorMessage });
-      throw err; // Re-throw to keep modal open on error
+      throw err;
     }
   };
 
@@ -465,11 +486,10 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     try {
       await updateMatchSchedule(matchId, courtId, scheduledTime);
       addNotification({ type: 'success', message: 'Partida agendada!' });
-      // fetchTournament(eventId); // Store should update automatically
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro ao agendar partida.';
       addNotification({ type: 'error', message: errorMessage });
-      throw err; // Re-throw to keep modal open on error
+      throw err;
     }
   };
 
@@ -483,32 +503,26 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     });
   };
 
-  // Função para filtrar partidas por quadra
   const filterMatchesByCourt = (matches: Match[]) => {
     if (!selectedCourtId || viewMode === 'all') return matches;
     return matches.filter(match => match.courtId === selectedCourtId);
   };
 
-  // Função para alocação automática de quadras
   const handleAutoAssignCourts = async () => {
     if (!tournament || !courts.length) return;
 
     try {
-      // Primeiro round apenas
       const firstRoundMatches = tournament.matches.filter(m => m.round === 1 && m.team1 && m.team2);
 
-      // Distribuir as partidas entre as quadras disponíveis
       const updates = firstRoundMatches.map((match, index) => {
         const courtIndex = index % courts.length;
         return {
           matchId: match.id,
           courtId: courts[courtIndex].id,
-          // Horário padrão (poderia ser calculado mais inteligentemente)
           scheduledTime: new Date().toISOString()
         };
       });
 
-      // Atualizar cada partida
       for (const update of updates) {
         await updateMatchSchedule(update.matchId, update.courtId, update.scheduledTime);
       }
@@ -527,12 +541,108 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     }
   };
 
+  const handleShowRankings = () => {
+    if (!tournament || !matchesByStage.GROUP) {
+      addNotification({ type: 'warning', message: 'Dados do torneio ou partidas de grupo não disponíveis.' });
+      return;
+    }
 
-  // Combined loading state
+    const rankings: Record<number, GroupRanking[]> = {};
+    let allMatchesCompleted = true;
+    for (const groupNum in matchesByStage.GROUP) {
+      const groupMatches = matchesByStage.GROUP[groupNum];
+      const completedMatches = groupMatches.filter(match => match.completed);
+      if (completedMatches.length !== groupMatches.length) {
+        allMatchesCompleted = false;
+      }
+      rankings[groupNum] = calculateGroupRankings(completedMatches);
+    }
+
+    setCalculatedRankings(rankings);
+    setShowGroupRankingsModal(true);
+  };
+
   const isDataLoading = loadingTournament || loadingParticipants || loadingCourts || loadingEventDetails;
 
+  const matchesByStage = useMemo(() => {
+    if (!tournament?.matches) return { GROUP: {}, ELIMINATION: [] };
+    return tournament.matches.reduce((acc, match) => {
+      if (match.stage === 'GROUP') {
+        const groupNum = match.groupNumber ?? 0;
+        if (!acc.GROUP[groupNum]) acc.GROUP[groupNum] = [];
+        acc.GROUP[groupNum].push(match);
+      } else {
+        acc.ELIMINATION.push(match);
+      }
+      return acc;
+    }, { GROUP: {} as Record<number, Match[]>, ELIMINATION: [] as Match[] });
+  }, [tournament?.matches]);
+
+  const groupNumbers = Object.keys(matchesByStage.GROUP).map(Number).sort((a, b) => a - b);
+  const eliminationMatches = matchesByStage.ELIMINATION;
+
+  const currentStage: 'GROUP' | 'ELIMINATION' | 'NONE' = useMemo(() => {
+      if (!tournament) return 'NONE';
+      if (eliminationMatches.length > 0) return 'ELIMINATION';
+      if (groupNumbers.length > 0) return 'GROUP';
+      return 'NONE';
+  }, [tournament, eliminationMatches, groupNumbers]);
+
+  const isGroupStageComplete = useMemo(() => {
+      if (currentStage !== 'GROUP') return false;
+      return groupNumbers.every(num =>
+          matchesByStage.GROUP[num].every(match => match.completed)
+      );
+  }, [currentStage, groupNumbers, matchesByStage.GROUP]);
+
+  const { eliminationRoundsArray, bracketLines } = useMemo(() => {
+    const rounds: Record<number, Match[]> = {};
+    eliminationMatches.forEach(match => {
+      if (match?.round !== undefined && match.round !== null) {
+        if (!rounds[match.round]) rounds[match.round] = [];
+        rounds[match.round].push(match);
+      }
+    });
+
+    const roundsArray = Object.entries(rounds)
+      .map(([round, matches]) => ({
+        round: parseInt(round),
+        matches: matches.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)),
+      }))
+      .sort((a, b) => a.round - b.round);
+
+    const lines: Array<{ key: string; d: string }> = [];
+    if (roundsArray.length > 1) {
+      const roundWidth = 256;
+      const gapWidth = 32;
+      const cardHeightEstimate = 80;
+      const verticalGap = 24;
+      const matchSlotHeight = cardHeightEstimate + verticalGap;
+
+      roundsArray.forEach((roundData, roundIndex) => {
+        if (roundIndex < roundsArray.length - 1) {
+          roundData.matches.forEach((match, matchIndex) => {
+            if (!match) return;
+
+            const startX = roundIndex * (roundWidth + gapWidth) + roundWidth;
+            const startY = matchIndex * matchSlotHeight + (matchSlotHeight / 2) - (verticalGap / 2);
+            const midX = startX + gapWidth / 2;
+            const endX = (roundIndex + 1) * (roundWidth + gapWidth);
+
+            const nextMatchIndex = Math.floor(matchIndex / 2);
+            const nextMatchY = nextMatchIndex * (matchSlotHeight * 2) + (matchSlotHeight) - (verticalGap / 2);
+
+            const d = `M ${startX} ${startY} H ${midX} V ${nextMatchY} H ${endX}`;
+            lines.push({ key: `${match.id}-line`, d });
+          });
+        }
+      });
+    }
+
+    return { eliminationRoundsArray: roundsArray, bracketLines: lines };
+  }, [eliminationMatches]);
+
   if (isDataLoading) {
-    // ... (loading indicator remains the same) ...
      return (
       <div className="flex justify-center items-center py-12">
         <Loader2 size={32} className="animate-spin text-brand-green" />
@@ -541,155 +651,143 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     );
   }
 
-  // --- RENDER LOGIC ---
-
-  // If tournament structure exists, render the bracket
   if (tournament) {
-    // ... (Bracket rendering logic remains largely the same, using participantMap) ...
-     // Group matches by round - VERSÃO CORRIGIDA
-    const rounds = tournament.matches.reduce((acc, match) => {
-      // Ignorar partidas nulas ou com erro de dados
-      if (!match || match.round === undefined || match.round === null) return acc;
-
-      if (!acc[match.round]) acc[match.round] = [];
-      acc[match.round].push(match);
-      return acc;
-    }, {} as Record<number, Match[]>);
-
-    const roundsArray = Object.entries(rounds)
-      .map(([round, matches]) => ({
-        round: parseInt(round),
-        matches: matches.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)), // Adicionando fallback para posições nulas
-      }))
-      .sort((a, b) => a.round - b.round);
-
     return (
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <h3 className="text-lg font-semibold text-brand-blue">Chaveamento do Torneio</h3>
+            <h3 className="text-lg font-semibold text-brand-blue">
+                {currentStage === 'GROUP' ? 'Fase de Grupos' :
+                 currentStage === 'ELIMINATION' ? 'Fase Eliminatória' :
+                 'Chaveamento do Torneio'}
+            </h3>
             <p className="text-sm text-gray-500">
-              Clique em uma partida para agendar ou atualizar os resultados.
+              {currentStage === 'GROUP' ? 'Resultados e classificação dos grupos.' :
+               currentStage === 'ELIMINATION' ? 'Clique em uma partida para agendar ou atualizar.' :
+               'Gerencie o chaveamento do torneio.'}
             </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {/* Status indicators and control buttons */}
-            {tournament.status === 'CREATED' && (
+            {tournament.status === 'CREATED' && currentStage !== 'NONE' && (
               <Button onClick={handleStartTournament}>
                 <PlayCircle size={18} className="mr-1" /> Iniciar Torneio
               </Button>
             )}
-
-            {tournament.status === 'STARTED' && courts.length > 0 && (
-              <Button
-                onClick={handleAutoAssignCourts}
-                variant="outline"
-              >
-                <MapPin size={18} className="mr-1" /> Alocar Quadras
-              </Button>
-            )}
-
-            {tournament.status === 'STARTED' && (
-              <span className="inline-flex items-center px-3 py-1 rounded-full bg-brand-green/20 text-brand-green text-sm">
-                <PlayCircle size={16} className="mr-1" /> Em andamento
-              </span>
-            )}
-             {tournament.status === 'FINISHED' && (
-              <span className="inline-flex items-center px-3 py-1 rounded-full bg-brand-purple/20 text-brand-purple text-sm">
-                <Award size={16} className="mr-1" /> Finalizado
-              </span>
-            )}
-             {tournament.status === 'CANCELLED' && (
-              <span className="inline-flex items-center px-3 py-1 rounded-full bg-red-100 text-red-700 text-sm">
-                <XCircle size={16} className="mr-1" /> Cancelado
-              </span>
-            )}
-
-            {/* Add button to regenerate bracket */}
-             {(tournament.status === 'CREATED' || tournament.status === 'CANCELLED') && currentEvent?.team_formation === TeamFormationType.FORMED && (
-                 <Button
-                    onClick={handleGenerateFormedBracket}
-                    variant="outline"
-                    disabled={generatingBracket}
-                    loading={generatingBracket}
-                 >
-                    <RefreshCw size={18} className="mr-1" /> Regenerar
+            {currentStage === 'GROUP' && (
+                 <Button variant="outline" onClick={handleShowRankings}>
+                    <List size={18} className="mr-1" /> Ver Ranking Grupos
                  </Button>
-             )}
-             {/* Consider adding regenerate for RANDOM type if needed */}
-
+            )}
+            {currentStage === 'GROUP' && isGroupStageComplete && tournament.status === 'STARTED' && (
+                 <Button
+                    onClick={handleGenerateElimination}
+                    disabled={generatingStructure}
+                    loading={generatingStructure}
+                 >
+                    <RefreshCw size={18} className="mr-1" /> Gerar Fase Eliminatória
+                 </Button>
+            )}
           </div>
         </div>
 
-        {/* Adicionar controle de visualização */}
-        {courts.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 pb-4 border-b border-brand-gray">
-            <span className="text-sm font-medium text-brand-blue">Visualização:</span>
+        {currentStage === 'GROUP' && (
+          <div className="space-y-6">
+            <h4 className="text-md font-semibold text-brand-blue">Partidas dos Grupos</h4>
+            {groupNumbers.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {groupNumbers.map(groupNum => (
+                  <div key={groupNum} className="bg-white border border-gray-200 rounded-lg p-4">
+                    <h5 className="font-medium text-brand-purple mb-3">Grupo {groupNum}</h5>
+                    <div className="space-y-3">
+                      {matchesByStage.GROUP[groupNum]
+                        .sort((a, b) => (a.id > b.id ? 1 : -1))
+                        .map(match => {
+                          const teamA = match.team1 && match.team1.length > 0 ? participantMap.get(match.team1[0]) : 'TBD';
+                          const teamB = match.team2 && match.team2.length > 0 ? participantMap.get(match.team2[0]) : 'TBD';
+                          const court = match.courtId ? courts.find(c => c.id === match.courtId)?.name : undefined;
+                          const scheduledTime = match.scheduledTime ? formatDateTime(match.scheduledTime).split(' ')[1] : undefined;
 
-            <div className="flex bg-gray-100 rounded-md overflow-hidden">
-              <button
-                className={`px-3 py-1.5 text-sm ${viewMode === 'all' ? 'bg-brand-blue text-white' : 'text-gray-700 hover:bg-gray-200'}`}
-                onClick={() => setViewMode('all')}
-              >
-                Geral
-              </button>
-              <button
-                className={`px-3 py-1.5 text-sm ${viewMode === 'by-court' ? 'bg-brand-blue text-white' : 'text-gray-700 hover:bg-gray-200'}`}
-                onClick={() => setViewMode('by-court')}
-              >
-                Por Quadra
-              </button>
-            </div>
-
-            {viewMode === 'by-court' && (
-              <select
-                className="bg-white border border-brand-gray rounded-md px-3 py-1.5 text-sm"
-                value={selectedCourtId || ''}
-                onChange={(e) => setSelectedCourtId(e.target.value || null)}
-              >
-                <option value="">Todas as quadras</option>
-                {courts.map(court => (
-                  <option key={court.id} value={court.id}>
-                    {court.name}
-                  </option>
+                          return (
+                            <div key={match.id} className="border-b pb-3 last:border-b-0">
+                               <MatchCard
+                                  teamA={teamA}
+                                  teamB={teamB}
+                                  scoreA={match.score1 ?? undefined}
+                                  scoreB={match.score2 ?? undefined}
+                                  winner={match.winnerId || undefined}
+                                  onClick={() => handleMatchClick(match)}
+                                  highlighted={selectedMatch?.id === match.id}
+                                  court={court}
+                                  scheduledTime={scheduledTime}
+                                  completed={match.completed}
+                               />
+                            </div>
+                          );
+                      })}
+                    </div>
+                  </div>
                 ))}
-              </select>
+              </div>
+            ) : (
+              <p className="text-gray-500">Nenhum grupo encontrado.</p>
             )}
           </div>
         )}
 
-        {/* Visualização do chaveamento */}
-        {viewMode === 'all' ? (
-          // Visualização padrão de chaveamento
-          <div className="overflow-x-auto bg-gray-50 p-4 rounded-lg">
-            <div className="inline-flex space-x-8 p-4 min-w-full">
-              {roundsArray.map(({ round, matches }) => (
-                <div key={round} className="space-y-4 flex-shrink-0">
+        {currentStage === 'ELIMINATION' && (
+          <div ref={bracketContainerRef} className="overflow-x-auto bg-gray-50 p-4 rounded-lg relative">
+            {bracketLines.length > 0 && (
+              <svg
+                className="absolute top-0 left-0 w-full h-full pointer-events-none"
+                style={{ minWidth: `${eliminationRoundsArray.length * (256 + 32)}px` }}
+              >
+                <defs></defs>
+                {bracketLines.map(line => (
+                  <path
+                    key={line.key}
+                    d={line.d}
+                    stroke="#cbd5e1"
+                    strokeWidth="2"
+                    fill="none"
+                  />
+                ))}
+              </svg>
+            )}
+            <div className="inline-flex space-x-8 p-4 min-w-full relative z-10">
+              {eliminationRoundsArray.map(({ round, matches }) => (
+                <div key={round} className="space-y-6 flex-shrink-0 w-64">
                   <h4 className="font-medium text-center text-brand-blue">
-                    {round === roundsArray.length ? 'Final' : `Rodada ${round}`}
+                    {round === eliminationRoundsArray.length ? 'Final' :
+                     round === eliminationRoundsArray.length -1 && eliminationRoundsArray.length > 1 ? 'Semi-Final' :
+                     `Rodada ${round}`}
                   </h4>
                   <div className="flex flex-col space-y-6">
                     {matches.filter(match => match !== null).map((match) => {
-                      let teamA = match.team1 && match.team1.length > 0 ? participantMap.get(match.team1[0]) : null;
-                      let teamB = match.team2 && match.team2.length > 0 ? participantMap.get(match.team2[0]) : null;
-                      const isByeMatch = !!(match.completed && match.team2 === null && match.team1);
+                      const teamAName = match.team1?.map(id => participantMap.get(id) || 'N/A').join(' & ') || null;
+                      const teamBName = match.team2?.map(id => participantMap.get(id) || 'N/A').join(' & ') || null;
+                      const isByeMatch = !!(match.completed && (match.team1 === null || match.team2 === null) && !(match.team1 === null && match.team2 === null));
                       const court = match.courtId ? courts.find(c => c.id === match.courtId)?.name : undefined;
                       const scheduledTime = match.scheduledTime ? formatDateTime(match.scheduledTime).split(' ')[1] : undefined;
 
                       return (
-                        <div key={match.id} className="flex items-center justify-center">
+                        <div
+                          key={match.id}
+                          ref={el => matchCardRefs.current[match.id] = el}
+                          className="flex items-center justify-center"
+                        >
                           <MatchCard
-                            teamA={teamA || (match.team1 ? 'Time não encontrado' : null)}
-                            teamB={teamB || (match.team2 ? 'Time não encontrado' : null)}
-                            scoreA={match.score1 ?? undefined} // Convert null to undefined
-                            scoreB={match.score2 ?? undefined} // Convert null to undefined
+                            teamA={teamAName}
+                            teamB={teamBName}
+                            scoreA={match.score1 ?? undefined}
+                            scoreB={match.score2 ?? undefined}
                             winner={match.winnerId || undefined}
                             onClick={() => handleMatchClick(match)}
                             highlighted={selectedMatch?.id === match.id}
                             byeMatch={isByeMatch}
                             court={court}
                             scheduledTime={scheduledTime}
+                            completed={match.completed}
                           />
                         </div>
                       );
@@ -699,133 +797,14 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
               ))}
             </div>
           </div>
-        ) : (
-          // Visualização por quadra
-          <div className="space-y-6">
-            {selectedCourtId ? (
-              // Visualização de uma quadra específica
-              <div className="bg-white rounded-lg border border-brand-gray p-4">
-                <h4 className="font-medium text-lg text-center text-brand-blue mb-4">
-                  {courts.find(c => c.id === selectedCourtId)?.name || 'Quadra'}
-                </h4>
-
-                {filterMatchesByCourt(tournament.matches).length > 0 ? (
-                  <div className="space-y-4">
-                    {filterMatchesByCourt(tournament.matches).map((match) => {
-                      let teamA = match.team1 && match.team1.length > 0 ? participantMap.get(match.team1[0]) : null;
-                      let teamB = match.team2 && match.team2.length > 0 ? participantMap.get(match.team2[0]) : null;
-                      const isByeMatch = !!(match.completed && !match.score1 && !match.score2 && (match.team1 || match.team2));
-                      const court = match.courtId ? courts.find(c => c.id === match.courtId)?.name : undefined;
-                      const scheduledTime = match.scheduledTime ? formatDateTime(match.scheduledTime).split(' ')[1] : undefined;
-
-                      return (
-                        <div key={match.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50">
-                          <div className="flex justify-between items-start mb-2">
-                            <div>
-                              <span className="text-xs font-medium text-brand-purple">Rodada {match.round} • Posição {match.position}</span>
-                            </div>
-                            {scheduledTime && (
-                              <span className="text-xs bg-brand-blue/10 text-brand-blue px-2 py-0.5 rounded">
-                                {scheduledTime}
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="flex flex-col space-y-2">
-                            <div className={`flex justify-between items-center p-2 rounded ${match.winnerId === 'team1' ? 'bg-brand-green/10' : ''}`}>
-                              <span className="font-medium">{teamA || 'TBD'}</span>
-                              <span className="font-bold">{match.score1 ?? '-'}</span> {/* Use nullish coalescing for display */}
-                            </div>
-                            <div className={`flex justify-between items-center p-2 rounded ${match.winnerId === 'team2' ? 'bg-brand-green/10' : ''}`}>
-                              <span className="font-medium">{teamB || 'TBD'}</span>
-                              <span className="font-bold">{match.score2 ?? '-'}</span> {/* Use nullish coalescing for display */}
-                            </div>
-                          </div>
-
-                          <div className="mt-3 pt-3 border-t border-gray-100 flex justify-end">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleMatchClick(match)}
-                              disabled={isByeMatch}
-                            >
-                              {match.completed ? 'Ver Detalhes' : 'Atualizar'}
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="text-center py-8 bg-gray-50 rounded-lg">
-                    <MapPin className="mx-auto h-10 w-10 text-gray-300" />
-                    <p className="mt-2 text-sm text-gray-500">Nenhuma partida agendada para esta quadra</p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              // Visualização de todas as quadras
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {courts.map(court => {
-                  const courtMatches = tournament.matches.filter(m => m.courtId === court.id);
-
-                  return (
-                    <div key={court.id} className="bg-white rounded-lg border border-brand-gray p-4">
-                      <h4 className="font-medium text-brand-blue mb-2 flex items-center">
-                        <MapPin size={16} className="mr-1" />
-                        {court.name}
-                      </h4>
-
-                      {courtMatches.length > 0 ? (
-                        <div className="space-y-2">
-                          {courtMatches.slice(0, 3).map((match) => {
-                            let teamA = match.team1 && match.team1.length > 0 ? participantMap.get(match.team1[0]) : null;
-                            let teamB = match.team2 && match.team2.length > 0 ? participantMap.get(match.team2[0]) : null;
-                            const scheduledTime = match.scheduledTime ? formatDateTime(match.scheduledTime).split(' ')[1] : undefined;
-
-                            return (
-                              <div key={match.id} className="border-b border-gray-100 pb-2 last:border-b-0">
-                                <div className="flex justify-between items-center text-xs text-gray-500 mb-1">
-                                  <span>Rodada {match.round}</span>
-                                  {scheduledTime && <span>{scheduledTime}</span>}
-                                </div>
-                                <p className="text-sm">
-                                  <span className="font-medium">{teamA || 'TBD'}</span>
-                                  <span className="mx-1 text-gray-400">vs</span>
-                                  <span className="font-medium">{teamB || 'TBD'}</span>
-                                </p>
-                              </div>
-                            );
-                          })}
-
-                          {courtMatches.length > 3 && (
-                            <div className="text-center pt-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedCourtId(court.id);
-                                }}
-                              >
-                                Ver todas ({courtMatches.length})
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-gray-500 py-4 text-center">
-                          Nenhuma partida agendada
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
         )}
 
-        {/* Modals */}
+        {currentStage === 'NONE' && (
+            <div className="text-center py-10 text-gray-500">
+                A estrutura do torneio ainda não foi gerada.
+            </div>
+        )}
+
         {selectedMatch && (
           <Modal isOpen={showMatchEditor} onClose={() => setShowMatchEditor(false)} title="Editar Resultado">
             <MatchEditor match={selectedMatch} onSave={handleSaveMatchResults} onClose={() => setShowMatchEditor(false)} participantMap={participantMap} />
@@ -836,21 +815,84 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
             <ScheduleMatch match={selectedMatch} courts={courts} onSave={handleScheduleMatch} onClose={() => setShowScheduleModal(false)} />
           </Modal>
         )}
+        <Modal
+          isOpen={showGroupRankingsModal}
+          onClose={() => setShowGroupRankingsModal(false)}
+          title="Ranking da Fase de Grupos"
+          size="large"
+        >
+          <TooltipProvider>
+            <div className="space-y-6 max-h-[70vh] overflow-y-auto p-1">
+              {Object.entries(calculatedRankings).length > 0 ? (
+                Object.entries(calculatedRankings)
+                  .sort(([numA], [numB]) => parseInt(numA) - parseInt(numB))
+                  .map(([groupNum, rankings]) => (
+                    <div key={groupNum} className="border border-gray-200 rounded-lg p-4">
+                      <h4 className="font-semibold text-brand-purple mb-3">Grupo {groupNum}</h4>
+                      <table className="min-w-full divide-y divide-gray-200 text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">#</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Dupla</th>
+                            <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">
+                              <Tooltip>
+                                <TooltipTrigger className="flex items-center justify-center w-full">V <HelpCircle size={12} className="ml-1 opacity-50" /></TooltipTrigger>
+                                <TooltipContent>Vitórias</TooltipContent>
+                              </Tooltip>
+                            </th>
+                            <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">
+                              <Tooltip>
+                                <TooltipTrigger className="flex items-center justify-center w-full">SG <HelpCircle size={12} className="ml-1 opacity-50" /></TooltipTrigger>
+                                <TooltipContent>Saldo de Games (Games Ganhos - Games Perdidos)</TooltipContent>
+                              </Tooltip>
+                            </th>
+                            <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">
+                              <Tooltip>
+                                <TooltipTrigger className="flex items-center justify-center w-full">PG <HelpCircle size={12} className="ml-1 opacity-50" /></TooltipTrigger>
+                                <TooltipContent>Total de Games Ganhos</TooltipContent>
+                              </Tooltip>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {rankings.map((entry, index) => {
+                            const teamName = entry.teamId.map(id => participantMap.get(id) || 'N/A').join(' & ');
+                            const isQualifier = entry.rank <= 2;
+                            return (
+                              <tr key={entry.teamId.join('-')} className={`hover:bg-gray-50 ${isQualifier ? 'bg-green-50' : ''}`}>
+                                <td className={`px-3 py-2 whitespace-nowrap font-medium ${isQualifier ? 'text-green-700' : ''}`}>
+                                  {entry.rank}
+                                  {isQualifier && <Award size={12} className="inline ml-1 text-yellow-500" />}
+                                </td>
+                                <td className="px-3 py-2 whitespace-nowrap">{teamName}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-center">{entry.stats.wins}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-center">{entry.stats.gameDifference > 0 ? `+${entry.stats.gameDifference}` : entry.stats.gameDifference}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-center">{entry.stats.gamesWon}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))
+              ) : (
+                <p className="text-gray-500 text-center">Nenhum ranking calculado.</p>
+              )}
+            </div>
+          </TooltipProvider>
+          <div className="mt-6 flex justify-end">
+            <Button variant="outline" onClick={() => setShowGroupRankingsModal(false)}>Fechar</Button>
+          </div>
+        </Modal>
       </div>
     );
-  }
-
-  // If tournament structure DOES NOT exist, show generation UI
-  else {
-    // Ensure event details are loaded before deciding which UI to show
+  } else {
     if (!currentEvent) {
        return <div className="text-center text-gray-500 py-8">Carregando detalhes do evento...</div>;
     }
 
-    // Check event type and team formation
     if (currentEvent.type === EventType.TOURNAMENT) {
         if (currentEvent.team_formation === TeamFormationType.RANDOM) {
-            // UI for RANDOM team formation (Animation Wheel)
             if (eventParticipants.length < 4) {
                 return (
                 <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-lg shadow">
@@ -872,108 +914,55 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
             return (
                 <div className="bg-white p-6 md:p-8 rounded-lg shadow border border-brand-gray">
                 <h3 className="text-lg font-medium text-brand-blue mb-4">
-                    Gerar Chaveamento Aleatório
+                    Gerar Grupos e Chaveamento Aleatório
                 </h3>
                 <p className="text-gray-600 mb-6">
-                    Use a roleta abaixo para sortear as duplas e atribuir as quadras iniciais.
+                    Use a roleta para sortear as duplas, formar os grupos e atribuir as quadras iniciais.
                 </p>
                 <TournamentRandomizer
                     eventId={eventId}
                     participants={eventParticipants}
                     courts={courts}
-                    // Add explicit types to the callback parameters
                     onComplete={(
-                        matches: Array<[string, string]>,
+                        teams: Array<[string, string]>,
                         courtAssignments: Record<string, string[]>
                     ) => {
-                        console.log("Randomization complete, calling generateBracket action.");
-                        // Call the store action to save the generated bracket
-                        generateBracket(eventId, matches, courtAssignments, { forceReset: true })
-                            .then(() => addNotification({ type: 'success', message: 'Chaveamento aleatório gerado e salvo!' }))
-                            .catch(err => addNotification({ type: 'error', message: `Erro ao salvar chaveamento: ${err.message}` }));
+                        console.log("Randomization complete, calling generateRandomStructure action.");
+                        generateRandomStructure(eventId, teams, { forceReset: true })
+                          .then(() => addNotification({ type: 'success', message: 'Grupos e partidas aleatórias gerados e salvos!' }))
+                          .catch((err: any) => addNotification({ type: 'error', message: `Erro ao salvar estrutura: ${err.message}` }));
                     }}
                 />
                 </div>
             );
         } else {
-            // UI for FORMED teams
             return (
                 <div className="bg-white p-8 text-center rounded-lg shadow border border-brand-gray">
                 <PlayCircle className="mx-auto h-12 w-12 text-gray-300" />
-                <h3 className="mt-2 text-sm font-semibold text-gray-900">Chaveamento não gerado</h3>
+                <h3 className="mt-2 text-sm font-semibold text-gray-900">Estrutura não gerada</h3>
                 <p className="mt-1 text-sm text-gray-500">
-                    Gere o chaveamento do torneio quando todos os participantes estiverem inscritos.
+                    Gere os grupos e a fase inicial do torneio quando todos os participantes estiverem inscritos.
                 </p>
                 <div className="mt-6 flex flex-col md:flex-row justify-center gap-3">
                     <Button
-                    onClick={() => setShowSkipTeamModal(true)}
-                    variant="outline"
-                    disabled={eventParticipants.length < 3}
+                        onClick={handleGenerateFormedStructure}
+                        disabled={eventParticipants.length < 2 || generatingStructure}
+                        loading={generatingStructure}
                     >
-                    Configurar "Byes"
-                    </Button>
-                    <Button
-                    onClick={handleGenerateFormedBracket} // Use specific handler
-                    disabled={eventParticipants.length < 2 || generatingBracket}
-                    loading={generatingBracket}
-                    >
-                    <RefreshCw size={18} className="mr-1" />
-                    Gerar Chaveamento
+                        <RefreshCw size={18} className="mr-1" />
+                        Gerar Grupos e Partidas
                     </Button>
                 </div>
-                {skipTeamIds.length > 0 && (
-                    <div className="mt-4 p-2 bg-brand-green/10 rounded-lg inline-block">
-                    <p className="text-sm font-medium text-brand-green">
-                        {skipTeamIds.length} equipe(s) receberão "bye"
-                    </p>
-                    </div>
-                )}
-                {eventParticipants.length < 2 && (
+                 {eventParticipants.length < 2 && (
                     <p className="mt-4 text-sm text-brand-orange">
-                    Mínimo de 2 participantes para gerar chaveamento.
+                    Mínimo de 2 participantes/duplas para gerar estrutura.
                     </p>
                 )}
-                {/* Bye selection Modal */}
-                <Modal isOpen={showSkipTeamModal} onClose={() => setShowSkipTeamModal(false)} title="Configurar Passes Automáticos (Byes)">
-                    <div className="space-y-4">
-                    <p className="text-sm text-gray-600">
-                        Selecione as equipes que avançarão automaticamente na primeira rodada:
-                    </p>
-                    <div className="max-h-64 overflow-y-auto border rounded-lg divide-y">
-                        {eventParticipants.map(participant => (
-                        <div
-                            key={participant.id}
-                            className={`p-3 flex items-center justify-between cursor-pointer hover:bg-gray-50 ${skipTeamIds.includes(participant.id) ? 'bg-brand-green/10' : ''}`}
-                            onClick={() => toggleSkipTeam(participant.id)}
-                        >
-                            <span className="font-medium">{participant.name}</span>
-                            <input type="checkbox" checked={skipTeamIds.includes(participant.id)} readOnly className="h-4 w-4 text-brand-green rounded border-gray-300 focus:ring-brand-green" />
-                        </div>
-                        ))}
-                    </div>
-                    <div className="flex justify-end space-x-3 pt-4">
-                        <Button variant="outline" onClick={() => setShowSkipTeamModal(false)}>Cancelar</Button>
-                        <Button onClick={() => setShowSkipTeamModal(false)}>Confirmar</Button>
-                    </div>
-                    </div>
-                </Modal>
                 </div>
             );
         }
-    } else if (currentEvent.type === EventType.POOL) {
-        // UI for POOL type events (Bolão)
-        return (
-            <div className="bg-white p-8 text-center rounded-lg shadow border border-brand-gray">
-                <List className="mx-auto h-12 w-12 text-gray-300" />
-                <h3 className="mt-2 text-sm font-semibold text-gray-900">Gerenciamento de Bolão</h3>
-                <p className="mt-1 text-sm text-gray-500">
-                    Funcionalidades específicas para bolões ainda não implementadas.
-                </p>
-                {/* Add Pool specific management options here later */}
-            </div>
-        );
     } else {
-         return <div className="text-center text-gray-500 py-8">Tipo de evento desconhecido.</div>;
+         return <div className="text-center text-gray-500 py-8">Gerenciamento para tipo de evento '{currentEvent.type}' não implementado aqui.</div>;
     }
   }
 };

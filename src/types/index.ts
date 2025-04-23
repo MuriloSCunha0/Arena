@@ -5,10 +5,10 @@ export enum EventType {
 
 export enum TeamFormationType {
   FORMED = 'FORMED',
-  RANDOM = 'RANDOM'
+  RANDOM = 'RANDOM',
 }
 
-export type EventStatus = 'SCHEDULED' | 'ONGOING' | 'COMPLETED' | 'CANCELLED'; // Added EventStatus
+export type EventStatus = 'SCHEDULED' | 'ONGOING' | 'COMPLETED' | 'CANCELLED';
 
 export interface Event {
   id: string;
@@ -27,12 +27,13 @@ export interface Event {
   categories: string[];
   createdAt: string;
   updatedAt: string;
-  courts?: Court[]; // Array of courts associated with the event
-  courtIds?: string[]; // Used for form handling
+  courts?: Court[]; 
+  courtIds?: string[]; 
   organizerId?: string;
   organizerCommissionRate?: number;
-  organizer?: Organizer; // For loaded relationships
-  status?: EventStatus; // Add status to Event type
+  organizer?: Organizer;
+  status?: EventStatus;
+  settings?: TournamentSettings;
 }
 
 export interface Participant {
@@ -40,8 +41,9 @@ export interface Participant {
   eventId: string;
   eventName?: string;
   name: string;
-  email: string;
-  phone: string;
+  cpf: string; // Novo campo CPF
+  phone: string; // Agora é um identificador principal
+  email?: string; // Email agora é opcional
   partnerId: string | null;
   paymentStatus: 'PENDING' | 'CONFIRMED';
   paymentId?: string;
@@ -50,20 +52,31 @@ export interface Participant {
   pixPaymentCode?: string;
   pixQrcodeUrl?: string;
   paymentTransactionId?: string;
-  birthDate?: string | null; // Added birthDate
+  birthDate?: string | null;
   partnerName?: string | null;
 }
 
-/**
- * Tipo para uma quadra esportiva
- */
+// Nova interface para resultados de participantes
+export interface ParticipantResult {
+  id: string;
+  participantId: string;
+  tournamentId: string;
+  eventId: string;
+  position: number | null;
+  stage: string | null;
+  points: number | null;
+  eliminatedBy: string[] | null;
+  notes: string | null;
+  createdAt: string;
+}
+
 export interface Court {
   id: string;
   name: string;
   location: string;
-  type: 'PADEL' | 'BEACH_TENNIS' | 'OTHER'; // Add missing type property
-  status: 'AVAILABLE' | 'MAINTENANCE' | 'BOOKED'; // Add missing status property
-  surface?: string; // tipo de superfície: saibro, grama sintética, etc.
+  type: 'PADEL' | 'BEACH_TENNIS' | 'OTHER';
+  status: 'AVAILABLE' | 'MAINTENANCE' | 'BOOKED';
+  surface?: string;
   indoor: boolean;
   active: boolean;
   imageUrl?: string;
@@ -72,25 +85,29 @@ export interface Court {
   updatedAt: string;
 }
 
-/**
- * Tipo para uma reserva de quadra
- */
 export interface CourtReservation {
   id: string;
   courtId: string;
   eventId?: string;
   matchId?: string;
   title: string;
-  start: string; // formato ISO
-  end: string; // formato ISO
+  start: string;
+  end: string;
   status: 'CONFIRMED' | 'PENDING' | 'CANCELED';
   createdAt: string;
   updatedAt: string;
 }
 
+export interface TournamentSettings {
+  qualifiersPerGroup?: number;
+  groupSize?: number;
+  // Outras configurações conforme necessário
+}
+
 export interface Match {
   id: string;
   eventId: string;
+  tournamentId: string;
   round: number;
   position: number;
   team1: string[] | null;
@@ -100,19 +117,50 @@ export interface Match {
   winnerId: 'team1' | 'team2' | null;
   completed: boolean;
   scheduledTime: string | null;
-  courtId?: string | null; // Make courtId optional
-  courtReservationId?: string | null; // Add court reservation ID
+  courtId?: string | null;
+  courtReservationId?: string | null;
+  stage: 'GROUP' | 'ELIMINATION';
+  groupNumber: number | null;
+  walkover?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Tournament {
   id: string;
   eventId: string;
-  rounds: number;
-  // Add 'CANCELLED' to the status union type
   status: 'CREATED' | 'STARTED' | 'FINISHED' | 'CANCELLED';
   matches: Match[];
-  visualizationData?: any;
-  bracketGenerationTime?: string;
+  settings?: TournamentSettings;
+  type?: string;
+  teamFormation?: TeamFormationType;
+  groups?: Group[];
+  hasEliminationStage?: boolean;
+  allGroupMatchesComplete?: boolean;
+  isNewTournament?: boolean;
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  participants: string[];
+}
+
+export interface GroupRanking {
+  teamId: string[];
+  rank: number;
+  stats: {
+    points: number;
+    wins: number;
+    losses: number;
+    draws: number;
+    setsWon: number;
+    setsLost: number;
+    gamesWon: number;
+    gamesLost: number;
+    matchesPlayed: number;
+    gameDifference?: number; // Adicionar esse campo que está sendo usado
+  };
 }
 
 export interface FinancialTransaction {
@@ -140,9 +188,6 @@ export interface User {
   };
 }
 
-/**
- * Tipo para organizadores de eventos
- */
 export interface Organizer {
   id: string;
   name: string;
@@ -162,8 +207,6 @@ export interface EventSummary {
   organizerCommission: number;
   registeredParticipants: number;
   confirmedParticipants: number;
-  
-  // Add the missing properties
   organizer?: {
     id: string;
     name: string;
@@ -171,9 +214,6 @@ export interface EventSummary {
   maxParticipants: number;
 }
 
-/**
- * Payment processing status
- */
 export interface PaymentProcessResult {
   success: boolean;
   message: string;
@@ -182,9 +222,6 @@ export interface PaymentProcessResult {
   qrcodeUrl?: string;
 }
 
-/**
- * Team Formation Animation Data
- */
 export interface TeamFormationAnimation {
   teams: {
     id: string;
@@ -206,15 +243,43 @@ export interface TeamFormationAnimation {
   }[];
 }
 
-// DTO for creating participants (used by forms/services)
 export interface CreateParticipantDTO {
   eventId: string;
   name: string;
-  email: string;
-  phone: string;
-  birthDate?: string | null; // Added birthDate
+  cpf: string; // Novo campo CPF obrigatório
+  phone: string; // Identificador principal
+  email?: string; // Email agora é opcional
+  birthDate?: string | null;
   partnerId?: string | null;
-  paymentStatus?: 'PENDING' | 'CONFIRMED'; // Usually starts PENDING
+  partnerName?: string | null;
+  paymentStatus?: 'PENDING' | 'CONFIRMED';
   paymentMethod?: string | null;
   paymentId?: string | null;
+}
+
+// Interfaces adicionais que devem ser centralizadas
+export interface EventOrganizer {
+  id: string;
+  eventId: string;
+  userId: string;
+  role: 'ADMIN' | 'ORGANIZER' | 'ASSISTANT';
+  permissions?: Record<string, boolean>;
+  createdAt: string;
+  updatedAt: string;
+  user?: User;
+}
+
+export interface FetchedEventData {
+  id: string;
+  title: string;
+  team_formation: TeamFormationType;
+  max_participants: number;
+  type: EventType;
+}
+
+export interface NotificationType {
+  id: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+  message: string;
+  duration?: number;
 }
