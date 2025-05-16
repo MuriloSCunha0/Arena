@@ -1,28 +1,37 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Calendar, Search, ChevronDown, Users, Ticket, Clock, Loader2 } from 'lucide-react';
+import { Search, Users, Calendar, Clock, ChevronDown, Loader2, Ticket } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
-import { EventType, TeamFormationType } from '../../types';
-import { useEventsStore } from '../../store';
+import { useEventsStore, useParticipantsStore } from '../../store';
 import { useNotificationStore } from '../../components/ui/Notification';
+import { EventType } from '../../types';
 
 export const EventsList = () => {
-  const { events, loading, error, fetchEvents } = useEventsStore();
+  const { events, loading: eventsLoading, error, fetchEvents } = useEventsStore();
+  const { allParticipants, loading: participantsLoading, fetchAllParticipants } = useParticipantsStore();
   const addNotification = useNotificationStore(state => state.addNotification);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<string>('all');
+  const [filterType, setFilterType] = useState('all');
 
+  // Load events and participants data
   useEffect(() => {
-    fetchEvents().catch(() => {
+    fetchEvents().catch(error => {
       addNotification({
         type: 'error',
-        message: 'Falha ao carregar eventos. Tente novamente mais tarde.'
+        message: 'Falha ao carregar eventos'
       });
     });
-  }, [fetchEvents, addNotification]);
 
+    fetchAllParticipants().catch(error => {
+      addNotification({
+        type: 'error',
+        message: 'Falha ao carregar dados de participantes'
+      });
+    });
+  }, [fetchEvents, fetchAllParticipants, addNotification]);
+
+  // Handle any fetch errors
   useEffect(() => {
-    // Mostrar erro caso ocorra
     if (error) {
       addNotification({
         type: 'error',
@@ -31,20 +40,65 @@ export const EventsList = () => {
     }
   }, [error, addNotification]);
 
+  // Create a map of event ID to participant count (total and confirmed)
+  const eventParticipantCounts = React.useMemo(() => {
+    const counts: Record<string, { total: number, confirmed: number }> = {};
+    
+    if (allParticipants && allParticipants.length > 0) {
+      allParticipants.forEach(participant => {
+        if (participant.eventId) {
+          if (!counts[participant.eventId]) {
+            counts[participant.eventId] = { total: 0, confirmed: 0 };
+          }
+          counts[participant.eventId].total++;
+          
+          // Count confirmed participants separately
+          if (participant.paymentStatus === 'CONFIRMED') {
+            counts[participant.eventId].confirmed++;
+          }
+        }
+      });
+    }
+    
+    return counts;
+  }, [allParticipants]);
+
   const filteredEvents = events.filter(event => {
     // Filter by search term
-    const matchesSearch = event.title.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = searchTerm === '' || 
+      event.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      event.location.toLowerCase().includes(searchTerm.toLowerCase());
+    
     // Filter by event type
     const matchesType = filterType === 'all' || 
-                        (filterType === 'tournament' && event.type === EventType.TOURNAMENT) ||
-                        (filterType === 'pool' && event.type === EventType.POOL);
+      (filterType === 'tournament' && event.type === EventType.TOURNAMENT) ||
+      (filterType === 'pool' && event.type === EventType.POOL);
     
     return matchesSearch && matchesType;
   });
 
+  // Format date to show in a more readable format
   function formatDate(dateString: string): string {
-    return new Date(dateString).toLocaleDateString('pt-BR');
+    const date = new Date(dateString);
+    // Format: DD/MM/YYYY (ex: 21/01/2024)
+    return date.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
   }
+
+  // Format time to show in a more readable format
+  function formatTime(timeString: string): string {
+    // Check if timeString is in HH:MM:SS format
+    if (/^\d{2}:\d{2}:\d{2}/.test(timeString)) {
+      // Return just HH:MM part
+      return timeString.substring(0, 5);
+    }
+    return timeString;
+  }
+
+  const loading = eventsLoading || participantsLoading;
 
   return (
     <div className="space-y-6">
@@ -122,13 +176,48 @@ export const EventsList = () => {
                         </div>
                         <div className="flex items-center text-xs text-gray-500">
                           <Clock size={14} className="mr-1" />
-                          <span>{event.time}</span>
+                          <span>{formatTime(event.time)}</span>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center text-sm text-gray-500">
+                        <div className="flex items-center text-sm">
                           <Users size={14} className="mr-1" />
-                          <span>0/{event.maxParticipants}</span>
+                          <div>
+                            <span className="font-medium text-brand-green">
+                              {(eventParticipantCounts[event.id]?.confirmed || 0)}
+                            </span>
+                            <span className="text-gray-500">/{event.maxParticipants}</span>
+                            <span className="text-xs text-gray-400 ml-1">
+                              (Total: {eventParticipantCounts[event.id]?.total || 0})
+                            </span>
+                          </div>
+                        </div>
+                        {/* Progress bar showing confirmed payments */}
+                        {event.maxParticipants > 0 && (
+                          <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
+                            <div 
+                              className="bg-brand-green h-1.5 rounded-full" 
+                              style={{ width: `${Math.min(100, ((eventParticipantCounts[event.id]?.confirmed || 0) / event.maxParticipants) * 100)}%` }}
+                            ></div>
+                          </div>
+                        )}
+                        
+                        {/* Payment status indicator */}
+                        <div className="flex items-center mt-1">
+                          <div className="flex items-center">
+                            <span className="h-2 w-2 rounded-full bg-brand-green mr-1.5"></span>
+                            <span className="text-xs text-brand-green">
+                              {(eventParticipantCounts[event.id]?.confirmed || 0)} pagamentos confirmados
+                            </span>
+                          </div>
+                          {(eventParticipantCounts[event.id]?.total || 0) - (eventParticipantCounts[event.id]?.confirmed || 0) > 0 && (
+                            <div className="flex items-center ml-3">
+                              <span className="h-2 w-2 rounded-full bg-yellow-400 mr-1.5"></span>
+                              <span className="text-xs text-yellow-600">
+                                {(eventParticipantCounts[event.id]?.total || 0) - (eventParticipantCounts[event.id]?.confirmed || 0)} pendentes
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">

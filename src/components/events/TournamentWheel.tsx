@@ -281,184 +281,193 @@ export const TournamentWheel: React.FC<TournamentWheelProps> = ({
         </p>
       </div>
       
-      <div className="relative" style={{ height: '320px' }}>
-        {/* Nova decoração pulsante em torno da roleta quando estiver girando */}
+      <div className="relative" style={{ height: "440px" }}>
+        {/* Fundo decorativo com gradiente animado */}
+        <div className="absolute inset-0 flex items-center justify-center z-0 overflow-hidden rounded-xl">
+          <div className="w-full h-full bg-gradient-to-r from-blue-900/20 to-purple-900/20 animate-gradient"></div>
+          <div className="absolute w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse-slow"></div>
+          <div className="absolute w-80 h-80 bg-purple-500/10 rounded-full blur-3xl animate-pulse-slow animation-delay-700"></div>
+        </div>
+        
+        {/* Animação de brilho quando girando */}
         {spinning && (
           <div className="absolute inset-0 flex items-center justify-center z-0">
-            <div className="w-72 h-72 rounded-full bg-gradient-to-r from-brand-green/30 to-brand-purple/30 animate-ping"></div>
+            <div className="w-80 h-80 rounded-full bg-gradient-to-r from-blue-500/30 to-purple-500/30 animate-ping-slow"></div>
           </div>
         )}
         
-        {/* Indicador/Seta aprimorado */}
-        <div className="absolute top-0 left-1/2 transform -translate-x-1/2 z-20">
-          <div className="w-12 h-12 flex items-center justify-center">
-            <div className="w-0 h-0 
-              border-l-[12px] border-l-transparent 
-              border-r-[12px] border-r-transparent 
-              border-t-[18px] border-t-brand-purple
-              filter drop-shadow-md"></div>
+        {/* Indicador/seta melhorada */}
+        <div className="absolute top-0 left-1/2 transform -translate-x-1/2 z-30">
+          <div className="w-14 h-14 flex items-center justify-center">
+            <div className="w-0 h-0 border-l-[15px] border-l-transparent border-r-[15px] border-r-transparent border-t-[24px] border-t-brand-purple filter drop-shadow-lg"></div>
           </div>
         </div>
         
-        {/* Roleta com design aprimorado */}
-        <div className="relative z-10">
-          {/* Anel externo decorativo */}
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[280px] h-[280px] rounded-full border-8 border-brand-blue/30 backdrop-blur-sm"></div>
-          
-          {/* Roleta principal */}
-          <div 
-            ref={wheelRef} 
-            className="w-64 h-64 rounded-full mx-auto shadow-xl border-8 border-brand-blue relative overflow-hidden"
-            style={{ 
-              transition: 'transform 3s cubic-bezier(0.1, 0.8, 0.2, 1)',
-              backgroundImage: `
-                repeating-conic-gradient(
-                  from 0deg, 
-                  #FF6B6B 0deg 30deg, 
-                  #4ECDC4 30deg 60deg, 
-                  #FFD166 60deg 90deg, 
-                  #06D6A0 90deg 120deg, 
-                  #118AB2 120deg 150deg, 
-                  #6B48FF 150deg 180deg, 
-                  #FF9F1C 180deg 210deg, 
-                  #1A535C 210deg 240deg, 
-                  #FF6B6B 240deg 270deg, 
-                  #EF476F 270deg 300deg, 
-                  #EC4E20 300deg 330deg, 
-                  #3BCEAC 330deg 360deg
-                )
-              `,
-              boxShadow: '0 0 25px rgba(0,0,0,0.2), inset 0 0 10px rgba(255,255,255,0.2)'
-            }}
-          >
-            {/* Divisores da roleta */}
-            {Array(12).fill(0).map((_, i) => (
-              <div 
-                key={`divider-${i}`} 
-                className="absolute top-0 bottom-0 left-1/2 w-[2px] bg-white/30"
-                style={{ 
-                  transform: `translateX(-50%) rotate(${i * 30}deg)`,
-                  transformOrigin: 'center bottom'
-                }}
-              />
-            ))}
+        {/* Anel externo decorativo */}
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[350px] h-[350px] rounded-full 
+            border-8 border-brand-blue/20 backdrop-blur-sm z-10"></div>
+        
+        {/* Roleta Principal com design aprimorado */}
+        <div 
+          ref={wheelRef} 
+          className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[320px] h-[320px] rounded-full border-8 
+              border-brand-blue shadow-2xl z-20 overflow-hidden"
+          style={{ 
+            transition: 'transform 3s cubic-bezier(0.1, 0.8, 0.2, 1)',
+            backgroundImage: `
+              repeating-conic-gradient(
+                from 0deg, 
+                #FF6B6B 0deg 30deg, 
+                #4ECDC4 30deg 60deg, 
+                #FFD166 60deg 90deg, 
+                #06D6A0 90deg 120deg, 
+                #118AB2 120deg 150deg, 
+                #6B48FF 150deg 180deg, 
+                #FF9F1C 180deg 210deg, 
+                #1A535C 210deg 240deg, 
+                #FF6B6B 240deg 270deg, 
+                #EF476F 270deg 300deg, 
+                #EC4E20 300deg 330deg, 
+                #3BCEAC 330deg 360deg
+              )
+            `,
+            boxShadow: '0 0 40px rgba(0,0,0,0.3), inset 0 0 20px rgba(255,255,255,0.2)'
+          }}
+        >
+          {/* Divisores da roleta com efeito 3D */}
+          {Array(12).fill(0).map((_, i) => (
+            <div 
+              key={`divider-${i}`} 
+              className="absolute top-0 bottom-0 left-1/2 w-[3px] bg-white/40"
+              style={{ 
+                transform: `translateX(-50%) rotate(${i * 30}deg)`,
+                transformOrigin: 'center bottom',
+                boxShadow: '0 0 5px rgba(0,0,0,0.3)'
+              }}
+            />
+          ))}
 
-            {/* Participantes na roleta durante etapa de formação de duplas */}
-            {step === 'teams' && availableParticipants.map((participant, index) => {
-              // Calculamos o ângulo para posicionar cada participante uniformemente
-              const angleStep = 360 / availableParticipants.length;
-              const angle = index * angleStep;
-              const rad = (angle - 90) * (Math.PI / 180); // -90 para começar do topo
-              
-              // Raio do círculo um pouco menor que o tamanho total para não tocar a borda
-              const radius = 100;
-              const x = radius * Math.cos(rad);
-              const y = radius * Math.sin(rad);
-              
-              // Cor de destaque para cada participante
-              const bgColor = colors[index % colors.length];
-              
-              return (
-                <div 
-                  key={participant.id}
-                  className="absolute flex items-center justify-center bg-white rounded-full shadow-md w-16 h-16 transform -translate-x-1/2 -translate-y-1/2 border-2 transition-all duration-300 hover:scale-110"
-                  style={{
-                    left: `calc(50% + ${x}px)`,
-                    top: `calc(50% + ${y}px)`,
-                    borderColor: bgColor,
-                    backgroundColor: bgColor + '15', // Cor suave de fundo
-                    boxShadow: `0 4px 8px rgba(0,0,0,0.1), 0 0 0 2px ${bgColor}40`
-                  }}
-                >
-                  <div className="flex flex-col items-center">
-                    {participant.name?.split(' ')[0]?.charAt(0).toUpperCase() && (
-                      <span className="text-lg font-bold" style={{ color: bgColor }}>
-                        {participant.name?.split(' ')[0]?.charAt(0).toUpperCase()}
-                      </span>
-                    )}
-                    <span className="text-[10px] font-semibold text-center truncate w-14">
-                      {participant.name?.split(' ')[0]}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
+          {/* Participantes na roleta durante etapa de formação de duplas - design melhorado */}
+          {step === 'teams' && availableParticipants.map((participant, index) => {
+            // Calculamos o ângulo para posicionar cada participante uniformemente
+            const angleStep = 360 / availableParticipants.length;
+            const angle = index * angleStep;
+            const rad = (angle - 90) * (Math.PI / 180); // -90 para começar do topo
             
-            {/* Quadras na roleta durante etapa de atribuição */}
-            {step === 'courts' && courts.map((court, index) => {
-              const angleStep = 360 / courts.length;
-              const angle = index * angleStep;
-              const rad = (angle - 90) * (Math.PI / 180);
-              const radius = 100;
-              const x = radius * Math.cos(rad);
-              const y = radius * Math.sin(rad);
-              
-              // Cor para cada quadra
-              const bgColor = colors[index % colors.length];
-              
-              return (
-                <div 
-                  key={court.id}
-                  className="absolute flex items-center justify-center bg-white rounded-full shadow-md w-16 h-16 transform -translate-x-1/2 -translate-y-1/2 border-2 transition-all hover:scale-110"
-                  style={{
-                    left: `calc(50% + ${x}px)`,
-                    top: `calc(50% + ${y}px)`,
-                    borderColor: bgColor,
-                    backgroundColor: bgColor + '20', // Cor suave
-                    boxShadow: `0 4px 8px rgba(0,0,0,0.1), 0 0 0 2px ${bgColor}40`
-                  }}
-                >
-                  <div className="flex flex-col items-center justify-center">
-                    <span className="text-xs font-semibold text-center truncate w-14" style={{ color: bgColor }}>
-                      {court.name}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
+            // Raio do círculo um pouco menor que o tamanho total para não tocar a borda
+            const radius = 120;
+            const x = radius * Math.cos(rad);
+            const y = radius * Math.sin(rad);
             
-            {/* Círculo central com resultado da seleção atual - mais elaborado */}
-            <div className="absolute inset-0 flex items-center justify-center z-10">
-              <div className="w-32 h-32 rounded-full backdrop-blur-sm flex items-center justify-center"
-                   style={{ backgroundColor: 'rgba(255,255,255,0.9)', boxShadow: '0 0 20px rgba(0,0,0,0.15)' }}>
-                <div className="w-24 h-24 bg-white rounded-full border-4 border-brand-blue flex items-center justify-center"
-                     style={{ boxShadow: 'inset 0 0 10px rgba(0,0,0,0.1)' }}>
-                  {spinning ? (
-                    <div className="animate-pulse">
-                      <RotateCw size={32} className="text-brand-blue animate-spin" />
-                    </div>
-                  ) : currentParticipant && step === 'teams' ? (
-                    <div className="flex flex-col items-center">
-                      <span className="text-lg font-bold text-brand-purple">
-                        {currentParticipant.name?.split(' ')[0]?.charAt(0).toUpperCase()}
-                      </span>
-                      <span className="text-sm font-bold text-center text-brand-purple">
-                        {currentParticipant.name?.split(' ')[0]}
-                      </span>
-                    </div>
-                  ) : currentCourt && step === 'courts' ? (
-                    <div className="flex flex-col items-center">
-                      <MapPin size={16} className="text-brand-green mb-1" />
-                      <span className="text-sm font-bold text-center text-brand-green">
-                        {currentCourt.name}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center">
-                      {processingStage === 0 ? (
-                        <PlayCircle size={28} className="text-brand-blue mb-1" />
-                      ) : (
-                        <RotateCw size={28} className="text-brand-blue mb-1" />
-                      )}
-                      <span className="text-xs text-center text-gray-400">
-                        {processingStage === 0 ? 'Iniciar' : 'Girar'}
-                      </span>
-                    </div>
+            // Cor de destaque para cada participante
+            const bgColor = colors[index % colors.length];
+            
+            return (
+              <div 
+                key={participant.id}
+                className="absolute flex items-center justify-center bg-white rounded-full shadow-lg w-18 h-18 transform -translate-x-1/2 -translate-y-1/2 border-2 transition-all duration-300 hover:scale-110 z-20"
+                style={{
+                  left: `calc(50% + ${x}px)`,
+                  top: `calc(50% + ${y}px)`,
+                  borderColor: bgColor,
+                  backgroundColor: bgColor + '15', // Cor suave de fundo
+                  boxShadow: `0 4px 12px rgba(0,0,0,0.15), 0 0 0 3px ${bgColor}30`
+                }}
+              >
+                <div className="flex flex-col items-center p-1">
+                  {participant.name?.charAt(0).toUpperCase() && (
+                    <span className="text-xl font-bold" style={{ color: bgColor }}>
+                      {participant.name?.charAt(0).toUpperCase()}
+                    </span>
                   )}
+                  <span className="text-[10px] font-semibold text-center truncate w-14">
+                    {participant.name}
+                  </span>
                 </div>
+              </div>
+            );
+          })}
+          
+          {/* Quadras na roleta durante etapa de atribuição - design melhorado */}
+          {step === 'courts' && courts.map((court, index) => {
+            const angleStep = 360 / courts.length;
+            const angle = index * angleStep;
+            const rad = (angle - 90) * (Math.PI / 180);
+            const radius = 120;
+            const x = radius * Math.cos(rad);
+            const y = radius * Math.sin(rad);
+            
+            // Cor para cada quadra
+            const bgColor = colors[index % colors.length];
+            
+            return (
+              <div 
+                key={court.id}
+                className="absolute flex items-center justify-center bg-white rounded-full shadow-lg w-18 h-18 transform -translate-x-1/2 -translate-y-1/2 border-2 transition-all hover:scale-110 z-20"
+                style={{
+                  left: `calc(50% + ${x}px)`,
+                  top: `calc(50% + ${y}px)`,
+                  borderColor: bgColor,
+                  backgroundColor: bgColor + '20', // Cor suave
+                  boxShadow: `0 4px 12px rgba(0,0,0,0.15), 0 0 0 3px ${bgColor}30`
+                }}
+              >
+                <div className="flex flex-col items-center justify-center p-1">
+                  <span className="text-xs font-semibold text-center truncate w-14" style={{ color: bgColor }}>
+                    {court.name}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+          
+          {/* Círculo central com resultado da seleção atual - design moderno e elevado */}
+          <div className="absolute inset-0 flex items-center justify-center z-30">
+            <div className="w-36 h-36 rounded-full backdrop-blur-md flex items-center justify-center"
+                 style={{ backgroundColor: 'rgba(255,255,255,0.95)', boxShadow: '0 0 30px rgba(0,0,0,0.2)' }}>
+              <div className="w-28 h-28 bg-white rounded-full border-4 border-brand-blue/80 flex items-center justify-center"
+                   style={{ boxShadow: 'inset 0 0 15px rgba(0,0,0,0.1), 0 8px 16px -4px rgba(0,0,0,0.1)' }}>
+                {spinning ? (
+                  <div className="animate-pulse">
+                    <RotateCw size={36} className="text-brand-blue animate-spin" />
+                  </div>
+                ) : currentParticipant && step === 'teams' ? (
+                  <div className="flex flex-col items-center">
+                    <span className="text-2xl font-bold text-brand-purple">
+                      {currentParticipant.name?.charAt(0).toUpperCase()}
+                    </span>
+                    <span className="text-sm font-bold text-center text-brand-purple max-w-[90%] overflow-hidden">
+                      {currentParticipant.name}
+                    </span>
+                  </div>
+                ) : currentCourt && step === 'courts' ? (
+                  <div className="flex flex-col items-center">
+                    <MapPin size={20} className="text-brand-green mb-1" />
+                    <span className="text-sm font-bold text-center text-brand-green">
+                      {currentCourt.name}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center">
+                    {processingStage === 0 ? (
+                      <PlayCircle size={32} className="text-brand-blue/80 mb-1" />
+                    ) : (
+                      <RotateCw size={32} className="text-brand-blue/80 mb-1" />
+                    )}
+                    <span className="text-xs text-center text-gray-500">
+                      {processingStage === 0 ? 'Iniciar' : 'Girar'}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
+        </div>
+        
+        {/* Efeitos de luz na borda da roleta */}
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[320px] h-[320px] rounded-full z-15 overflow-hidden pointer-events-none">
+          <div className="absolute top-0 left-0 w-full h-10 bg-gradient-to-b from-white/30 to-transparent"></div>
+          <div className="absolute bottom-0 left-0 w-full h-10 bg-gradient-to-t from-black/20 to-transparent"></div>
         </div>
       </div>
       
@@ -468,7 +477,7 @@ export const TournamentWheel: React.FC<TournamentWheelProps> = ({
           <div className="bg-gradient-to-r from-brand-purple/20 to-brand-blue/20 p-4 rounded-lg inline-block shadow-sm border border-brand-purple/20">
             <p className="text-sm font-medium text-brand-purple flex items-center">
               <Trophy size={16} className="mr-2" />
-              Formando dupla: <span className="font-bold mx-1">{currentPair[0].name?.split(' ')[0]}</span>
+              Formando dupla: <span className="font-bold mx-1">{currentPair[0].name}</span>
               {selectedParticipants.length % 2 === 1 ? ' + ...' : ''}
             </p>
           </div>
@@ -541,9 +550,14 @@ export const TournamentWheel: React.FC<TournamentWheelProps> = ({
                     <div className="h-8 w-8 rounded-full bg-brand-blue/10 flex items-center justify-center text-brand-blue font-medium mr-2">
                       {index + 1}
                     </div>
-                    <span className="font-medium">
-                      {p1?.name?.split(' ')[0]} + {p2?.name?.split(' ')[0]}
-                    </span>
+                    <div>
+                      <span className="font-medium block">
+                        {p1?.name}
+                      </span>
+                      <span className="font-medium block">
+                        {p2?.name}
+                      </span>
+                    </div>
                   </div>
                   {court && (
                     <span className="text-xs bg-brand-green/10 text-brand-green px-3 py-1 rounded-full border border-brand-green/20">
@@ -564,6 +578,93 @@ export const TournamentWheel: React.FC<TournamentWheelProps> = ({
           <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-brand-purple/10 to-transparent"></div>
         </div>
       )}
+      
+      {/* Adicione essa classe CSS em algum lugar do seu arquivo global de estilos */}
+      <style>{`
+        @keyframes ping-slow {
+          0% { transform: scale(0.95); opacity: 0.8; }
+          50% { transform: scale(1.05); opacity: 0.4; }
+          100% { transform: scale(0.95); opacity: 0.8; }
+        }
+        
+        @keyframes pulse-slow {
+          0%, 100% { opacity: 0.6; }
+          50% { opacity: 1; }
+        }
+        
+        @keyframes spin-slow {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        
+        /* Remove white border from wheel container */
+        .modal-content,
+        .modal-content > div,
+        .modal-body {
+          border: none !important;
+          background-color: transparent !important;
+          outline: none !important;
+          box-shadow: none !important;
+        }
+        
+        /* Target image and its container */
+        .modal-content img,
+        .modal-content [class*="wheel"] {
+          border: none !important;
+          box-shadow: none !important;
+          background: transparent !important;
+        }
+        
+        /* Override any other borders that might be applied */
+        .modal-dialog {
+          border: none !important;
+          outline: none !important;
+        }
+        
+        /* Hide any parent frames */
+        .tournament-wheel-parent {
+          border: none !important;
+          background: transparent !important;
+        }
+        
+        /* Remove the white square around wheel elements */
+        img[src*="wheel"],
+        div[class*="wheel"] {
+          border: none !important;
+          box-shadow: none !important;
+        }
+        
+        .animate-ping-slow {
+          animation: ping-slow 3s cubic-bezier(0, 0, 0.2, 1) infinite;
+        }
+        
+        .animate-pulse-slow {
+          animation: pulse-slow 3s ease-in-out infinite;
+        }
+        
+        .animate-spin-slow {
+          animation: spin-slow 15s linear infinite;
+        }
+        
+        .animate-gradient {
+          background-size: 200% 200%;
+          animation: gradient 5s ease infinite;
+        }
+        
+        .animation-delay-700 {
+          animation-delay: 0.7s;
+        }
+        
+        .winner-animation {
+          animation: winner-glow 2s ease-in-out;
+        }
+        
+        @keyframes winner-glow {
+          0% { box-shadow: 0 0 5px rgba(16, 185, 129, 0.3); }
+          50% { box-shadow: 0 0 30px rgba(16, 185, 129, 0.8); }
+          100% { box-shadow: 0 0 5px rgba(16, 185, 129, 0.3); }
+        }
+      `}</style>
     </div>
   );
 };

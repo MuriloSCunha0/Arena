@@ -13,12 +13,16 @@ import {
 import confetti from 'canvas-confetti';
 import { Participant, Court } from '../../types';
 
+// Import the metadata interface from TournamentRandomizer
+import { TournamentMetadata } from './TournamentRandomizer';
+
 interface BracketAnimationProps {
   participants: Participant[];
   courts: Court[];
   onComplete: (
     teams: Array<[string, string]>,
-    courtAssignments: Record<string, string[]>
+    courtAssignments: Record<string, string[]>,
+    metadata?: TournamentMetadata
   ) => void | Promise<void>;
   autoPlay?: boolean;
   speed?: number;
@@ -28,6 +32,7 @@ interface BracketAnimationProps {
 interface PairWithGroup {
   participants: [Participant, Participant];
   groupNumber?: number; // Optional group number
+  side?: 'left' | 'right'; // Side of the bracket (left or right)
 }
 
 export const BracketAnimation: React.FC<BracketAnimationProps> = ({
@@ -41,11 +46,9 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const wheelRef = useRef<HTMLDivElement>(null);
   const selectedNameRef = useRef<HTMLDivElement>(null);
-
   // Estados
   const [isPlaying, setIsPlaying] = useState(autoPlay);
   const [currentStep, setCurrentStep] = useState<'pairing' | 'grouping' | 'courting'>('pairing');
-  const [selectedParticipants, setSelectedParticipants] = useState<Participant[]>([]);
   const [formedPairs, setFormedPairs] = useState<PairWithGroup[]>([]);
   const [groups, setGroups] = useState<Array<Array<[Participant, Participant]>>>([]);
   const [courtAssignmentsInternal, setCourtAssignmentsInternal] = useState<Record<string, Court>>({});
@@ -54,9 +57,11 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
   const [completed, setCompleted] = useState(false);
   const [selectedParticipant, setSelectedParticipant] = useState<Participant | null>(null);
   const [rotationAngle, setRotationAngle] = useState(0);
+  const [selectedParticipants, setSelectedParticipants] = useState<Participant[]>([]);
 
   // Copia dos participantes para sorteio
   const [remainingParticipants, setRemainingParticipants] = useState<Participant[]>([]);
+  // Adicionar estado para as quadras restantes
   const [remainingCourts, setRemainingCourts] = useState<Court[]>([]);
 
   // Animação
@@ -90,7 +95,6 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
     const shuffled = [...participants].sort(() => Math.random() - 0.5);
     setRemainingParticipants(shuffled);
     setRemainingCourts([...courts]);
-    setSelectedParticipants([]);
     setFormedPairs([]);
     setGroups([]);
     setCourtAssignmentsInternal({});
@@ -113,8 +117,224 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
     });
 
     if (onComplete) {
+      // Antes de dividir os pares em lados, vamos atribuir grupos
+      const defaultGroupSize = 3; // Tamanho padrão de grupo é 3 pares
+      const totalPairs = formedPairs.length;
+      
+      // Copiamos os pares e embaralhamos novamente para grupos aleatórios
+      let pairsWithGroups = [...formedPairs];
+      pairsWithGroups = pairsWithGroups.sort(() => Math.random() - 0.5);
+      
+      // Atribuir os grupos seguindo as regras de Beach Tênis
+      let groupCount = Math.floor(totalPairs / defaultGroupSize);
+      const remainingPairs = totalPairs % defaultGroupSize;
+      
+      // Cópia de pairsWithGroups para não modificar diretamente
+      const updatedPairs = [...pairsWithGroups];
+      
+      // Atribuir Proporção para grupos menores - para equalizar pontuação
+      const getProportionalFactor = (groupSize: number): number => {
+        // Default size is 3, so we use that as our baseline
+        return defaultGroupSize / Math.max(1, groupSize);
+      };
+      
+      // Rastrear tamanhos dos grupos para pontuação proporcional
+      const groupSizes: Record<number, number> = {};
+      
+      // Atribuir números de grupo baseado nas estratégias específicas
+      if (totalPairs <= 3) {
+        // Se temos 3 ou menos pares, todos ficam no grupo 1
+        updatedPairs.forEach(pair => {
+          pair.groupNumber = 1;
+        });
+        groupSizes[1] = totalPairs;
+      } 
+      else if (totalPairs === 4) {
+        // Para 4 pares, um grupo de 4
+        updatedPairs.forEach(pair => {
+          pair.groupNumber = 1;
+        });
+        groupSizes[1] = 4;
+      }
+      else if (totalPairs === 5) {
+        // Para 5 pares, um grupo de 3 e um grupo de 2
+        updatedPairs.forEach((pair, index) => {
+          pair.groupNumber = index < 3 ? 1 : 2;
+        });
+        groupSizes[1] = 3;
+        groupSizes[2] = 2;
+      }
+      else {
+        // Para 6+ pares
+        if (remainingPairs === 0) {
+          // Caso perfeito: todos os grupos terão exatamente 3 times
+          updatedPairs.forEach((pair, index) => {
+            const groupNum = Math.floor(index / defaultGroupSize) + 1;
+            pair.groupNumber = groupNum;
+            
+            if (!groupSizes[groupNum]) groupSizes[groupNum] = 0;
+            groupSizes[groupNum]++;
+          });
+        } 
+        else if (remainingPairs === 1) {
+          // Sobra 1 par: um grupo com 4 pares, resto com 3
+          // Primeiro distribuímos os grupos de tamanho 3
+          const regularGroups = groupCount - 1;
+          let pairIndex = 0;
+          
+          // Atribuir grupos regulares de tamanho 3
+          for (let group = 1; group <= regularGroups; group++) {
+            for (let i = 0; i < defaultGroupSize; i++) {
+              if (pairIndex < updatedPairs.length) {
+                updatedPairs[pairIndex].groupNumber = group;
+                pairIndex++;
+              }
+            }
+          }
+          
+          // Atribuir o grupo especial com 4 pares
+          for (let i = 0; i < 4; i++) {
+            if (pairIndex < updatedPairs.length) {
+              updatedPairs[pairIndex].groupNumber = regularGroups + 1;
+              pairIndex++;
+            }
+          }
+          
+          // Registrar tamanhos dos grupos
+          for (let i = 1; i <= regularGroups; i++) {
+            groupSizes[i] = defaultGroupSize;
+          }
+          groupSizes[regularGroups + 1] = 4; // Grupo especial com 4 pares
+        }
+        else if (remainingPairs === 2) {
+          // Sobram 2 pares
+          if (totalPairs >= 9) {
+            // Com 9+ pares, é melhor ter um grupo de 2
+            let pairIndex = 0;
+            
+            // Atribuir grupos regulares de tamanho 3
+            for (let group = 1; group <= groupCount; group++) {
+              for (let i = 0; i < defaultGroupSize; i++) {
+                if (pairIndex < updatedPairs.length) {
+                  updatedPairs[pairIndex].groupNumber = group;
+                  pairIndex++;
+                }
+              }
+            }
+            
+            // Atribuir o grupo especial com 2 pares
+            for (let i = 0; i < 2; i++) {
+              if (pairIndex < updatedPairs.length) {
+                updatedPairs[pairIndex].groupNumber = groupCount + 1;
+                pairIndex++;
+              }
+            }
+            
+            // Registrar tamanhos dos grupos
+            for (let i = 1; i <= groupCount; i++) {
+              groupSizes[i] = defaultGroupSize;
+            }
+            groupSizes[groupCount + 1] = 2; // Grupo especial com 2 pares
+          } else {
+            // Com menos de 9 pares, criar dois grupos de 4
+            const regularGroups = groupCount - 2;
+            let pairIndex = 0;
+            
+            // Atribuir grupos regulares de tamanho 3
+            for (let group = 1; group <= regularGroups; group++) {
+              for (let i = 0; i < defaultGroupSize; i++) {
+                if (pairIndex < updatedPairs.length) {
+                  updatedPairs[pairIndex].groupNumber = group;
+                  pairIndex++;
+                }
+              }
+            }
+            
+            // Atribuir dois grupos especiais com 4 pares cada
+            for (let extraGroup = 1; extraGroup <= 2; extraGroup++) {
+              for (let i = 0; i < 4; i++) {
+                if (pairIndex < updatedPairs.length) {
+                  updatedPairs[pairIndex].groupNumber = regularGroups + extraGroup;
+                  pairIndex++;
+                }
+              }
+            }
+            
+            // Registrar tamanhos dos grupos
+            for (let i = 1; i <= regularGroups; i++) {
+              groupSizes[i] = defaultGroupSize;
+            }
+            groupSizes[regularGroups + 1] = 4; // Primeiro grupo especial com 4 pares
+            groupSizes[regularGroups + 2] = 4; // Segundo grupo especial com 4 pares
+          }
+        }
+        else if (remainingPairs === 3) {
+          // Sobram 3 pares: criar um grupo adicional de 3
+          updatedPairs.forEach((pair, index) => {
+            pair.groupNumber = Math.floor(index / defaultGroupSize) + 1;
+          });
+          
+          // Registrar tamanhos dos grupos
+          for (let i = 1; i <= groupCount + 1; i++) {
+            groupSizes[i] = defaultGroupSize;
+          }
+        }
+      }
+      
+      // Calcular e armazenar fatores proporcionais para cada grupo
+      const proportionalFactors: Record<number, number> = {};
+      Object.entries(groupSizes).forEach(([groupNum, size]) => {
+        proportionalFactors[Number(groupNum)] = getProportionalFactor(size);
+      });
+      
+      console.log("Tamanhos dos grupos:", groupSizes);
+      console.log("Fatores proporcionais:", proportionalFactors);
+      
+      // Agora dividimos em lados esquerdo e direito para o chaveamento
+      const totalGroupCount = Math.max(...updatedPairs.map(p => p.groupNumber || 0));
+      const leftGroupCount = Math.ceil(totalGroupCount / 2);
+      
+      // Separar pares por grupos
+      const pairsByGroup: Record<number, typeof updatedPairs> = {};
+      updatedPairs.forEach(pair => {
+        const groupNum = pair.groupNumber || 1;
+        if (!pairsByGroup[groupNum]) {
+          pairsByGroup[groupNum] = [];
+        }
+        pairsByGroup[groupNum].push(pair);
+      });
+      
+      // Atribuir lado para cada grupo (esquerdo ou direito)
+      Object.entries(pairsByGroup).forEach(([groupNum, pairs], index) => {
+        const groupNumber = parseInt(groupNum);
+        const side = groupNumber <= leftGroupCount ? 'left' : 'right';
+        
+        // Atualizar lado para todos os pares deste grupo
+        pairs.forEach(pair => {
+          pair.side = side as 'left' | 'right';
+          // Adicionar informação sobre proporção para uso posterior
+          (pair as any).proportionalFactor = proportionalFactors[groupNumber] || 1;
+        });
+      });
+      
+      // Atualizar o estado com os pares atualizados
+      setFormedPairs(updatedPairs);
+      
+      // Contar pares em cada lado
+      const leftPairs = updatedPairs.filter(p => p.side === 'left');
+      const rightPairs = updatedPairs.filter(p => p.side === 'right');
+      
+      console.log(`Distribuição final: ${leftPairs.length} pares no lado esquerdo, ${rightPairs.length} pares no lado direito`);
+      console.log(`Total de ${totalGroupCount} grupos formados.`);
+
+      // Adicionar metadados sobre tamanhos de grupos e fatores proporcionais
+      const groupMetadata = {
+        groupSizes,
+        proportionalFactors
+      };
+
       // Convert formedPairs to ID pairs
-      const teamData = formedPairs.map(pair => 
+      const teamData = updatedPairs.map(pair => 
         [pair.participants[0].id, pair.participants[1].id] as [string, string]
       );
 
@@ -124,8 +344,20 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
         finalCourtAssignments[matchKey] = [court.id];
       });
 
-      console.log("Finalizing animation. Calling onComplete with:", teamData, finalCourtAssignments);
-      onComplete(teamData, finalCourtAssignments);
+      // Adicionar metadados para identificar os lados do chaveamento e informações de grupos
+      const tournamentMetadata: TournamentMetadata = {
+        bracketSides: {
+          left: leftPairs.map(pair => [pair.participants[0].id, pair.participants[1].id] as [string, string]),
+          right: rightPairs.map(pair => [pair.participants[0].id, pair.participants[1].id] as [string, string]),
+        },
+        groupInfo: groupMetadata
+      };
+
+      console.log("Finalizando animation. Calling onComplete com:", teamData, finalCourtAssignments);
+      console.log("Metadados do torneio:", tournamentMetadata);
+      
+      // Passar metadados extras para o callback de conclusão
+      onComplete(teamData, finalCourtAssignments, tournamentMetadata);
     }
   };
 
@@ -230,7 +462,7 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
     }
   };
 
-  // Iniciar/pausar animação automática
+  // Iniciar/pausar animação
   const togglePlay = () => {
     if (completed) return;
     
@@ -263,8 +495,7 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
     if (spinTimeout.current) clearTimeout(spinTimeout.current);
     if (continuousTimeout.current) clearTimeout(continuousTimeout.current);
 
-    const shuffled = [...participants].sort(() => Math.random() - 0.5);
-    setRemainingParticipants(shuffled);
+    const shuffled = [...participants].sort(() => Math.random() - 0.5);    setRemainingParticipants(shuffled);
     setRemainingCourts([...courts]);
     setSelectedParticipants([]);
     setFormedPairs([]);
@@ -474,6 +705,26 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
                 <div className="text-xs text-violet-500">criados</div>
               </div>
             </div>
+            
+            {/* Informações dos lados do chaveamento */}
+            {completed && (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="bg-blue-50 p-3 rounded-lg text-center">
+                  <div className="text-xs text-blue-600 uppercase font-medium mb-1">Lado Esquerdo</div>
+                  <div className="text-xl font-bold text-blue-700">
+                    {formedPairs.filter(p => p.side === 'left').length}
+                  </div>
+                  <div className="text-xs text-blue-500">duplas</div>
+                </div>
+                <div className="bg-red-50 p-3 rounded-lg text-center">
+                  <div className="text-xs text-red-600 uppercase font-medium mb-1">Lado Direito</div>
+                  <div className="text-xl font-bold text-red-700">
+                    {formedPairs.filter(p => p.side === 'right').length}
+                  </div>
+                  <div className="text-xs text-red-500">duplas</div>
+                </div>
+              </div>
+            )}
           </div>
           
           {/* Lista de duplas formadas */}
@@ -502,11 +753,19 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
                         </div>
                         <span className="ml-2 text-sm font-medium text-gray-500">Dupla {index + 1}</span>
                       </div>
-                      {pair.groupNumber && (
-                        <span className="bg-violet-100 text-violet-800 text-xs px-2 py-1 rounded-full">
-                          Grupo {pair.groupNumber}
-                        </span>
-                      )}
+                      <div className="flex gap-1">
+                        {pair.side && (
+                          <span className={`text-xs px-2 py-1 rounded-full
+                            ${pair.side === 'left' ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'}`}>
+                            Lado {pair.side === 'left' ? 'Esquerdo' : 'Direito'}
+                          </span>
+                        )}
+                        {pair.groupNumber && (
+                          <span className="bg-violet-100 text-violet-800 text-xs px-2 py-1 rounded-full">
+                            Grupo {pair.groupNumber}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex flex-col space-y-2 pl-1">
                       <div className="flex items-center p-1 bg-green-50 rounded-md">
@@ -529,14 +788,17 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
             )}
           </div>
         </div>
-      </div>
-
-      {completed && (
+      </div>      {completed && (
         <div className="w-full bg-gradient-to-r from-green-500 to-green-600 rounded-lg p-6 text-center text-white shadow-lg mt-4">
           <Award size={40} className="mx-auto mb-3 text-yellow-300 drop-shadow-glow" />
           <h4 className="font-bold text-2xl mb-2">Sorteio Finalizado com Sucesso!</h4>
           <p className="text-white/90 mb-4">
-            {formedPairs.length} duplas foram formadas e distribuídas em {groups.length} grupos.
+            {formedPairs.length} duplas foram formadas e divididas em dois lados do chaveamento.
+            <br />
+            <span className="text-white/80 text-sm mt-1 inline-block">
+              {formedPairs.filter(p => p.side === 'left').length} duplas no lado esquerdo e 
+              {' '}{formedPairs.filter(p => p.side === 'right').length} duplas no lado direito.
+            </span>
           </p>
           <Button 
             onClick={handleReset}

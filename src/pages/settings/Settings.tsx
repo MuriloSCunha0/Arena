@@ -1,19 +1,94 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   User, KeyRound, Bell, CreditCard, CircleDollarSign, Shield, 
-  ChevronRight, Save, Check
+  ChevronRight, Save, Check, Loader
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { useAuthStore } from '../../store/authStore';
+import { UserProfileService, UserProfile } from '../../services/userProfileService';
+import { formatCPF, formatPhone } from '../../utils/validation';
+import { useNotificationStore } from '../../components/ui/Notification';
 
 export const Settings = () => {
   const [activeTab, setActiveTab] = useState('profile');
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const { user } = useAuthStore();
+  const addNotification = useNotificationStore(state => state.addNotification);
   
-  const handleSave = () => {
-    // In a real app, this would save the form data
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  // Form fields
+  const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [cpf, setCpf] = useState('');
+  const [birthDate, setBirthDate] = useState('');
+  
+  useEffect(() => {
+    const loadUserProfile = async () => {
+      if (!user) return;
+      
+      try {
+        setLoading(true);
+        const userProfile = await UserProfileService.getByUserId(user.id);
+        setProfile(userProfile);
+        
+        // Set form fields
+        if (userProfile) {
+          setFullName(userProfile.full_name || '');
+          setPhone(userProfile.phone ? formatPhone(userProfile.phone) : '');
+          setCpf(userProfile.cpf ? formatCPF(userProfile.cpf) : '');
+          setBirthDate(userProfile.birth_date || '');
+        }
+      } catch (error) {
+        console.error('Error loading user profile:', error);
+        addNotification({
+          type: 'error',
+          message: 'Erro ao carregar perfil do usuário'
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadUserProfile();
+  }, [user, addNotification]);
+  
+  const handleSave = async () => {
+    if (!user) return;
+    
+    try {
+      // Format data
+      const profileData = {
+        full_name: fullName,
+        phone: phone.replace(/\D/g, ''),
+        cpf: cpf.replace(/\D/g, ''),
+        birth_date: birthDate
+      };
+      
+      await UserProfileService.upsert(user.id, profileData);
+      
+      setSaved(true);
+      addNotification({
+        type: 'success',
+        message: 'Perfil atualizado com sucesso!'
+      });
+      setTimeout(() => setSaved(false), 2000);
+    } catch (error) {
+      console.error('Error saving profile:', error);
+      addNotification({
+        type: 'error',
+        message: 'Erro ao salvar perfil'
+      });
+    }
+  };
+  
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPhone(formatPhone(e.target.value));
+  };
+  
+  const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setCpf(formatCPF(e.target.value));
   };
   
   const tabs = [
@@ -66,51 +141,84 @@ export const Settings = () => {
           </div>
         </div>
         
-        <div className="md:w-3/4 bg-white rounded-lg shadow border border-brand-gray">
-          {activeTab === 'profile' && (
+        <div className="md:w-3/4 bg-white rounded-lg shadow border border-brand-gray">          {activeTab === 'profile' && (
             <div className="p-6">
-              <h2 className="text-lg font-semibold text-brand-blue mb-6">Perfil do Administrador</h2>
-              <form className="space-y-6">
-                <div className="flex items-center">
-                  <div className="h-20 w-20 rounded-full bg-brand-purple/10 flex items-center justify-center text-brand-purple">
-                    <User size={32} />
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm text-gray-500">Foto de perfil</p>
-                    <Button variant="outline" className="mt-2">
-                      Alterar foto
-                    </Button>
-                  </div>
+              <h2 className="text-lg font-semibold text-brand-blue mb-6">Perfil do Usuário</h2>
+              
+              {loading ? (
+                <div className="flex justify-center py-8">
+                  <Loader size={24} className="animate-spin text-brand-green" />
                 </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <Input
-                    label="Nome"
-                    defaultValue="Administrador"
-                  />
+              ) : (
+                <form className="space-y-6">
+                  <div className="flex items-center">
+                    <div className="h-20 w-20 rounded-full bg-brand-purple/10 flex items-center justify-center text-brand-purple overflow-hidden">
+                      {profile?.photo_url ? (
+                        <img 
+                          src={profile.photo_url} 
+                          alt={profile.full_name} 
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <User size={32} />
+                      )}
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-sm text-gray-500">Foto de perfil</p>
+                      <Button variant="outline" className="mt-2" onClick={() => window.location.href = '/perfil'}>
+                        Gerenciar foto
+                      </Button>
+                    </div>
+                  </div>
                   
-                  <Input
-                    label="Sobrenome"
-                    defaultValue="Arena Conexão"
-                  />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <Input
+                      label="Nome completo"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                    />
+                      <Input
+                      label="Email"
+                      type="email"
+                      value={user?.email || ''}
+                      disabled
+                    />
+                    <p className="text-xs text-gray-500 mt-1 ml-1">O email não pode ser alterado</p>
+                    
+                    <Input
+                      label="Telefone"
+                      value={phone}
+                      onChange={handlePhoneChange}
+                      placeholder="(00) 00000-0000"
+                      maxLength={15}
+                    />
+                    
+                    <Input
+                      label="CPF"
+                      value={cpf}
+                      onChange={handleCpfChange}
+                      placeholder="000.000.000-00"
+                      maxLength={14}
+                    />
+                    
+                    <Input
+                      label="Data de nascimento"
+                      type="date"
+                      value={birthDate}
+                      onChange={(e) => setBirthDate(e.target.value)}
+                    />
+                  </div>
                   
-                  <Input
-                    label="Email"
-                    type="email"
-                    defaultValue="admin@arenaconexao.com.br"
-                  />
+                  <Button onClick={handleSave} className="mt-4">
+                    {saved ? <Check size={18} className="mr-2" /> : <Save size={18} className="mr-2" />}
+                    {saved ? 'Salvo com sucesso!' : 'Salvar alterações'}
+                  </Button>
                   
-                  <Input
-                    label="Telefone"
-                    defaultValue="(11) 99999-9999"
-                  />
-                </div>
-                
-                <Button onClick={handleSave} className="mt-4">
-                  {saved ? <Check size={18} className="mr-2" /> : <Save size={18} className="mr-2" />}
-                  {saved ? 'Salvo com sucesso!' : 'Salvar alterações'}
-                </Button>
-              </form>
+                  <p className="text-sm text-gray-500 mt-2">
+                    Visite seu <a href="/perfil" className="text-brand-green hover:underline">perfil completo</a> para ver seu histórico de torneios e mais informações.
+                  </p>
+                </form>
+              )}
             </div>
           )}
           

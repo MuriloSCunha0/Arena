@@ -8,6 +8,7 @@ export interface ModalProps {
   onClose: () => void;
   title?: string;
   size?: 'small' | 'medium' | 'large' | 'full';
+  transparent?: boolean;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -16,6 +17,7 @@ export const Modal: React.FC<ModalProps> = ({
   onClose,
   title,
   size = 'medium',
+  transparent = false,
 }) => {
   const cancelButtonRef = useRef(null);
 
@@ -71,9 +73,10 @@ export const Modal: React.FC<ModalProps> = ({
             leave="ease-in duration-200"
             leaveFrom="opacity-100 translate-y-0 sm:scale-100"
             leaveTo="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
-          >
-            <Dialog.Panel className={`inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle ${getWidthClass()} sm:w-full`}>
-              {title && (
+          >            <Dialog.Panel 
+              className={`inline-block align-bottom ${transparent ? 'bg-transparent' : 'bg-white rounded-lg'} text-left overflow-hidden ${transparent ? '' : 'shadow-xl'} transform transition-all sm:my-8 sm:align-middle ${getWidthClass()} sm:w-full`}
+            >
+              {title && !transparent && (
                 <div className="bg-white px-4 py-3 border-b border-gray-200 flex justify-between items-center">
                   <Dialog.Title
                     as="h3"
@@ -91,7 +94,11 @@ export const Modal: React.FC<ModalProps> = ({
                   </button>
                 </div>
               )}
-              <div className="bg-white px-4 pt-5 pb-4 sm:p-6">{children}</div>
+              {transparent ? (
+                <>{children}</>
+              ) : (
+                <div className="bg-white px-4 pt-5 pb-4 sm:p-6">{children}</div>
+              )}
             </Dialog.Panel>
           </Transition.Child>
         </div>

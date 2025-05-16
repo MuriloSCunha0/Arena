@@ -2,6 +2,8 @@ import { supabase } from '../lib/supabase';
 import { Tournament, Match, Court, TeamFormationType } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { calculateGroupRankings, GroupRanking } from '../utils/rankingUtils'; // Import ranking utility
+import { createTwoSidedBracket, BracketSidesMetadata } from '../utils/bracketSidesUtil'; // Import two-sided bracket utilities
+import { distributeTeamsIntoGroups } from '../utils/groupFormationUtils'; // Import group formation utility
 
 // Interface for potential tournament settings
 interface TournamentSettings {
@@ -131,10 +133,9 @@ export const TournamentService = {
       if (options.groupSize < 3 || options.groupSize > 5) {
         throw new Error("O tamanho do grupo deve estar entre 3 e 5 duplas, preferencialmente 4.");
       }
-    }
-
-    // Use um valor padrão de 4 se não for especificado
-    const groupSize = options?.groupSize || 4;
+    }    // Use um valor padrão de 3 se não for especificado (mudança de 4 para 3)
+    // O valor pode ser sobrescrito pelo chamador, mas manteremos 3 como padrão
+    const defaultGroupSize = options?.groupSize || 3;
 
     const { forceReset = false } = options;
 
@@ -182,22 +183,9 @@ export const TournamentService = {
 
         if (insertError) throw insertError;
         tournamentId = newTournament.id;
-      }
-
-      const groups: string[][][] = [];
-      let currentGroup: string[][] = [];
+      }      // Use a função utilitária para distribuir os times em grupos conforme regras do Beach Tênis
       const shuffledTeams = [...teams].sort(() => Math.random() - 0.5);
-
-      for (const team of shuffledTeams) {
-        currentGroup.push(team);
-        if (currentGroup.length === groupSize) {
-          groups.push(currentGroup);
-          currentGroup = [];
-        }
-      }
-      if (currentGroup.length >= 2) {
-        groups.push(currentGroup);
-      }
+      const groups = distributeTeamsIntoGroups(shuffledTeams, defaultGroupSize);
 
       const allGroupMatches: Omit<Match, 'id' | 'createdAt' | 'updatedAt'>[] = [];
       groups.forEach((group, index) => {
@@ -477,7 +465,79 @@ export const TournamentService = {
     }
   },
 
-  updateMatch: async (matchId: string, score1: number, score2: number): Promise<Match> => {
+  generateTwoSidedEliminationBracket: async (
+    tournamentId: string, 
+    bracketSidesMetadata: BracketSidesMetadata
+  ): Promise<Tournament> => {
+    console.log(`Generating two-sided elimination bracket for tournament ${tournamentId}`);
+    try {
+      const { data: tournamentData, error: tournamentError } = await supabase
+        .from('tournaments')
+        .select('*')
+        .eq('id', tournamentId)
+        .single();
+      if (tournamentError) throw tournamentError;
+      if (!tournamentData) throw new Error("Tournament not found");
+
+      // Delete any existing elimination matches
+      const { error: deleteError } = await supabase
+        .from('tournament_matches')
+        .delete()
+        .eq('tournament_id', tournamentId)
+        .eq('stage', 'ELIMINATION');
+      if (deleteError) throw deleteError;
+
+      // Create the two-sided bracket structure
+      const eliminationMatches = createTwoSidedBracket(
+        tournamentId,
+        tournamentData.event_id,
+        bracketSidesMetadata
+      );
+
+      if (eliminationMatches.length > 0) {
+        // Insert the elimination matches
+        const { error: insertError } = await supabase
+          .from('tournament_matches')
+          .insert(eliminationMatches.map(match => ({
+            tournament_id: match.tournamentId,
+            event_id: match.eventId,
+            round: match.round,
+            position: match.position,
+            team1: match.team1,
+            team2: match.team2,
+            score1: match.score1,
+            score2: match.score2,
+            winner_id: match.winnerId,
+            completed: match.completed,
+            court_id: match.courtId,
+            scheduled_time: match.scheduledTime,
+            stage: match.stage,
+            group_number: match.groupNumber,
+          })));
+        if (insertError) throw insertError;
+      }
+
+      // Update tournament status
+      const { error: updateError } = await supabase
+        .from('tournaments')
+        .update({
+          status: 'ELIMINATION',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', tournamentId);
+      if (updateError) throw updateError;
+
+      // Return the updated tournament
+      const updatedTournament = await TournamentService.getByEventId(tournamentData.event_id);
+      if (!updatedTournament) {
+        throw new Error("Failed to fetch updated tournament data");
+      }
+      return updatedTournament;
+    } catch (error) {
+      handleSupabaseError(error, 'generateTwoSidedEliminationBracket');
+      throw error;
+    }
+  },  updateMatch: async (matchId: string, score1: number, score2: number): Promise<Match> => {
     try {
       const { data: matchData, error: fetchError } = await supabase
         .from('tournament_matches')
@@ -502,8 +562,9 @@ export const TournamentService = {
         if (matchData.stage === 'ELIMINATION') {
           throw new Error("Empates não são permitidos na fase eliminatória.");
         }
-      }
-
+      }      // Verificar se esta é uma partida já concluída anteriormente
+      const isEditingCompletedMatch = matchData.completed && matchData.winner_id !== null;
+      
       const { data: updatedMatch, error: updateError } = await supabase
         .from('tournament_matches')
         .update({
@@ -511,7 +572,8 @@ export const TournamentService = {
           score2: score2,
           winner_id: winnerId,
           completed: true,
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
+          editable: isEditingCompletedMatch ? true : undefined // Marca como editável se estava completa anteriormente
         })
         .eq('id', matchId)
         .select()
@@ -538,13 +600,22 @@ export const TournamentService = {
         groupNumber: updatedMatch.group_number,
         createdAt: updatedMatch.created_at,
         updatedAt: updatedMatch.updated_at,
-      };
-
-      if (updatedMatch.stage === 'ELIMINATION' && winnerId) {
-        await TournamentService.advanceWinner(transformedMatch);
-      }
-
+      };      // Verificar se o vencedor mudou (edição de partida já concluída)
+      const previousWinnerId = matchData.winner_id;
+      const winnerChanged = previousWinnerId !== null && previousWinnerId !== winnerId;
+      
       if (updatedMatch.stage === 'ELIMINATION') {
+        // Se a partida já tinha um vencedor diferente, precisamos atualizar as partidas subsequentes
+        if (winnerChanged) {
+          // Se necessário, poderíamos implementar uma lógica para verificar e corrigir todas as partidas afetadas
+          console.log(`O resultado da partida ${matchId} foi alterado. Vencedor anterior: ${previousWinnerId}, Novo vencedor: ${winnerId}`);
+        }
+        
+        // Sempre avança o vencedor (isso atualizará a próxima partida com o vencedor correto)
+        if (winnerId) {
+          await TournamentService.advanceWinner(transformedMatch);
+        }
+        
         await TournamentService.checkTournamentCompletion(transformedMatch.tournamentId);
       }
 
@@ -555,8 +626,8 @@ export const TournamentService = {
       throw error;
     }
   },
-
   advanceWinner: async (match: any): Promise<void> => {
+    // Não avança o vencedor se não for fase eliminatória, não tiver vencedor ou não tiver times
     if (match.stage !== 'ELIMINATION' || !match.winner_id || !match.team1 || !match.team2) {
       return;
     }

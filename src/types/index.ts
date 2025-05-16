@@ -1,3 +1,5 @@
+import { BeachTennisScore } from './tournament';
+
 export enum EventType {
   TOURNAMENT = 'TOURNAMENT',
   POOL = 'POOL'
@@ -102,6 +104,7 @@ export interface CourtReservation {
 export interface TournamentSettings {
   qualifiersPerGroup?: number;
   groupSize?: number;
+  bracketFormat?: 'SINGLE_ELIMINATION' | 'TWO_SIDED';
   // Outras configurações conforme necessário
 }
 
@@ -125,6 +128,8 @@ export interface Match {
   walkover?: boolean;
   createdAt?: string;
   updatedAt?: string;
+  beachTennisScore?: BeachTennisScore; // Added support for beach tennis scoring
+  editable?: boolean; // Flag to control if match result can be edited even after completion
 }
 
 export interface Tournament {
@@ -139,6 +144,10 @@ export interface Tournament {
   hasEliminationStage?: boolean;
   allGroupMatchesComplete?: boolean;
   isNewTournament?: boolean;
+  bracketSides?: {
+    left: string[][];  // Array of team IDs in the left bracket
+    right: string[][]; // Array of team IDs in the right bracket
+  };
 }
 
 export interface Group {
@@ -147,21 +156,26 @@ export interface Group {
   participants: string[];
 }
 
+export interface GroupTeamStats {
+  teamId: string[]; // Array of participant IDs representing the team
+  wins: number;
+  losses: number;
+  draws?: number;  // Optional for backward compatibility
+  points?: number; // Optional for backward compatibility
+  gamesWon: number;
+  gamesLost: number;
+  gameDifference: number;
+  matchesPlayed: number;
+  setsWon: number;
+  setsLost: number;
+  groupNumber?: number; // Group number for the team
+  headToHeadWins: { [opponentTeamKey: string]: boolean };
+}
+
 export interface GroupRanking {
   teamId: string[];
   rank: number;
-  stats: {
-    points: number;
-    wins: number;
-    losses: number;
-    draws: number;
-    setsWon: number;
-    setsLost: number;
-    gamesWon: number;
-    gamesLost: number;
-    matchesPlayed: number;
-    gameDifference?: number; // Adicionar esse campo que está sendo usado
-  };
+  stats: GroupTeamStats;
 }
 
 export interface FinancialTransaction {
@@ -283,4 +297,24 @@ export interface NotificationType {
   type: 'info' | 'success' | 'warning' | 'error';
   message: string;
   duration?: number;
+}
+
+export interface Team {
+  id: string;
+  player1: string;
+  player2?: string;
+  name?: string;
+  groupNumber?: number;
+  groupRank?: number;
+  points: number;
+  gamesWon: number;
+  gamesLost: number;
+  wins: number;
+  losses: number;
+  rating?: number;
+}
+
+export interface TeamWithNames extends Team {
+  player1Name: string;
+  player2Name?: string;
 }
