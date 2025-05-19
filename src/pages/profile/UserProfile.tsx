@@ -2,37 +2,50 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   User, Calendar, Trophy, Upload, Camera, Edit, CheckCircle,
-  MapPin, DollarSign, ArrowRight, Loader
+  MapPin, DollarSign, ArrowRight, Loader, ShieldCheck, Users
 } from 'lucide-react';
-import { useAuthStore } from '../../store/authStore';
-import { UserProfileService, UserProfileWithStats } from '../../services/userProfileService';
+import { useAuth } from '../../hooks/useAuth';
+import { ParticipanteService, ParticipanteProfileWithStats } from '../../services/participanteService';
 import { Button } from '../../components/ui/Button';
 import { formatDate } from '../../utils/formatters';
 import { useNotificationStore } from '../../components/ui/Notification';
+import { supabase } from '../../lib/supabase';
 
-export const UserProfile = () => {
-  const { user } = useAuthStore();
+export const UserProfile = () => {  const { user, userRole, isAdmin, isParticipante } = useAuth();
   const navigate = useNavigate();
   const addNotification = useNotificationStore(state => state.addNotification);
   
-  const [profile, setProfile] = useState<UserProfileWithStats | null>(null);
+  const [profile, setProfile] = useState<ParticipanteProfileWithStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [userRole, setUserRole] = useState<string>('USER');
-
-  useEffect(() => {
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);  useEffect(() => {
     const loadProfile = async () => {
       if (!user) return;
       
       try {
         setLoading(true);
-        const profileData = await UserProfileService.getProfileWithStats(user.id);
-        setProfile(profileData);
         
-        // Load user role
-        const role = await UserProfileService.checkUserRole(user.id);
-        setUserRole(role);
+        if (isAdmin()) {
+          // For admin users, we just need basic information
+          const { data } = await supabase.auth.getUser();
+          if (data.user) {
+            setProfile({
+              id: data.user.id,
+              email: data.user.email || '',
+              full_name: data.user.user_metadata?.name || 'Administrador',
+              phone: '',
+              cpf: '',
+              birth_date: '',
+              totalParticipations: 0,
+              upcomingEvents: [],
+              pastEvents: []
+            });
+          }
+        } else {
+          // For regular users, load full profile with stats
+          const profileData = await ParticipanteService.getProfileWithStats(user.id);
+          setProfile(profileData);
+        }
       } catch (error) {
         console.error('Error loading profile:', error);
         addNotification({
@@ -45,20 +58,19 @@ export const UserProfile = () => {
     };
     
     loadProfile();
-  }, [user, addNotification]);
+  }, [user, addNotification, isAdmin]);
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       setPhotoFile(e.target.files[0]);
     }
   };
-
   const handlePhotoUpload = async () => {
     if (!user || !photoFile) return;
     
     try {
       setUploadingPhoto(true);
-      const photoUrl = await UserProfileService.uploadProfilePhoto(user.id, photoFile);
+      const photoUrl = await ParticipanteService.uploadProfilePhoto(user.id, photoFile);
       
       // Update local state
       setProfile(prev => prev ? { ...prev, photo_url: photoUrl } : null);
@@ -141,18 +153,22 @@ export const UserProfile = () => {
               <p>{profile?.phone ? `Telefone: ${profile.phone}` : ''}</p>
               <p>{profile?.birth_date ? `Data de Nascimento: ${formatDate(profile.birth_date)}` : ''}</p>
             </div>
-            
-            {/* Role Badge */}
+              {/* Role Badge */}
             <div className="mt-3">
               <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                ${userRole === 'ADMIN' ? 'bg-brand-purple/20 text-brand-purple' :
-                  userRole === 'ORGANIZER' ? 'bg-brand-green/20 text-brand-green' :
-                  userRole === 'ASSISTANT' ? 'bg-brand-blue/20 text-brand-blue' :
-                  'bg-gray-200 text-gray-700'}`}
+                ${isAdmin() ? 'bg-brand-purple/20 text-brand-purple' : 'bg-gray-200 text-gray-700'}`}
               >
-                {userRole === 'ADMIN' ? 'Administrador' :
-                 userRole === 'ORGANIZER' ? 'Organizador' :
-                 userRole === 'ASSISTANT' ? 'Assistente' : 'Usuário'}
+                {isAdmin() ? (
+                  <>
+                    <ShieldCheck size={12} className="mr-1" />
+                    Administrador
+                  </>
+                ) : (
+                  <>
+                    <Users size={12} className="mr-1" />
+                    Participante
+                  </>
+                )}
               </span>
             </div>
           </div>

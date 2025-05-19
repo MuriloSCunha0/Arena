@@ -109,3 +109,12 @@ export interface EventCategorySettings {
   maxTeams?: number;
   tournamentFormat?: TournamentFormatSettings;
 }
+
+// Add this export if the interface already exists in this file
+export interface Match {
+  id: string;
+  tournamentId: string;
+  team1: string[];
+  team2: string[];
+  // Add other properties as needed
+}

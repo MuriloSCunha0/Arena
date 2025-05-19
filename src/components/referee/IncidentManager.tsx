@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MatchIncident, IncidentType } from '../../types/referee';
-import { Match } from '../../types/tournament';
+// Fix the import by importing from a correct location or defining the Match interface
+// import { Match } from '../../types/tournament'; 
 import { User } from '../../types';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
@@ -8,6 +9,15 @@ import { AlertCircle, Clock, Flag, Plus, Trash2, User as UserIcon } from 'lucide
 import { useNotificationStore, useAuthStore } from '../../store';
 import IncidentService from '../../services/supabase/incidentService';
 import { formatDateTime } from '../../utils/formatters';
+
+// Define the Match interface if it's not exported from tournament
+interface Match {
+  id: string;
+  tournamentId: string;
+  team1: string[];
+  team2: string[];
+  // Add other properties as needed
+}
 
 interface IncidentManagerProps {
   match: Match;
@@ -105,7 +115,7 @@ export const IncidentManager: React.FC<IncidentManagerProps> = ({
     }
   };
 
-  const handleDeleteIncident = async (id: string) => {
+  const handleDeleteIncident = async (id: string): Promise<void> => {
     if (!confirm('Tem certeza que deseja excluir este incidente?')) return;
     
     try {

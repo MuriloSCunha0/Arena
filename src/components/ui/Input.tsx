@@ -1,14 +1,14 @@
-import React, { forwardRef, InputHTMLAttributes } from 'react';
+import React, { forwardRef, InputHTMLAttributes, TextareaHTMLAttributes } from 'react';
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
   icon?: React.ReactNode;
-  // outras props que você já tenha...
+  textarea?: boolean;
 }
 
 const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, icon, ...props }, ref) => {
+  ({ label, error, icon, textarea, ...props }, ref) => {
     return (
       <div className="w-full">
         {label && (
@@ -22,20 +22,30 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
               {icon}
             </div>
           )}
-          <input
-            ref={ref}
-            className={`w-full px-${icon ? '10' : '3'} py-2 border rounded-lg shadow-sm 
-              ${error ? 'border-red-500 focus:ring-red-500' : 'border-brand-gray focus:ring-brand-green'} 
-              focus:outline-none focus:ring-2`}
-            {...props}
-          />
+          {textarea ? (
+            <textarea
+              className={`w-full px-${icon ? '10' : '3'} py-2 border rounded-lg shadow-sm 
+                ${error ? 'border-red-500 focus:ring-red-500' : 'border-brand-gray focus:ring-brand-green'} 
+                focus:outline-none focus:ring-2`}
+              {...props as any}
+              ref={ref as any}
+              rows={4}
+            />
+          ) : (
+            <input
+              ref={ref}
+              className={`w-full px-${icon ? '10' : '3'} py-2 border rounded-lg shadow-sm 
+                ${error ? 'border-red-500 focus:ring-red-500' : 'border-brand-gray focus:ring-brand-green'} 
+                focus:outline-none focus:ring-2`}
+              {...props}
+            />
+          )}
         </div>
         {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
       </div>
-    );
-  }
+    );  }
 );
 
-Input.displayName = 'Input'; // Ajuda nas mensagens de erro
+Input.displayName = 'Input'; // Helps with error messages
 
 export { Input };

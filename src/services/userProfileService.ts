@@ -33,6 +33,22 @@ export interface UserProfileWithStats extends UserProfile {
   }>;
 }
 
+// Interface for the event data returned from Supabase
+interface EventData {
+  id: string;
+  title: string;
+  date: string;
+  location: string;
+}
+
+// Interface for participant data returned from Supabase
+interface ParticipantData {
+  id: string;
+  events: EventData | EventData[];
+  partner_name?: string;
+  placement?: string | number;
+}
+
 export interface UserProfileUpdateDTO {
   full_name?: string;
   phone?: string;
@@ -94,15 +110,39 @@ export const UserProfileService = {
       throw error;
     }
   },
-
   // Get comprehensive profile with statistics
   async getProfileWithStats(userId: string): Promise<UserProfileWithStats | null> {
     try {
-      // Get the basic profile first
-      const profile = await this.getByUserId(userId);
-      if (!profile) return null;
+      // Buscar primeiro o perfil básico diretamente da tabela users
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
 
-      // Initialize the enhanced profile
+      if (userError) {
+        if (userError.code === 'PGRST116') {
+          return null; // Usuário não encontrado
+        }
+        throw userError;
+      }
+
+      if (!userData) {
+        return null;
+      }
+
+      // Transformar os dados para o formato do perfil
+      const profile: UserProfile = {
+        id: userData.id,
+        user_id: userData.id,
+        full_name: userData.full_name,
+        phone: userData.phone || '',
+        cpf: userData.cpf || '',
+        birth_date: userData.birth_date || '',
+        photo_url: userData.user_metadata?.photo_url,
+        created_at: userData.created_at,
+        updated_at: userData.updated_at
+      };      // Initialize the enhanced profile
       const enhancedProfile: UserProfileWithStats = {
         ...profile,
         totalParticipations: 0,
@@ -123,23 +163,27 @@ export const UserProfileService = {
           ),
           partner_name,
           placement
-        `)
-        .eq('email', (await supabase.auth.getUser()).data.user?.email)
-        .lt('events.date', new Date().toISOString())
-        .order('events.date', { ascending: false });
+        `) as { data: ParticipantData[] | null, error: any }
 
       if (pastError) throw pastError;
-
+      
       if (pastParticipations) {
         enhancedProfile.totalParticipations = pastParticipations.length;
-        enhancedProfile.pastEvents = pastParticipations.map(p => ({
-          id: p.events.id,
-          title: p.events.title,
-          date: p.events.date,
-          location: p.events.location,
-          placement: p.placement || 'Participou',
-          teamPartner: p.partner_name || undefined
-        }));
+        enhancedProfile.pastEvents = pastParticipations.map(p => {
+          // Handle the case where events might be an array or a single object
+          const eventData = Array.isArray(p.events) ? p.events[0] : p.events;
+          // Check if eventData exists before accessing properties
+          if (!eventData) return null;
+          
+          return {
+            id: eventData.id,
+            title: eventData.title,
+            date: eventData.date,
+            location: eventData.location,
+            placement: p.placement || 'Participou',
+            teamPartner: p.partner_name || undefined
+          };
+        }).filter(Boolean) as UserProfileWithStats['pastEvents'];
       }
 
       // Query for upcoming events the user might be interested in
