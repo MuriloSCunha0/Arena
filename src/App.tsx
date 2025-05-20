@@ -53,11 +53,10 @@ const NotFound = () => (
 );
 
 function App() {
-  const { user, setUser, loading, setUserRole } = useAuthStore();
-  useEffect(() => {
+  const { user, setUser, loading, setUserRole } = useAuthStore();  useEffect(() => {
     // Debug current auth state
     debugAuth().then(result => {
-      console.log('Auth debugging complete:', result.success);
+      console.log('=== Auth debugging complete ===', result.success);
     });
     
     // Check active sessions and sets the user
@@ -65,9 +64,34 @@ function App() {
       setUser(session?.user ?? null);
       
       // If user has metadata with role, set it directly
-      if (session?.user?.user_metadata?.role) {
-        console.log('Setting user role from metadata in App:', session.user.user_metadata.role);
-        setUserRole(session.user.user_metadata.role);
+      if (session?.user) {
+        console.log('=== Initializing auth state in App ===');
+        
+        // Check for role in metadata first (fast check)
+        if (session.user.user_metadata?.role) {
+          console.log('✅ Setting user role from metadata in App:', session.user.user_metadata.role);
+          setUserRole(session.user.user_metadata.role);
+        } else {
+          console.log('❌ No role in user metadata, will check tables');
+        }
+        
+        // More thorough DB check for admin role
+        (async () => {
+          try {
+            const { data: adminData, error: adminError } = await supabase
+              .from('users')
+              .select('user_id')
+              .eq('user_id', session.user.id)
+              .single();
+              
+            if (!adminError && adminData) {
+              console.log('✅ User found in users table during App init - setting as ADMIN');
+              setUserRole('admin');
+            }
+          } catch (err) {
+            console.warn('⚠️ Error checking admin status in App init:', err);
+          }
+        })();
       }
     });
 
@@ -79,7 +103,7 @@ function App() {
       
       // If user has metadata with role, set it directly
       if (session?.user?.user_metadata?.role) {
-        console.log('Setting user role from metadata in auth change:', session.user.user_metadata.role);
+        console.log('✅ Setting user role from metadata in auth change:', session.user.user_metadata.role);
         setUserRole(session.user.user_metadata.role);
       }
     });
@@ -122,7 +146,7 @@ function App() {
 }
 
 const AuthenticatedRoutes = () => {
-  const { isAdmin, isParticipante, isLoading, userRole, user } = useAuth();
+  const { isAdmin, isParticipante, isLoading, userRole, user, userData } = useAuth();
   
   // Show loading while checking permissions
   if (isLoading) {
@@ -131,9 +155,70 @@ const AuthenticatedRoutes = () => {
   
   // Debug logging
   console.log("AuthenticatedRoutes - User:", user?.id);
+  console.log("AuthenticatedRoutes - User Metadata:", user?.user_metadata);
+  console.log("AuthenticatedRoutes - User Data:", userData);
   console.log("AuthenticatedRoutes - User Role:", userRole);
   console.log("AuthenticatedRoutes - Is Admin:", isAdmin());
   console.log("AuthenticatedRoutes - Is Participante:", isParticipante());
+    // Verificar papel do usuário de forma mais detalhada
+  const checkAdminStatus = async () => {
+    if (!user) return false;
+    
+    try {
+      console.log("=== Detailed admin status verification ===");
+      
+      // Verificar primeiro na tabela users (most reliable source)
+      const { data: adminData, error: adminError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', user.id)
+        .single();
+        
+      if (!adminError && adminData) {
+        console.log("✅ User is confirmed admin via users table");
+        return true;
+      }
+      
+      // Depois verificar nos metadados
+      if (user.user_metadata?.role === 'admin') {
+        console.log("✅ User is confirmed admin via metadata");
+        return true;
+      }
+      
+      console.log("❌ User is not an administrator in either source");
+      return false;
+    } catch (error) {
+      console.error("❌ Error checking admin status:", error);
+      return false;
+    }
+  };
+    // Verificação adicional para garantir que o papel está correto
+  useEffect(() => {
+    const verifyUserRole = async () => {
+      if (user) {
+        console.log("=== Verifying user role accuracy ===");
+        
+        // Verificar se é realmente admin mas tem outro papel
+        if (userRole !== 'admin') {
+          const isActuallyAdmin = await checkAdminStatus();
+          if (isActuallyAdmin) {
+            console.log("⚠️ Role correction needed: User was incorrectly set as non-admin, fixing to admin");
+            useAuthStore.getState().setUserRole('admin');
+          }
+        } 
+        // Verificar se tem papel de admin mas na verdade não é
+        else if (userRole === 'admin') {
+          const isActuallyAdmin = await checkAdminStatus();
+          if (!isActuallyAdmin) {
+            console.log("⚠️ Role correction needed: User was incorrectly set as admin, fixing to participante");
+            useAuthStore.getState().setUserRole('participante');
+          }
+        }
+      }
+    };
+    
+    verifyUserRole();
+  }, [user, userRole]);
   
   // Ensure we have a role before rendering routes
   if (userRole === null) {

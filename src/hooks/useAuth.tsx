@@ -39,6 +39,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const userRole = useAuthStore((state) => state.userRole);
   const checkUserRole = useAuthStore((state) => state.checkUserRole);
   const setUserRole = useAuthStore((state) => state.setUserRole);
+  
   // Initial session check effect
   useEffect(() => {
     let isMounted = true;
@@ -48,6 +49,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setIsLoading(true);
       
       try {
+        console.log("=== Initializing authentication in useAuth ===");
         // Get initial session
         const { data: { session } } = await supabase.auth.getSession();
         
@@ -56,23 +58,77 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setUser(session?.user ?? null);
         
           if (session?.user) {
+            // Fetch user data
             await fetchUserData(session.user.id);
-            // Log user metadata to debug role issues
-            console.log("User metadata during init:", session.user.user_metadata);
             
-            // First try to set role from metadata
-            if (session.user.user_metadata?.role) {
-              const roleFromMetadata = session.user.user_metadata.role as UserRole;
-              console.log("Setting role from metadata:", roleFromMetadata);
-              setUserRole(roleFromMetadata);
-            } else {
-              // If no metadata role, check database roles
-              await checkUserRole(session.user.id);
+            // Check user role - using the same hierarchy as in authStore
+            let roleFound = false;
+            
+            // 1. HIGHEST PRIORITY: Check users table
+            try {
+              console.log("useAuth init - Step 1: Checking users table");
+              const { data: adminData, error: adminError } = await supabase
+                .from('users')
+                .select('id')
+                .eq('id', session.user.id)
+                .single();
+                
+              if (!adminError && adminData) {
+                console.log('✅ useAuth init - User found in users table - setting as ADMIN');
+                setUserRole('admin');
+                roleFound = true;
+              } else {
+                console.log('❌ useAuth init - User not found in users table');
+              }
+            } catch (adminError) {
+              console.warn('⚠️ useAuth init - Error checking users table:', adminError);
+            }
+            
+            // 2. SECOND PRIORITY: Check user metadata
+            if (!roleFound) {
+              console.log("useAuth init - Step 2: Checking user metadata");
+              console.log("User metadata during init:", session.user.user_metadata);
+              if (session.user.user_metadata?.role) {
+                const roleFromMetadata = session.user.user_metadata.role as UserRole;
+                console.log("✅ useAuth init - Setting role from metadata:", roleFromMetadata);
+                setUserRole(roleFromMetadata);
+                roleFound = true;
+              } else {
+                console.log('❌ useAuth init - No role in user metadata');
+              }
+            }
+            
+            // 3. THIRD PRIORITY: Check users table for participants
+            if (!roleFound) {
+              try {
+                console.log("useAuth init - Step 3: Checking users table");
+                const { data: userData, error: userError } = await supabase
+                  .from('users')
+                  .select('id')
+                  .eq('id', session.user.id)
+                  .single();
+                  
+                if (!userError && userData) {
+                  console.log('✅ useAuth init - User found in users table as participante');
+                  setUserRole('participante');
+                  roleFound = true;
+                } else {
+                  console.log('❌ useAuth init - User not found in users table');
+                }
+              } catch (userError) {
+                console.warn('⚠️ useAuth init - Error checking users table:', userError);
+              }
+              
+              // 4. FINAL FALLBACK: Use checkUserRole from authStore
+              if (!roleFound) {
+                console.log("useAuth init - Step 4: Using authStore's checkUserRole as fallback");
+                await checkUserRole(session.user.id);
+              }
             }
           }
         }
       } catch (error) {
-        console.error('Auth initialization error:', error);
+        console.error('❌ Auth initialization error:', error);
       } finally {
         if (isMounted) {
           setIsLoading(false);
@@ -91,17 +147,70 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setUser(session?.user ?? null);
         
         if (session?.user) {
+          // Fetch user data
           await fetchUserData(session.user.id);
-          console.log("Auth state change - user metadata:", session.user.user_metadata);
           
-          // First try to set role from metadata
-          if (session.user.user_metadata?.role) {
-            const roleFromMetadata = session.user.user_metadata.role as UserRole;
-            console.log("Auth state change - setting role from metadata:", roleFromMetadata);
-            setUserRole(roleFromMetadata);
-          } else {
-            // If no metadata role, check database roles
-            await checkUserRole(session.user.id);
+          // Check user role - improved checks with better logging
+          let roleFound = false;
+          try {
+            console.log("useAuth change - Step 1: Checking users table");
+            const { data: adminData, error: adminError } = await supabase
+              .from('users')
+              .select('id')
+              .eq('id', session.user.id)
+              .single();
+              
+            if (!adminError && adminData) {
+              console.log('✅ useAuth change - User found in users table - setting as ADMIN');
+              setUserRole('admin');
+              roleFound = true;
+            } else {
+              console.log('❌ useAuth change - User not found in users table');
+            }
+          } catch (adminError) {
+            console.warn('⚠️ useAuth change - Error checking users table:', adminError);
+          }
+          
+          // If not found in users table, try metadata
+          if (!roleFound) {
+            console.log("useAuth change - Step 2: Checking user metadata");
+            console.log("User metadata on auth change:", session.user.user_metadata);
+            if (session.user.user_metadata?.role) {
+              const roleFromMetadata = session.user.user_metadata.role as UserRole;
+              console.log("✅ useAuth change - Setting role from metadata:", roleFromMetadata);
+              setUserRole(roleFromMetadata);
+              roleFound = true;
+            } else {
+              console.log('❌ useAuth change - No role in user metadata');
+            }
+          }
+          
+          // If still not found, try users table or fallback to checkUserRole
+          if (!roleFound) {
+            try {
+              console.log("useAuth change - Step 3: Checking users table");
+              const { data: userData, error: userError } = await supabase
+                .from('users')
+                .select('id')
+                .eq('id', session.user.id)
+                .single();
+                
+              if (!userError && userData) {
+                console.log('✅ useAuth change - User found in users table as participante');
+                setUserRole('participante');
+                roleFound = true;
+              } else {
+                console.log('❌ useAuth change - User not found in users table');
+              }
+            } catch (userError) {
+              console.warn('⚠️ useAuth change - Error checking users table:', userError);
+            }
+            
+            // Final fallback to checkUserRole
+            if (!roleFound) {
+              console.log("useAuth change - Step 4: Using authStore's checkUserRole as fallback");
+              await checkUserRole(session.user.id);
+            }
           }
         } else {
           setUserData(null);
@@ -114,7 +223,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, [checkUserRole, setUserRole]);// Add necessary dependencies
+  }, [checkUserRole, setUserRole]); // Add necessary dependencies
 
   const fetchUserData = async (userId: string) => {
     try {

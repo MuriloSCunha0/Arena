@@ -25,7 +25,7 @@ interface UserData {
   birth_date: string;
 }
 
-export const useAuthStore = create<AuthState>((set, get) => ({
+export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   loading: true,
   userRole: null,
@@ -33,107 +33,98 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setUser: (user) => set({ user, loading: false }),
   
   setUserRole: (role) => set({ userRole: role }),  signIn: async (email, password) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    
-    if (error) throw error;
-    
-    // Get current session to determine the user role
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) {
-      console.log('Login successful, checking user role for:', session.user.id);
-      console.log('User metadata:', session.user.user_metadata);
-      
-      // First try to get role from user metadata (faster)
-      if (session.user.user_metadata?.role) {
-        const roleFromMetadata = session.user.user_metadata.role as UserRole;
-        console.log('Setting user role from metadata:', roleFromMetadata);
-        set({ userRole: roleFromMetadata });
-      } else {
-        // Fall back to database check if metadata doesn't have role
-        const role = await get().checkUserRole(session.user.id);
-        console.log('Role from database check:', role);
-        
-        // Se não encontrou um role válido, isso significa que o usuário não está em nenhuma tabela
-        if (!role) {
-          // Fazer logout automático se o usuário não for nem admin nem participante
-          await supabase.auth.signOut();
-          throw new Error('Usuário não autorizado. Por favor, contate o administrador do sistema.');
-        }
-        
-        set({ userRole: role });
-      }
+  console.log('=== Attempting sign in for:', email, '===');
+
+  try {
+    // 1. Consultar a tabela users no esquema public
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('id, email, password, app_metadata')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (userError) {
+      console.error('❌ Error querying users table:', userError);
+      throw new Error('Erro ao consultar a tabela de usuários.');
     }
-  },signUp: async (email, password, userData, role = 'participante') => {
-    // Registrar o usuário com email e senha
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          ...userData,
-          role // Adicionamos o papel (role) aos metadados do usuário
-        }
-      }
-    });
-    
-    if (authError) throw authError;
-    
-    // Inserir dados na tabela apropriada dependendo do tipo de usuário
-    if (authData.user) {
-      if (role === 'participante') {
-        // Inserir na tabela 'users' para usuários regulares
-        const { error: userError } = await supabase
-          .from('users')
-          .insert([
-            { 
-              id: authData.user.id,
-              email: email,
-              full_name: userData.full_name,
-              phone: userData.phone,
-              cpf: userData.cpf,
-              birth_date: userData.birth_date,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            }
-          ]);
-          
-        if (userError) {
-          console.error('Error inserting user data:', userError);
-          throw userError;
-        }
-      } else if (role === 'admin') {
-        // Para administradores, também inserimos na tabela admin_users para facilitar consultas
-        const { error: adminError } = await supabase
-          .from('admin_users')
-          .insert([
-            {
-              user_id: authData.user.id,
-              role: 'admin',
-              created_at: new Date().toISOString()
-            }
-          ]);
-          
-        if (adminError) {
-          console.error('Error inserting admin data:', adminError);
-          throw adminError;
-        }
-        
-        console.log('Admin user created with role in user metadata and admin_users table');
-      }
-      
-      // Define o papel (role) do usuário no estado
-      set({ userRole: role });
-      
-      // Update the user object in state to include the new user
-      const { data: currentSession } = await supabase.auth.getSession();
-      if (currentSession?.session) {
-        set({ user: currentSession.session.user });
-      }
+
+    if (!userData) {
+      console.error('❌ User not found in users table');
+      throw new Error('Usuário não encontrado.');
     }
-  },
+
+    // 2. Validar a senha (substitua por uma função de hash real, se necessário)
+    const isPasswordValid = password === userData.password; // Substitua por validação de hash
+    if (!isPasswordValid) {
+      console.error('❌ Invalid password');
+      throw new Error('Senha inválida.');
+    }
+
+    console.log('✅ Login successful for user ID:', userData.id);
+
+    // 3. Determinar o papel do usuário
+    let userRole: UserRole = 'participante';
+    const appMeta = userData.app_metadata || {};
+    if (appMeta.roles && Array.isArray(appMeta.roles) && appMeta.roles.includes('admin')) {
+      userRole = 'admin';
+    }
+
+    // 4. Atualizar o estado com os dados do usuário
+    set({ user: userData, userRole, loading: false });
+    console.log(`✅ User role definida como: ${userRole}`);
+  } catch (error) {
+    console.error('❌ Erro no login:', error);
+    throw new Error('Falha no login. Por favor, verifique suas credenciais e tente novamente.');
+  }
+},
+    signUp: async (email, password, userData, role = 'participante') => {
+  const roleValue = role === 'admin' ? 'admin' : 'user';
+  let appMetadata = role === 'admin' ? { roles: [roleValue] } : { role: roleValue };
+
+  console.log(`Creating new user with role: ${role} (${roleValue})`);
+
+  const { data: authData, error: authError } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        ...userData,
+        role: roleValue
+      },
+      emailRedirectTo: `${window.location.origin}/auth/callback`
+    }
+  });
+
+  if (authError) throw authError;
+
+  if (authData.user) {
+    const { error: userError } = await supabase
+      .from('users')
+      .insert([
+        {
+          id: authData.user.id,
+          email: email,
+          password: password, // Adiciona a senha na tabela users
+          full_name: userData.full_name,
+          phone: userData.phone,
+          cpf: userData.cpf,
+          birth_date: userData.birth_date || null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          user_metadata: { role: roleValue },
+          app_metadata: appMetadata
+        }
+      ]);
+
+    if (userError) {
+      console.error('Error inserting user data:', userError);
+      throw userError;
+    }
+
+    console.log(`Usuário ${role} criado com sucesso.`);
+    set({ userRole: role === 'admin' ? 'admin' : 'participante' });
+  }
+},
     signOut: async () => {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
@@ -148,60 +139,94 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (error) throw error;
   },  checkUserRole: async (userId) => {
     try {
-      // Check user metadata in auth.users first to determine role
-      try {
-        const { data: userData, error: userDataError } = await supabase.auth.getUser();
-        
-        if (!userDataError && userData?.user) {
-          // Check role in user metadata
-          const userMetadata = userData.user.user_metadata;
-          console.log('User metadata:', userMetadata);
-          if (userMetadata && userMetadata.role === 'admin') {
-            const role: UserRole = 'admin';
-            set({ userRole: role });
-            return role;
-          }
-        }
-      } catch (metadataError) {
-        console.warn('Error checking user metadata:', metadataError);
-      }
+      console.log("=== Checking user role for ID:", userId, "===");
       
-      // If checking metadata fails or role is not admin, check the users table
+      // Verificar APENAS na tabela users do esquema public
       try {
+        console.log("Checking users table metadata in public schema");
         const { data: userData, error: userError } = await supabase
           .from('users')
-          .select('id')
+          .select('app_metadata, user_metadata')
           .eq('id', userId)
           .single();
-          
+            
         if (!userError && userData) {
+          const appMeta = userData.app_metadata || {};
+          
+          // Verificar app_metadata.roles (array)
+          if (appMeta.roles && Array.isArray(appMeta.roles) && appMeta.roles.length > 0) {
+            console.log('Checking app_metadata.roles array:', appMeta.roles);
+            if (appMeta.roles.includes('admin') || appMeta.roles.includes('organizer')) {
+              console.log('✅ Admin role found in app_metadata.roles array');
+              const role: UserRole = 'admin';
+              set({ userRole: role });
+              return role;
+            } else if (appMeta.roles.includes('user')) {
+              console.log('✅ User role found in app_metadata.roles array');
+              const role: UserRole = 'participante';
+              set({ userRole: role });
+              return role;
+            }
+          }
+          
+          // Verificar app_metadata.role (string)
+          if (appMeta.role && typeof appMeta.role === 'string') {
+            console.log('Checking app_metadata.role string:', appMeta.role);
+            if (appMeta.role === 'admin' || appMeta.role === 'organizer') {
+              console.log('✅ Admin role found in app_metadata.role string');
+              const role: UserRole = 'admin';
+              set({ userRole: role });
+              return role;
+            } else if (appMeta.role === 'user') {
+              console.log('✅ User role found in app_metadata.role string');
+              const role: UserRole = 'participante';
+              set({ userRole: role });
+              return role;
+            }
+          }
+            
+          // Verificar user_metadata.role (compatibilidade)
+          const userMeta = userData.user_metadata || {};
+          if (userMeta.role && typeof userMeta.role === 'string') {
+            console.log('Checking user_metadata.role string:', userMeta.role);
+            if (userMeta.role === 'admin' || userMeta.role === 'organizer') {
+              console.log('✅ Admin role found in user_metadata.role');
+              const role: UserRole = 'admin';
+              set({ userRole: role });
+              return role;
+            } else if (userMeta.role === 'user') {
+              console.log('✅ User role found in user_metadata.role');
+              const role: UserRole = 'participante';
+              set({ userRole: role });
+              return role;
+            }
+          }
+          
+          // Se existe na tabela users mas sem role específica, é participante
+          console.log('✅ User exists in users table but no specific role - defaulting to participante');
           const role: UserRole = 'participante';
           set({ userRole: role });
           return role;
-        }
-      } catch (userError) {
-        console.warn('Error checking user table:', userError);
-      }
-      
-      // If we still don't have a role, try to look for other clues
-      try {
-        // Check if user is in auth.users but hasn't been placed in a specific table yet
-        const { data: authUser } = await supabase.auth.getUser();
-        if (authUser?.user) {
-          // Default to participante if we have a valid auth user but no specific role
+        } else {
+          console.log('❌ User not found in users table or error retrieving data');
+          
+          // Se não encontrou o usuário na tabela users, mas está autenticado, definir como participante
+          console.log('⚠️ User not found in public.users table - defaulting to participante');
           const defaultRole: UserRole = 'participante';
-          console.log('User found in auth but no specific role detected, using default:', defaultRole);
           set({ userRole: defaultRole });
           return defaultRole;
         }
-      } catch (authError) {
-        console.warn('Error checking auth.user:', authError);
+      } catch (metadataCheckError) {
+        console.warn('⚠️ Error checking users table for metadata:', metadataCheckError);
+        
+        // Se ocorreu erro ao verificar metadados, mas está autenticado, definir como participante
+        console.log('⚠️ Error checking public.users table - defaulting to participante');
+        const defaultRole: UserRole = 'participante';
+        set({ userRole: defaultRole });
+        return defaultRole;
       }
-      
-      console.warn('No user role could be determined');
-      return null;
     } catch (error) {
-      console.error('Error checking user role:', error);
+      console.error('❌ Error checking user role:', error);
       return null;
     }
   }

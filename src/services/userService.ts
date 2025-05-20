@@ -49,9 +49,9 @@ class UserService {
       if (!authData.user) throw new Error('Falha ao criar usuário');
 
       if (userData.userRole === 'admin') {
-        // Para administradores, criar entrada na tabela admin_users
+        // Para administradores, criar entrada na tabela users
         const { error: adminError } = await supabase
-          .from('admin_users')
+          .from('users')
           .insert({
             user_id: authData.user.id,
             role: 'admin',
@@ -110,9 +110,9 @@ class UserService {
    */
   async getUserProfile(userId: string): Promise<UserData> {
     try {
-      // First, check admin_users table to determine user type
+      // First, check users table to determine user type
       const { data: adminData, error: adminError } = await supabase
-        .from('admin_users')
+        .from('users')
         .select('user_id')
         .eq('user_id', userId)
         .single();
@@ -171,7 +171,7 @@ class UserService {
     try {
       // First check if user is admin
       const { data: adminData, error: adminError } = await supabase
-        .from('admin_users')
+        .from('users')
         .select('user_id')
         .eq('user_id', userId)
         .single();
@@ -279,15 +279,15 @@ class UserService {
     try {
       // First check if user is admin
       const { data: adminData, error: adminError } = await supabase
-        .from('admin_users')
+        .from('users')
         .select('user_id')
         .eq('user_id', userId)
         .single();
         
       if (!adminError && adminData) {
-        // Delete from admin_users table
+        // Delete from users table
         const { error: delAdminError } = await supabase
-          .from('admin_users')
+          .from('users')
           .delete()
           .eq('user_id', userId);
 

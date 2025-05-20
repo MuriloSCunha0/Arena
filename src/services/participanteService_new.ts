@@ -78,9 +78,7 @@ export const ParticipanteService = {
         totalParticipations: 0,
         upcomingEvents: [],
         pastEvents: []
-      };
-
-      // Buscar participações em torneios passados
+      };      // Buscar participações em torneios passados
       const { data: pastParticipations, error: pastError } = await supabase
         .from('participants')
         .select(`
@@ -92,11 +90,11 @@ export const ParticipanteService = {
             location
           ),
           partner_name,
-          placement
-        `)
+          placement        `)
         .eq('user_id', userId)
-        .lt('events.date', new Date().toISOString())
-        .order('events.date', { ascending: false });
+        // Using proper foreign key reference format
+        .lt('events(date)', new Date().toISOString())
+        .order('events(date)', { ascending: false });
 
       if (pastError) throw pastError;
       
@@ -243,7 +241,8 @@ export const ParticipanteService = {
           placement
         `)
         .eq('user_id', userId)
-        .order('events.date', { ascending: false });
+        // Fix the order syntax for foreign key column
+        .order('events(date)', { ascending: false });
         
       if (error) throw error;
       
