@@ -108,6 +108,10 @@ export interface TournamentSettings {
   // Outras configurações conforme necessário
 }
 
+// Define enum types matching the PostgreSQL schema
+export type match_stage = 'GROUP' | 'ELIMINATION';
+export type tournament_status = 'CREATED' | 'STARTED' | 'FINISHED' | 'CANCELLED';
+
 export interface Match {
   id: string;
   eventId: string;
@@ -123,7 +127,7 @@ export interface Match {
   scheduledTime: string | null;
   courtId?: string | null;
   courtReservationId?: string | null;
-  stage: 'GROUP' | 'ELIMINATION';
+  stage: match_stage; // Use the match_stage enum type from PostgreSQL
   groupNumber: number | null;
   walkover?: boolean;
   createdAt?: string;
@@ -135,7 +139,7 @@ export interface Match {
 export interface Tournament {
   id: string;
   eventId: string;
-  status: 'CREATED' | 'STARTED' | 'FINISHED' | 'CANCELLED';
+  status: tournament_status;
   matches: Match[];
   settings?: TournamentSettings;
   type?: string;

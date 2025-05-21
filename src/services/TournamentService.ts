@@ -1,9 +1,9 @@
 import { supabase } from '../lib/supabase';
-import { Tournament, Match, Court, TeamFormationType } from '../types';
-import { v4 as uuidv4 } from 'uuid';
+import { Tournament, Match, TeamFormationType } from '../types';
 import { calculateGroupRankings, GroupRanking } from '../utils/rankingUtils'; // Import ranking utility
 import { createTwoSidedBracket, BracketSidesMetadata } from '../utils/bracketSidesUtil'; // Import two-sided bracket utilities
 import { distributeTeamsIntoGroups } from '../utils/groupFormationUtils'; // Import group formation utility
+import { BracketPosition } from '../utils/bracketUtils';
 
 // Interface for potential tournament settings
 interface TournamentSettings {
@@ -121,12 +121,44 @@ export const TournamentService = {
     }
   },
 
+  // Adicionar lógica para diferenciar duplas formadas e aleatórias
+  differentiateTeams: (
+    teams: string[][],
+    teamFormationType: TeamFormationType
+  ): { formedTeams: string[][]; randomTeams: string[][] } => {
+    const formedTeams: string[][] = [];
+    const randomTeams: string[][] = [];
+
+    teams.forEach((team) => {
+      if (teamFormationType === TeamFormationType.FORMED) {
+        formedTeams.push(team);
+      } else {
+        randomTeams.push(team);
+      }
+    });
+
+    return { formedTeams, randomTeams };
+  },
+
+  // Integrar formedTeams e randomTeams na lógica de geração do torneio
   generateTournamentStructure: async (
     eventId: string,
     teams: string[][],
     teamFormationType: TeamFormationType,
     options: { groupSize?: number; forceReset?: boolean } = {}
   ): Promise<Tournament> => {
+    console.log(`Generating structure for event ${eventId}, formation: ${teamFormationType}, options:`, options);
+
+    const { formedTeams, randomTeams } = TournamentService.differentiateTeams(teams, teamFormationType);
+
+    if (teamFormationType === TeamFormationType.FORMED) {
+      console.log('Processing formed teams:', formedTeams);
+      // Adicionar lógica para processar formedTeams
+    } else {
+      console.log('Processing random teams:', randomTeams);
+      // Adicionar lógica para processar randomTeams
+    }
+
     // No método que gera a estrutura do torneio
     // Valide o tamanho do grupo
     if (options?.groupSize) {
@@ -441,7 +473,7 @@ export const TournamentService = {
         await TournamentService.advanceWinner(byeMatch);
       }
 
-      const { data: updatedTournamentData, error: updateError } = await supabase
+      const { error: updateError } = await supabase
         .from('tournaments')
         .update({ status: 'STARTED' })
         .eq('id', tournamentId)
@@ -745,5 +777,233 @@ export const TournamentService = {
       handleSupabaseError(error, 'updateMatchSchedule');
       throw error;
     }
+  },
+
+  // Função para ajustar grupos com sobras automaticamente
+  adjustGroupsWithLeftovers: (
+    groups: string[][][],
+    defaultGroupSize: number
+  ): string[][][] => {
+    const adjustedGroups = [...groups];
+
+    // Verificar se há sobras
+    const leftovers = adjustedGroups.find(group => group.length < defaultGroupSize);
+    if (leftovers) {
+      // Redistribuir sobras para outros grupos
+      adjustedGroups.forEach(group => {
+        while (group.length < defaultGroupSize && leftovers.length > 0) {
+          group.push(leftovers.pop()!);
+        }
+      });
+
+      // Se ainda houver sobras, criar um novo grupo
+      if (leftovers.length > 0) {
+        adjustedGroups.push([...leftovers]);
+      }
+    }
+
+    return adjustedGroups;
+  },
+
+  // Função para calcular pontos proporcionais com base no número de jogos
+  calculateProportionalPoints: (
+    matches: Match[],
+    totalGames: number
+  ): Record<string, number> => {
+    const points: Record<string, number> = {};
+
+    matches.forEach((match) => {
+      if (!match.team1 || !match.team2) return;
+
+      const team1Key = match.team1.join('|');
+      const team2Key = match.team2.join('|');
+
+      const team1Points = (match.score1 || 0) / totalGames;
+      const team2Points = (match.score2 || 0) / totalGames;
+
+      points[team1Key] = (points[team1Key] || 0) + team1Points;
+      points[team2Key] = (points[team2Key] || 0) + team2Points;
+    });
+
+    return points;
+  },
+
+  // Função para criar chaveamento dividido em dois lados
+  createTwoSidedBracket: (
+    teams: string[][],
+    tournamentId: string,
+    eventId: string
+  ): { leftSide: Omit<Match, 'id' | 'createdAt' | 'updatedAt'>[]; rightSide: Omit<Match, 'id' | 'createdAt' | 'updatedAt'>[] } => {
+    const leftSide: Omit<Match, 'id' | 'createdAt' | 'updatedAt'>[] = [];
+    const rightSide: Omit<Match, 'id' | 'createdAt' | 'updatedAt'>[] = [];
+
+    const midPoint = Math.ceil(teams.length / 2);
+    const leftTeams = teams.slice(0, midPoint);
+    const rightTeams = teams.slice(midPoint);
+
+    leftTeams.forEach((team, index) => {
+      const opponent = leftTeams[leftTeams.length - 1 - index] || null;
+      leftSide.push({
+        tournamentId,
+        eventId,
+        team1: team,
+        team2: opponent,
+        round: 1,
+        position: index + 1,
+        score1: null,
+        score2: null,
+        winnerId: null,
+        completed: false,
+        courtId: null,
+        scheduledTime: null,
+        stage: 'ELIMINATION',
+        groupNumber: null,
+      });
+    });
+
+    rightTeams.forEach((team, index) => {
+      const opponent = rightTeams[rightTeams.length - 1 - index] || null;
+      rightSide.push({
+        tournamentId,
+        eventId,
+        team1: team,
+        team2: opponent,
+        round: 1,
+        position: index + 1,
+        score1: null,
+        score2: null,
+        winnerId: null,
+        completed: false,
+        courtId: null,
+        scheduledTime: null,
+        stage: 'ELIMINATION',
+        groupNumber: null,
+      });
+    });
+
+    return { leftSide, rightSide };
+  },
+
+  // Função para aplicar regras de confronto e definir cabeças de chave
+  applySeedingRules: (
+    teams: string[][],
+    rankings: Record<string, number>
+  ): string[][] => {
+    // Ordenar equipes com base no ranking
+    const sortedTeams = teams.sort((a, b) => {
+      const rankA = rankings[a.join('|')] || 0;
+      const rankB = rankings[b.join('|')] || 0;
+      return rankB - rankA; // Ordem decrescente de ranking
+    });
+
+    // Aplicar regras de confronto para evitar que equipes do mesmo grupo se enfrentem cedo
+    const seededTeams: string[][] = [];
+    const groupMap = new Map<string, string[][]>();
+
+    sortedTeams.forEach((team) => {
+      const groupKey = team.join('|');
+      if (!groupMap.has(groupKey)) {
+        groupMap.set(groupKey, []);
+      }
+      groupMap.get(groupKey)!.push(team);
+    });
+
+    groupMap.forEach((groupTeams) => {
+      seededTeams.push(...groupTeams);
+    });
+
+    return seededTeams;
+  },
+
+  // Função para distribuir equipes com base em pontuação
+  allocateTeamsByScore: (
+    teams: string[][],
+    scores: Record<string, number>,
+    numGroups: number
+  ): string[][][] => {
+    const groups: string[][][] = Array.from({ length: numGroups }, () => []);
+
+    // Ordenar equipes por pontuação
+    const sortedTeams = teams.sort((a, b) => {
+      const scoreA = scores[a.join('|')] || 0;
+      const scoreB = scores[b.join('|')] || 0;
+      return scoreB - scoreA; // Ordem decrescente de pontuação
+    });
+
+    // Distribuir equipes nos grupos de forma balanceada
+    sortedTeams.forEach((team, index) => {
+      const groupIndex = index % numGroups;
+      groups[groupIndex].push(team);
+    });
+
+    return groups;
+  },
+
+  // Função para validar critérios de desempate e ajustar rankings
+  validateTiebreakCriteria: (
+    groupRankings: Record<number, GroupRanking[]>
+  ): GroupRanking[] => {
+    const allRankings: GroupRanking[] = [];
+
+    Object.values(groupRankings).forEach((rankings) => {
+      rankings.sort((a, b) => {
+        // Critérios de desempate
+        if (a.stats.wins !== b.stats.wins) return b.stats.wins - a.stats.wins; // Mais vitórias
+        const aHeadToHead = a.stats.headToHeadWins[b.teamId.join('|')] ? 1 : 0;
+        const bHeadToHead = b.stats.headToHeadWins[a.teamId.join('|')] ? 1 : 0;
+        if (aHeadToHead !== bHeadToHead) return bHeadToHead - aHeadToHead; // Confronto direto
+        const aSetPercentage = a.stats.setsWon / (a.stats.setsWon + a.stats.setsLost || 1);
+        const bSetPercentage = b.stats.setsWon / (b.stats.setsWon + b.stats.setsLost || 1);
+        if (aSetPercentage !== bSetPercentage) return bSetPercentage - aSetPercentage; // % de sets vencidos
+        const aGamePercentage = a.stats.gamesWon / (a.stats.gamesWon + a.stats.gamesLost || 1);
+        const bGamePercentage = b.stats.gamesWon / (b.stats.gamesWon + b.stats.gamesLost || 1);
+        if (aGamePercentage !== bGamePercentage) return bGamePercentage - aGamePercentage; // % de games vencidos
+        return 0; // Empate final
+      });
+
+      allRankings.push(...rankings);
+    });
+
+    return allRankings;
+  },
+
+  // Função para ajustar posições no chaveamento para evitar conflitos
+  adjustBracketPositions: (
+    bracket: BracketPosition[],
+    groupAssignments: Record<string, number>
+  ): BracketPosition[] => {
+    const adjustedBracket = [...bracket];
+
+    for (let i = 0; i < adjustedBracket.length / 2; i++) {
+      const pos1 = i;
+      const pos2 = adjustedBracket.length - 1 - i;
+
+      const team1 = adjustedBracket[pos1]?.teamId;
+      const team2 = adjustedBracket[pos2]?.teamId;
+
+      if (!team1 || !team2) continue;
+
+      const group1 = groupAssignments[team1.join('|')];
+      const group2 = groupAssignments[team2.join('|')];
+
+      if (group1 === group2) {
+        // Encontrar uma posição alternativa para evitar conflito
+        for (let j = 0; j < adjustedBracket.length; j++) {
+          const altPos = adjustedBracket.length - 1 - j;
+          const altTeam = adjustedBracket[altPos]?.teamId;
+
+          if (altTeam && groupAssignments[altTeam.join('|')] !== group1) {
+            // Trocar posições
+            [adjustedBracket[pos2], adjustedBracket[altPos]] = [
+              adjustedBracket[altPos],
+              adjustedBracket[pos2],
+            ];
+            break;
+          }
+        }
+      }
+    }
+
+    return adjustedBracket;
   },
 };

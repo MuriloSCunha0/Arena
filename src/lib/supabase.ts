@@ -1,69 +1,93 @@
 import { createClient } from '@supabase/supabase-js'
 
-// Verificar se as variáveis de ambiente estão sendo lidas corretamente
-console.log('SUPABASE URL:', import.meta.env.VITE_SUPABASE_URL)
-console.log('SUPABASE KEY:', import.meta.env.VITE_SUPABASE_ANON_KEY ? 'Existe' : 'Não existe')
+// Obtenha as variáveis de ambiente para o Supabase
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ''
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 
-// Usar valores de fallback se as variáveis de ambiente não estiverem disponíveis
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://zgtjtmlzkcmxibhmclpc.supabase.co'
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpndGp0bWx6a2NteGliaG1jbHBjIiwicm9zZSI6ImFub24iLCJpYXQiOjE3NDM5NzgwMDMsImV4cCI6MjA1OTU1NDAwM30.HZlpCrlM2-hLl3VOM0ClZDTGSMzdPXNbSefmJqxuFUo'
-
-// Define common headers we want to use globally
-const globalHeaders = {
-  'Accept': 'application/json',
-  'Content-Type': 'application/json' // Add Content-Type globally
-};
-
-// Create Supabase client with proper global configuration
+// Crie o cliente Supabase com persistência de sessão
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  global: {
-    headers: globalHeaders // Apply global headers
-  },
   auth: {
     persistSession: true,
+    storage: localStorage, // Use localStorage para persistir a sessão
     autoRefreshToken: true,
-    storageKey: 'arena-auth', // Custom storage key for better identification
-    storage: localStorage // Explicitly use localStorage for auth persistence
+    detectSessionInUrl: true,
+    // Adicionar opções adicionais que são suportadas pela versão do Supabase que você está usando
+    // As opções storageKey e flowType podem não estar disponíveis em versões mais antigas
   }
 });
 
-// Function to debug auth state
-export const debugAuth = async () => {
+// Função para verificar e renovar o token automaticamente
+export const refreshSession = async () => {
   try {
+    // Primeiro verificar se temos uma sessão
     const { data, error } = await supabase.auth.getSession();
-    console.log('Current auth session:', data.session);
     
-    if (data.session?.user) {
-      console.log('User ID:', data.session.user.id);
-      console.log('User email:', data.session.user.email);
-      console.log('User metadata:', data.session.user.user_metadata);
-    } else {
-      console.log('No active session found');
+    if (error) {
+      console.error('Error checking session:', error);
+      return null;
     }
     
-    return { success: true, data };
-  } catch (error) {
-    console.error('Auth debugging failed:', error);
-    return { success: false, error };
-  }
-};
-
-// Add connection status check
-export const checkSupabaseConnection = async () => {
-  try {
-    // Global headers are applied automatically
-    const { data, error } = await supabase
-      .from('events')
-      .select('id')
-      .limit(1);
+    // Se temos uma sessão, verificar se precisa renovar
+    if (data?.session) {
+      const expiresAt = data.session.expires_at;
+      const now = Math.floor(Date.now() / 1000); // Tempo atual em segundos
       
-    if (error) throw error;
-    return { success: true, data };
-  } catch (error) {
-    console.error('Supabase connection failed:', error);
-    return { success: false, error };
+      // Se o token expira em breve (menos de 10 minutos) ou já expirou
+      if (!expiresAt || expiresAt - now < 600) {
+        console.log('Token precisa ser renovado (expira em:', expiresAt ? `${expiresAt - now}s` : 'N/A', ')');
+        
+        try {
+          const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+          
+          if (refreshError) {
+            console.error('Error refreshing token:', refreshError);
+          } else if (refreshData?.session) {
+            console.log('Token renovado com sucesso, nova expiração em:', 
+              refreshData.session.expires_at ? 
+              `${refreshData.session.expires_at - Math.floor(Date.now() / 1000)}s` : 'N/A');
+            
+            return refreshData.session;
+          }
+        } catch (refreshErr) {
+          console.error('Exception during token refresh:', refreshErr);
+        }
+      } else {
+        console.log('Token ainda é válido, expira em:', expiresAt - now, 'segundos');
+      }
+      
+      return data.session;
+    }
+    
+    console.log('Nenhuma sessão encontrada para renovar');
+    return null;
+  } catch (err) {
+    console.error('Exception in refreshSession:', err);
+    return null;
   }
 };
 
-// Remove the enhancedQuery helper as it's replaced by supabaseApi in supabaseHelpers.ts
-// export const enhancedQuery = { ... };
+// Função de debug para verificar o estado da autenticação
+export const debugAuth = async () => {
+  try {
+    console.log('=== Auth debugging ===');
+    
+    // Verificar se temos uma sessão
+    const { data: sessionData } = await supabase.auth.getSession();
+    console.log('Current session:', sessionData?.session ? 'EXISTS' : 'NOT FOUND');
+    
+    // Verificar o usuário atual
+    const { data: userData } = await supabase.auth.getUser();
+    console.log('Current user:', userData?.user ? 'LOGGED IN' : 'NOT LOGGED IN');
+    
+    if (sessionData?.session) {
+      const expiresAt = sessionData.session.expires_at;
+      const now = Math.floor(Date.now() / 1000);
+      console.log(`Token expires in: ${expiresAt ? expiresAt - now : 'N/A'} seconds`);
+    }
+    
+    return { success: true };
+  } catch (err) {
+    console.error('Error during auth debugging:', err);
+    return { success: false, error: err };
+  }
+};

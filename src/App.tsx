@@ -1,6 +1,6 @@
-import React, { useEffect, Suspense, lazy } from 'react';
+import React, { useEffect, Suspense, lazy, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { supabase, debugAuth } from './lib/supabase';
+import { supabase, debugAuth, refreshSession } from './lib/supabase';
 import { useAuthStore } from './store/authStore';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
@@ -52,66 +52,254 @@ const NotFound = () => (
   </div>
 );
 
-function App() {
-  const { user, setUser, loading, setUserRole } = useAuthStore();  useEffect(() => {
-    // Debug current auth state
-    debugAuth().then(result => {
-      console.log('=== Auth debugging complete ===', result.success);
-    });
+const SessionValidator = () => {
+  const [isChecking, setIsChecking] = useState(true);
+  const [retryCount, setRetryCount] = useState(0);
+  const setUser = useAuthStore(state => state.setUser);
+  const setUserRole = useAuthStore(state => state.setUserRole);
+  
+  useEffect(() => {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 800; // ms
     
-    // Check active sessions and sets the user
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      
-      // If user has metadata with role, set it directly
-      if (session?.user) {
-        console.log('=== Initializing auth state in App ===');
+    let mounted = true;
+    
+    const validateSession = async () => {
+      try {
+        console.log(`🔄 Validando sessão (tentativa ${retryCount + 1}/${MAX_RETRIES})`);
         
-        // Check for role in metadata first (fast check)
-        if (session.user.user_metadata?.role) {
-          console.log('✅ Setting user role from metadata in App:', session.user.user_metadata.role);
-          setUserRole(session.user.user_metadata.role);
-        } else {
-          console.log('❌ No role in user metadata, will check tables');
+        // Verificar sessão no localStorage primeiro
+        const { data: localSessionData } = await supabase.auth.getSession();
+        
+        if (localSessionData?.session?.user && mounted) {
+          console.log('✅ Sessão encontrada no localStorage');
+          setUser(localSessionData.session.user);
+          
+          // Definir papel do usuário
+          if (localSessionData.session.user.user_metadata?.role) {
+            setUserRole(localSessionData.session.user.user_metadata.role);
+          } else {
+            try {
+              const { data: adminData } = await supabase
+                .from('users')
+                .select('id')
+                .eq('id', localSessionData.session.user.id)
+                .single();
+                
+              if (adminData && mounted) {
+                setUserRole('admin');
+              } else if (mounted) {
+                setUserRole('participante');
+              }
+            } catch (err) {
+              console.warn('⚠️ Erro ao verificar papel na DB:', err);
+              if (mounted) setUserRole('participante');
+            }
+          }
+          
+          if (mounted) setIsChecking(false);
+          return;
         }
         
-        // More thorough DB check for admin role
-        (async () => {
-          try {
-            const { data: adminData, error: adminError } = await supabase
-              .from('users')
-              .select('user_id')
-              .eq('user_id', session.user.id)
-              .single();
-              
-            if (!adminError && adminData) {
-              console.log('✅ User found in users table during App init - setting as ADMIN');
-              setUserRole('admin');
+        // Se não encontrou no localStorage, tenta renovar
+        console.log('🔄 Tentando renovar sessão...');
+        const session = await refreshSession();
+        
+        if (session?.user && mounted) {
+          console.log('✅ Sessão renovada com sucesso');
+          setUser(session.user);
+          
+          if (session.user.user_metadata?.role) {
+            setUserRole(session.user.user_metadata.role);
+          } else {
+            // Mesma verificação na DB
+            try {
+              const { data: adminData } = await supabase
+                .from('users')
+                .select('id')
+                .eq('id', session.user.id)
+                .single();
+                
+              if (adminData && mounted) {
+                setUserRole('admin');
+              } else if (mounted) {
+                setUserRole('participante');
+              }
+            } catch (err) {
+              if (mounted) setUserRole('participante');
             }
-          } catch (err) {
-            console.warn('⚠️ Error checking admin status in App init:', err);
           }
-        })();
+          
+          if (mounted) setIsChecking(false);
+          return;
+        }
+        
+        // Tentar novamente se não atingiu o máximo de tentativas
+        if (retryCount < MAX_RETRIES - 1 && mounted) {
+          setRetryCount(prevCount => prevCount + 1);
+        } else if (mounted) {
+          console.log('❌ Falha ao recuperar sessão após várias tentativas');
+          setUser(null);
+          setIsChecking(false);
+        }
+      } catch (error) {
+        console.error('Erro ao validar sessão:', error);
+        
+        if (retryCount < MAX_RETRIES - 1 && mounted) {
+          setRetryCount(prevCount => prevCount + 1);
+        } else if (mounted) {
+          setUser(null);
+          setIsChecking(false);
+        }
       }
-    });
+    };
+    
+    const timer = setTimeout(
+      validateSession, 
+      retryCount === 0 ? 0 : RETRY_DELAY
+    );
+    
+    return () => {
+      mounted = false;
+      clearTimeout(timer);
+    };
+  }, [retryCount, setUser, setUserRole]);
+  
+  if (isChecking) {
+    return <LoadingFallback />;
+  }
+  
+  return <Navigate to="/login" replace />;
+};
 
-    // Listen for changes on auth state (sign in, sign out, etc.)
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+function App() {
+  const { user, setUser, loading, setUserRole } = useAuthStore();
+  const [sessionChecked, setSessionChecked] = useState(false);
+  
+  useEffect(() => {
+    let mounted = true;
+    
+    const initAuth = async () => {
+      // Debug current auth state
+      const authDebugInfo = await debugAuth();
+      console.log('=== Auth debugging complete ===', authDebugInfo.success);
+
+      try {
+        // Tenta recuperar a sessão do localStorage primeiro
+        const { data: localSessionData, error: localSessionError } = await supabase.auth.getSession();
+        
+        if (!localSessionError && localSessionData?.session?.user && mounted) {
+          console.log('=== Session found in localStorage ===');
+          setUser(localSessionData.session.user);
+          
+          // Verificar papel do usuário
+          if (localSessionData.session.user.user_metadata?.role) {
+            setUserRole(localSessionData.session.user.user_metadata.role);
+          } else {
+            try {
+              const { data: adminData } = await supabase
+                .from('users')
+                .select('id')
+                .eq('id', localSessionData.session.user.id)
+                .single();
+                
+              if (adminData && mounted) {
+                console.log('✅ User found as admin in DB check');
+                setUserRole('admin');
+              } else if (mounted) {
+                setUserRole('participante');
+              }
+            } catch (err) {
+              console.warn('⚠️ Error checking user role:', err);
+              if (mounted) setUserRole('participante');
+            }
+          }
+        } else {
+          // Se não encontrou no localStorage, tenta renovar a sessão
+          console.log('=== Attempting to refresh session ===');
+          const session = await refreshSession();
+        
+          if (session?.user && mounted) {
+            console.log('=== Session refreshed successfully ===');
+            setUser(session.user);
+            
+            if (session.user.user_metadata?.role) {
+              setUserRole(session.user.user_metadata.role);
+            } else {
+              // Verificação na DB como feito acima
+              try {
+                const { data: adminData } = await supabase
+                  .from('users')
+                  .select('id')
+                  .eq('id', session.user.id)
+                  .single();
+                
+                if (adminData && mounted) {
+                  setUserRole('admin');
+                } else if (mounted) {
+                  setUserRole('participante');
+                }
+              } catch (err) {
+                if (mounted) setUserRole('participante');
+              }
+            }
+          } else if (mounted) {
+            console.log('=== No valid session found ===');
+            setUser(null);
+          }
+        }
+      } catch (error) {
+        console.error('Error during auth initialization:', error);
+        if (mounted) {
+          setUser(null);
+        }
+      } finally {
+        if (mounted) {
+          setSessionChecked(true);
+        }
+      }
+    };
+
+    initAuth();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      console.log('Auth state changed:', _event);
       
-      // If user has metadata with role, set it directly
-      if (session?.user?.user_metadata?.role) {
-        console.log('✅ Setting user role from metadata in auth change:', session.user.user_metadata.role);
-        setUserRole(session.user.user_metadata.role);
+      if (mounted) {
+        if (_event === 'SIGNED_OUT') {
+          setUser(null);
+          setUserRole(null);
+        } else if (session?.user) {
+          setUser(session.user);
+          
+          if (session.user.user_metadata?.role) {
+            setUserRole(session.user.user_metadata.role);
+          }
+        }
       }
     });
 
-    return () => subscription.unsubscribe();
+    // Configurar intervalo para renovar a sessão regularmente
+    const sessionRefreshInterval = setInterval(async () => {
+      if (mounted) {
+        try {
+          await refreshSession();
+        } catch (error) {
+          console.error('Error in auto session refresh:', error);
+        }
+      }
+    }, 4 * 60 * 1000); // 4 minutos
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+      clearInterval(sessionRefreshInterval);
+    };
   }, [setUser, setUserRole]);
 
-  if (loading) {
+  // Esperar até que a verificação inicial da sessão seja concluída
+  if (loading || !sessionChecked) {
     return <LoadingFallback />;
   }
   
@@ -120,8 +308,7 @@ function App() {
       <Router>
         <AuthProvider>
           <NotificationContainer />
-          <BlockDetector />
-          <Routes>
+          <BlockDetector />          <Routes>
             {/* Public Routes */}
             <Route path="/login" element={
               user === null ? <Login /> : <Navigate to="/" replace />
@@ -131,9 +318,16 @@ function App() {
             } />
             <Route path="/inscricao/:eventId" element={<EventRegistration />} />
             
-            {/* Protected Routes with a better conditional */}
+            {/* Protected Routes with improved session handling */}
             <Route path="/*" element={
-              user !== null ? <AuthenticatedRoutes /> : <Navigate to="/login" replace />
+              loading ? (
+                <LoadingFallback />
+              ) : user !== null ? (
+                <AuthenticatedRoutes />
+              ) : (
+                // Tenta renovar a sessão antes de redirecionar
+                <SessionValidator />
+              )
             } />
             
             {/* 404 Route */}
@@ -219,12 +413,22 @@ const AuthenticatedRoutes = () => {
     
     verifyUserRole();
   }, [user, userRole]);
-  
-  // Ensure we have a role before rendering routes
+    // Ensure we have a role before rendering routes
   if (userRole === null) {
-    console.warn('No user role detected, redirecting to login');
+    console.warn('No user role detected, checking if session exists...');
+    
+    // Tenta uma última recuperação antes de redirecionar
+    if (user) {
+      console.log('User exists but no role, setting default role as participante');
+      // Se temos um usuário mas nenhum papel, definimos como participante por padrão
+      setTimeout(() => {
+        useAuthStore.getState().setUserRole('participante');
+      }, 100);
+      return <LoadingFallback />;
+    }
+    
+    console.warn('No valid user found, redirecting to login');
     // Add small delay before redirect to avoid infinite loop
-    setTimeout(() => {}, 500);
     return <Navigate to="/login" replace />;
   }
   

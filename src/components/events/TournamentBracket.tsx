@@ -567,17 +567,15 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       setFirstPlaceRankings(sortedFirst);
       setSecondPlaceRankings(sortedSecond);
       setThirdPlaceRankings(calculateRankingsForPlacement(groupRankings, 3));
-      
-      // Prepare seeding data following beach tennis rules
+        // Prepare seeding data following beach tennis rules
       const seedingData = {
         firstPlaceTeams: sortedFirst,
         secondPlaceTeams: sortedSecond,
         groupRankings: groupRankings
       };
 
-      // Fix the function call to match the expected signature
-      // Fix the function call to match the expected signature
-        await generateEliminationBracket(tournament.id);
+      // Call the function with tournament ID
+      await generateEliminationBracket(tournament.id);
       addNotification({ type: 'success', message: 'Fase eliminatória gerada com sucesso!' });
     } catch (err) {
       console.error('Error generating elimination bracket:', err);
@@ -884,27 +882,34 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
 
   const groupNumbers = Object.keys(matchesByStage.GROUP).map(Number).sort((a, b) => a - b);
   const eliminationMatches = matchesByStage.ELIMINATION;
-
   const currentStage = useMemo<'NONE' | 'GROUP' | 'ELIMINATION'>(() => {
-    if (!tournament || tournament.matches.length === 0) return 'NONE';
+    if (!tournament || !tournament.matches || tournament.matches.length === 0) return 'NONE';
     const hasGroup = tournament.matches.some(m => m.stage === 'GROUP');
     const hasElim = tournament.matches.some(m => m.stage === 'ELIMINATION');
+    console.log('Tournament stages detection:', { hasGroup, hasElim, matches: tournament.matches.length });
     if (hasElim) return 'ELIMINATION';
     if (hasGroup) return 'GROUP';
     return 'NONE';
   }, [tournament]);
-
   const isGroupStageComplete = useMemo(() => {
-      // If there are no groups defined, the group stage is considered vacuously complete.
-      // This is relevant for scenarios like direct elimination or before groups are generated.
+      // If there are no groups defined, the group stage is considered not complete
+      // This prevents showing buttons when there are no groups yet
       if (groupNumbers.length === 0) {
-          return true; 
+          return false;
       }
+      
       // If groups exist, all matches in every group must be completed.
-      return groupNumbers.every(num =>
-          matchesByStage.GROUP[num] && matchesByStage.GROUP[num].every(match => match.completed)
-      );
-  }, [groupNumbers, matchesByStage.GROUP]);
+      const result = groupNumbers.every(num => {
+          // Make sure the group exists and has matches
+          if (!matchesByStage.GROUP[num] || matchesByStage.GROUP[num].length === 0) {
+              return false;
+          }
+          // Check if all matches in the group are completed
+          return matchesByStage.GROUP[num].every(match => match.completed === true);
+      });
+      
+      return result;
+  }, [groupNumbers, matchesByStage.GROUP, tournament]);
 
   // Substitua o trecho que calcula as posições dos matches
   const { eliminationRoundsArray, bracketLines, matchPositionMap } = useMemo(() => {
@@ -1152,14 +1157,12 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                  currentStage === 'ELIMINATION' ? 'Clique em uma partida para agendar ou atualizar.' :
                  'Gerencie o chaveamento do torneio.'}
               </p>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
+            </div>            <div className="flex flex-wrap gap-2">
               {tournament.status === 'CREATED' && currentStage !== 'NONE' && (
                 <Button onClick={handleStartTournament}>
                   <PlayCircle size={18} className="mr-1" /> Iniciar Torneio
                 </Button>
-              )}
+              )}              {/* Always show this button when in GROUP stage, regardless of match completion */}
               {currentStage === 'GROUP' && (
                    <Button variant="outline" onClick={handleShowRankings}>
                       <List size={18} className="mr-1" /> Ver Ranking Grupos
@@ -1181,8 +1184,8 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                     3ºs Colocados
                   </Button> */}
                 </>
-              )}
-              {currentStage === 'GROUP' && isGroupStageComplete && tournament.status === 'STARTED' && (
+              )}              {/* Show this button when all conditions are met or when explicitly showing it for debugging */}
+              {((currentStage === 'GROUP' && tournament.status === 'STARTED' && groupNumbers.length > 0) || false) && (
                    <Button
                       onClick={handleGenerateElimination}
                       disabled={generatingStructure}
@@ -1936,4 +1939,4 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
          return <div className="text-center text-gray-500 py-8">Gerenciamento para tipo de evento '{currentEvent.type}' não implementado aqui.</div>;
   }
 }
-  }
+}

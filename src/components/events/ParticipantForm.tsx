@@ -72,6 +72,7 @@ export const ParticipantForm: React.FC<ParticipantFormProps> = ({ eventId, onSuc
         name: data.name,
         email: data.email,
         phone: data.phone,
+        cpf: '',
         // Pass null if birthDate is empty/undefined
         birthDate: data.birthDate || null,
         // Pass null if partner_id is empty/undefined, unless team formation is RANDOM

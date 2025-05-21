@@ -1,6 +1,6 @@
 import { useEffect, useState, createContext, useContext, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
+import { supabase, refreshSession } from '../lib/supabase';
 import { userService, UserData } from '../services/userService';
 import { useAuthStore, UserRole } from '../store/authStore';
 
@@ -39,165 +39,133 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const userRole = useAuthStore((state) => state.userRole);
   const checkUserRole = useAuthStore((state) => state.checkUserRole);
   const setUserRole = useAuthStore((state) => state.setUserRole);
-  
+
+  // Função auxiliar para converter User para UserData ou carregar perfil completo
+  const processUserData = async (user: User): Promise<void> => {
+    try {
+      // Definir user no estado (não userData)
+      setUser(user);
+      
+      // Tentar carregar o perfil completo do serviço
+      try {
+        const profile = await userService.getUserProfile(user.id);
+        if (profile) {
+          setUserData(profile);
+          return;
+        }
+      } catch (profileError) {
+        console.warn('⚠️ Error loading user profile:', profileError);
+        // Continuamos para criar um UserData básico abaixo
+      }
+      
+      // Se não conseguiu carregar o perfil completo, criar um objeto UserData básico
+      const basicUserData: UserData = {
+        id: user.id,
+        email: user.email || '',
+        name: user.user_metadata?.name || user.email?.split('@')[0] || 'Usuário',
+        // Preencher propriedades obrigatórias com valores padrão
+        phone: user.phone || user.user_metadata?.phone || '',
+        createdAt: user.created_at || new Date().toISOString(), // Corrigido de created_at para createdAt
+        // Quaisquer outras propriedades obrigatórias do UserData
+      };
+      
+      setUserData(basicUserData);
+    } catch (error) {
+      console.error('Error processing user data:', error);
+      // Não limpar setUserData aqui para manter qualquer dado anterior se houver
+    }
+  };
+
   // Initial session check effect
   useEffect(() => {
     let isMounted = true;
     
-    const initAuth = async () => {
-      if (!isMounted) return;
-      setIsLoading(true);
-      
+    // Tentativa inicial de verificação de sessão
+    const initialSessionCheck = async () => {
       try {
-        console.log("=== Initializing authentication in useAuth ===");
-        // Get initial session
-        const { data: { session } } = await supabase.auth.getSession();
+        // Verificar se há uma sessão válida
+        const { data } = await supabase.auth.getSession();
         
-        if (isMounted) {
-          setSession(session);
-          setUser(session?.user ?? null);
-        
-          if (session?.user) {
-            // Fetch user data
-            await fetchUserData(session.user.id);
-            
-            // Check user role - using the same hierarchy as in authStore
-            let roleFound = false;
-            
-            // 1. HIGHEST PRIORITY: Check users table
+        if (data?.session?.user && isMounted) {
+          setSession(data.session);
+          // Processar dados do usuário corretamente
+          await processUserData(data.session.user);
+          
+          // Verificar papel do usuário
+          let roleFound = false;
+          
+          // 1. Verificar nos metadados do usuário
+          if (data.session.user.user_metadata?.role) {
+            console.log('✅ useAuth - Role found in user metadata:', data.session.user.user_metadata.role);
+            setUserRole(data.session.user.user_metadata.role);
+            roleFound = true;
+          }
+          
+          // 2. Se não encontrou nos metadados, verificar na tabela de usuários
+          if (!roleFound) {
             try {
-              console.log("useAuth init - Step 1: Checking users table");
-              const { data: adminData, error: adminError } = await supabase
+              const { data: userData, error: userError } = await supabase
                 .from('users')
                 .select('id')
-                .eq('id', session.user.id)
+                .eq('id', data.session.user.id)
                 .single();
                 
-              if (!adminError && adminData) {
-                console.log('✅ useAuth init - User found in users table - setting as ADMIN');
+              if (!userError && userData && isMounted) {
+                console.log('✅ useAuth - User found in users table (admin)');
                 setUserRole('admin');
                 roleFound = true;
-              } else {
-                console.log('❌ useAuth init - User not found in users table');
               }
-            } catch (adminError) {
-              console.warn('⚠️ useAuth init - Error checking users table:', adminError);
+            } catch (dbErr) {
+              console.warn('⚠️ useAuth - Error checking users table:', dbErr);
             }
-            
-            // 2. SECOND PRIORITY: Check user metadata
-            if (!roleFound) {
-              console.log("useAuth init - Step 2: Checking user metadata");
-              console.log("User metadata during init:", session.user.user_metadata);
-              if (session.user.user_metadata?.role) {
-                const roleFromMetadata = session.user.user_metadata.role as UserRole;
-                console.log("✅ useAuth init - Setting role from metadata:", roleFromMetadata);
-                setUserRole(roleFromMetadata);
-                roleFound = true;
-              } else {
-                console.log('❌ useAuth init - No role in user metadata');
-              }
-            }
-            
-            // 3. THIRD PRIORITY: Check users table for participants
-            if (!roleFound) {
-              try {
-                console.log("useAuth init - Step 3: Checking users table");
-                const { data: userData, error: userError } = await supabase
-                  .from('users')
-                  .select('id')
-                  .eq('id', session.user.id)
-                  .single();
-                  
-                if (!userError && userData) {
-                  console.log('✅ useAuth init - User found in users table as participante');
-                  setUserRole('participante');
-                  roleFound = true;
-                } else {
-                  console.log('❌ useAuth init - User not found in users table');
-                }
-              } catch (userError) {
-                console.warn('⚠️ useAuth init - Error checking users table:', userError);
-              }
-              
-              // 4. FINAL FALLBACK: Use checkUserRole from authStore
-              if (!roleFound) {
-                console.log("useAuth init - Step 4: Using authStore's checkUserRole as fallback");
-                await checkUserRole(session.user.id);
-              }
-            }
+          }
+          
+          // 3. Fallback para participante
+          if (!roleFound && isMounted) {
+            console.log('ℹ️ useAuth - No specific role found, defaulting to participant');
+            setUserRole('participante');
           }
         }
       } catch (error) {
-        console.error('❌ Auth initialization error:', error);
+        console.error('Error in initial session check:', error);
       } finally {
         if (isMounted) {
           setIsLoading(false);
         }
       }
     };
-
-    initAuth();
     
-    // Listen for auth changes
+    initialSessionCheck();
+    
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         if (!isMounted) return;
         
-        setSession(session);
-        setUser(session?.user ?? null);
-        
         if (session?.user) {
-          // Fetch user data
-          await fetchUserData(session.user.id);
+          setSession(session);
+          // Processar dados do usuário corretamente
+          await processUserData(session.user);
           
-          // Check user role - improved checks with better logging
+          // Verificar papel do usuário seguindo a mesma lógica acima
           let roleFound = false;
-          try {
-            console.log("useAuth change - Step 1: Checking users table");
-            const { data: adminData, error: adminError } = await supabase
-              .from('users')
-              .select('id')
-              .eq('id', session.user.id)
-              .single();
-              
-            if (!adminError && adminData) {
-              console.log('✅ useAuth change - User found in users table - setting as ADMIN');
-              setUserRole('admin');
-              roleFound = true;
-            } else {
-              console.log('❌ useAuth change - User not found in users table');
-            }
-          } catch (adminError) {
-            console.warn('⚠️ useAuth change - Error checking users table:', adminError);
+          
+          if (session.user.user_metadata?.role) {
+            console.log('✅ useAuth change - Role found in metadata:', session.user.user_metadata.role);
+            setUserRole(session.user.user_metadata.role);
+            roleFound = true;
           }
           
-          // If not found in users table, try metadata
-          if (!roleFound) {
-            console.log("useAuth change - Step 2: Checking user metadata");
-            console.log("User metadata on auth change:", session.user.user_metadata);
-            if (session.user.user_metadata?.role) {
-              const roleFromMetadata = session.user.user_metadata.role as UserRole;
-              console.log("✅ useAuth change - Setting role from metadata:", roleFromMetadata);
-              setUserRole(roleFromMetadata);
-              roleFound = true;
-            } else {
-              console.log('❌ useAuth change - No role in user metadata');
-            }
-          }
-          
-          // If still not found, try users table or fallback to checkUserRole
           if (!roleFound) {
             try {
-              console.log("useAuth change - Step 3: Checking users table");
               const { data: userData, error: userError } = await supabase
                 .from('users')
                 .select('id')
                 .eq('id', session.user.id)
                 .single();
-                
+              
               if (!userError && userData) {
-                console.log('✅ useAuth change - User found in users table as participante');
-                setUserRole('participante');
+                console.log('✅ useAuth change - User found in users table as admin');
+                setUserRole('admin');
                 roleFound = true;
               } else {
                 console.log('❌ useAuth change - User not found in users table');
@@ -205,25 +173,63 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             } catch (userError) {
               console.warn('⚠️ useAuth change - Error checking users table:', userError);
             }
-            
-            // Final fallback to checkUserRole
-            if (!roleFound) {
-              console.log("useAuth change - Step 4: Using authStore's checkUserRole as fallback");
-              await checkUserRole(session.user.id);
-            }
+          }
+          
+          if (!roleFound) {
+            console.log("ℹ️ useAuth change - No specific role found, defaulting to participant");
+            setUserRole('participante');
           }
         } else {
+          setUser(null);
           setUserData(null);
+          setSession(null);
           setUserRole(null);
         }
       }
     );
+    
+    // Configurar um intervalo para renovar a sessão automaticamente
+    const sessionRefreshInterval = setInterval(async () => {
+      try {
+        if (isMounted) {
+          const session = await refreshSession();
+          if (session) {
+            console.log("✅ Sessão atualizada com sucesso");
+          }
+        }
+      } catch (error) {
+        console.error("❌ Erro ao atualizar sessão:", error);
+      }
+    }, 4 * 60 * 1000); // 4 minutos
 
     return () => {
       isMounted = false;
       subscription.unsubscribe();
+      clearInterval(sessionRefreshInterval);
     };
-  }, [checkUserRole, setUserRole]); // Add necessary dependencies
+  }, [setUserRole]);
+
+  // Efeito separado para verificar a sessão periodicamente
+  useEffect(() => {
+    const AUTO_REFRESH_INTERVAL = 4 * 60 * 1000; // 4 minutos
+    console.log('🔄 Configurando verificação periódica da sessão');
+    
+    const refreshIntervalId = setInterval(async () => {
+      try {
+        const updatedSession = await refreshSession();
+        if (updatedSession) {
+          console.log('✅ Sessão atualizada com sucesso');
+        }
+      } catch (error) {
+        console.error('❌ Erro ao atualizar sessão:', error);
+      }
+    }, AUTO_REFRESH_INTERVAL);
+    
+    return () => {
+      console.log('🛑 Limpando intervalo de verificação de sessão');
+      clearInterval(refreshIntervalId);
+    };
+  }, []);
 
   const fetchUserData = async (userId: string) => {
     try {
@@ -232,7 +238,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUserData(profile);
     } catch (error) {
       console.error('Error fetching user data:', error);
-      setUserData(null);
+      // Se falhar ao buscar o perfil completo, manter o básico
+      if (user) {
+        const basicUserData: UserData = {
+          id: user.id,
+          email: user.email || '',
+          name: user.user_metadata?.name || user.email?.split('@')[0] || 'Usuário',
+          phone: user.phone || user.user_metadata?.phone || '',
+          createdAt: user.created_at || new Date().toISOString(), // Corrigido de created_at para createdAt
+        };
+        setUserData(basicUserData);
+      } else {
+        setUserData(null);
+      }
     } finally {
       setIsLoading(false);
     }
