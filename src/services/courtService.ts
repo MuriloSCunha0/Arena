@@ -7,12 +7,12 @@ const transformCourt = (data: any): Court => ({
   name: data.name,
   location: data.location,
   surface: data.surface,
-  indoor: data.indoor,
-  active: data.active,
+  indoor: data.indoor === true,
+  active: data.active === true,
   imageUrl: data.image_url,
   description: data.description,
-  type: data.type,
-  status: data.status,
+  type: data.type, // PADEL, BEACH_TENNIS, OTHER conforme o enum court_type
+  status: data.status, // AVAILABLE, MAINTENANCE, BOOKED conforme o enum court_status
   createdAt: data.created_at,
   updatedAt: data.updated_at,
 });
@@ -26,8 +26,9 @@ const toSupabaseCourt = (court: Partial<Court>) => ({
   active: court.active,
   image_url: court.imageUrl,
   description: court.description,
-  type: court.type,
-  status: court.status,
+  type: court.type, // Validar conforme o enum
+  status: court.status, // Validar conforme o enum
+  updated_at: new Date().toISOString()
 });
 
 // Função para converter dados do Supabase para nosso tipo CourtReservation
@@ -39,7 +40,7 @@ const transformReservation = (data: any): CourtReservation => ({
   title: data.title,
   start: data.start_time,
   end: data.end_time,
-  status: data.status,
+  status: data.status, // CONFIRMED, PENDING, CANCELED conforme o enum reservation_status
   createdAt: data.created_at,
   updatedAt: data.updated_at,
 });
@@ -53,6 +54,7 @@ const toSupabaseReservation = (reservation: Partial<CourtReservation>) => ({
   start_time: reservation.start,
   end_time: reservation.end,
   status: reservation.status,
+  updated_at: new Date().toISOString()
 });
 
 export const CourtService = {
@@ -65,9 +67,26 @@ export const CourtService = {
         .order('name', { ascending: true });
 
       if (error) throw error;
-      return data.map(transformCourt);
+      return data ? data.map(transformCourt) : [];
     } catch (error) {
       console.error('Error fetching courts:', error);
+      throw error;
+    }
+  },
+
+  // Buscar quadras ativas
+  async getActive(): Promise<Court[]> {
+    try {
+      const { data, error } = await supabase
+        .from('courts')
+        .select('*')
+        .eq('active', true)
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+      return data ? data.map(transformCourt) : [];
+    } catch (error) {
+      console.error('Error fetching active courts:', error);
       throw error;
     }
   },
@@ -96,9 +115,22 @@ export const CourtService = {
   // Criar uma nova quadra
   async create(court: Partial<Court>): Promise<Court> {
     try {
+      // Validar tipo e status conforme os enums do banco
+      if (court.type && !['PADEL', 'BEACH_TENNIS', 'OTHER'].includes(court.type)) {
+        throw new Error('O tipo de quadra precisa ser PADEL, BEACH_TENNIS ou OTHER');
+      }
+      
+      if (court.status && !['AVAILABLE', 'MAINTENANCE', 'BOOKED'].includes(court.status)) {
+        throw new Error('O status da quadra precisa ser AVAILABLE, MAINTENANCE ou BOOKED');
+      }
+
       const { data, error } = await supabase
         .from('courts')
-        .insert(toSupabaseCourt(court))
+        .insert({
+          ...toSupabaseCourt(court),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
         .select()
         .single();
 
@@ -113,6 +145,15 @@ export const CourtService = {
   // Atualizar uma quadra existente
   async update(id: string, court: Partial<Court>): Promise<Court> {
     try {
+      // Validar tipo e status conforme os enums do banco
+      if (court.type && !['PADEL', 'BEACH_TENNIS', 'OTHER'].includes(court.type)) {
+        throw new Error('O tipo de quadra precisa ser PADEL, BEACH_TENNIS ou OTHER');
+      }
+      
+      if (court.status && !['AVAILABLE', 'MAINTENANCE', 'BOOKED'].includes(court.status)) {
+        throw new Error('O status da quadra precisa ser AVAILABLE, MAINTENANCE ou BOOKED');
+      }
+
       const { data, error } = await supabase
         .from('courts')
         .update(toSupabaseCourt(court))
@@ -187,10 +228,19 @@ export const CourtService = {
       if (existingReservations && existingReservations.length > 0) {
         throw new Error('Já existe uma reserva para esta quadra neste horário');
       }
+      
+      // Validar status conforme o enum do banco
+      if (reservation.status && !['CONFIRMED', 'PENDING', 'CANCELED'].includes(reservation.status)) {
+        throw new Error('O status da reserva precisa ser CONFIRMED, PENDING ou CANCELED');
+      }
         
       const { data, error } = await supabase
         .from('court_reservations')
-        .insert(toSupabaseReservation(reservation))
+        .insert({
+          ...toSupabaseReservation(reservation),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
         .select()
         .single();
 

@@ -43,11 +43,15 @@ export interface Participant {
   eventId: string;
   eventName?: string;
   name: string;
-  cpf: string; // Novo campo CPF
-  phone: string; // Agora é um identificador principal
-  email?: string; // Email agora é opcional
+  cpf: string;
+  phone: string;
+  email?: string;
+  userId: string;          // ID do usuário associado
   partnerId: string | null;
+  partnerUserId?: string | null; // ID do usuário parceiro
+  partnerInviteStatus?: 'PENDING' | 'ACCEPTED' | 'DECLINED' | null;
   paymentStatus: 'PENDING' | 'CONFIRMED';
+  partnerPaymentStatus?: 'PENDING' | 'CONFIRMED' | null;
   paymentId?: string;
   paymentDate?: string;
   registeredAt: string;
@@ -57,6 +61,18 @@ export interface Participant {
   birthDate?: string | null;
   partnerName?: string | null;
   ranking?: number;
+}
+
+export interface PartnerInvite {
+  id: string;
+  senderId: string;
+  senderName: string;
+  receiverId: string;
+  eventId: string;
+  eventName: string;
+  status: 'PENDING' | 'ACCEPTED' | 'DECLINED';
+  createdAt: string;
+  expiresAt: string;
 }
 
 // Nova interface para resultados de participantes
@@ -182,17 +198,37 @@ export interface GroupRanking {
   stats: GroupTeamStats;
 }
 
+// Add these enum types
+export enum TransactionType {
+  INCOME = 'INCOME',
+  EXPENSE = 'EXPENSE'
+}
+
+export enum PaymentMethod {
+  PIX = 'PIX',
+  CARD = 'CARD',
+  CASH = 'CASH',
+  OTHER = 'OTHER'
+}
+
+export enum PaymentStatus {
+  PENDING = 'PENDING',
+  CONFIRMED = 'CONFIRMED',
+  CANCELLED = 'CANCELLED'
+}
+
 export interface FinancialTransaction {
   id: string;
   eventId: string;
-  eventName?: string;
-  participantId?: string | null;
+  participantId?: string;
   amount: number;
-  type: 'INCOME' | 'EXPENSE';
+  type: TransactionType; // Now using the enum type
   description: string;
-  paymentMethod: 'PIX' | 'CARD' | 'CASH' | 'OTHER';
-  status: 'PENDING' | 'CONFIRMED' | 'CANCELLED';
+  paymentMethod: PaymentMethod; // Now using the enum type
+  status: PaymentStatus; // Now using the enum type
   transactionDate: string;
+  createdAt: string; // Add the missing property
+  updatedAt: string; // Add the missing property
 }
 
 export interface User {
@@ -321,4 +357,32 @@ export interface Team {
 export interface TeamWithNames extends Team {
   player1Name: string;
   player2Name?: string;
+}
+
+// Nova interface para convites de dupla
+export interface PartnerInvite {
+  id: string;
+  eventId: string;
+  senderId: string;
+  senderName: string;
+  receiverId: string;
+  status: 'PENDING' | 'ACCEPTED' | 'DECLINED';
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface EventDetail {
+  id: string;
+  title: string;
+  description: string;
+  location: string;
+  date: string;
+  time?: string;
+  price: number;
+  max_participants: number;
+  banner_image_url?: string;
+  team_formation: 'FORMED' | 'RANDOM';
+  status: 'SCHEDULED' | 'ONGOING' | 'COMPLETED' | 'CANCELLED';
+  organizers?: any;
+  pix_key?: string;
 }

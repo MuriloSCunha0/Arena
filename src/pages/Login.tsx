@@ -5,35 +5,64 @@ import { useAuthStore } from '../store/authStore';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { debugAuth } from '../lib/supabase';
+import { useNotificationStore } from '../components/ui/Notification';
 
-export const Login = () => {
+export const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  
   const navigate = useNavigate();
-  const signIn = useAuthStore((state) => state.signIn);
+  const { signIn } = useAuthStore();
+  const addNotification = useNotificationStore((state: { addNotification: (notification: any) => void }) => 
+    state.addNotification
+  );
+
+  // Função para lidar com redirecionamento após login
+  const handleRedirectAfterLogin = () => {
+    const redirectPath = sessionStorage.getItem('redirectAfterLogin');
+    if (redirectPath) {
+      // Limpar o item de redirecionamento
+      sessionStorage.removeItem('redirectAfterLogin');
+      navigate(redirectPath);
+    } else {
+      navigate('/');
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError('');
-
+    
+    if (!email || !password) {
+      addNotification({
+        type: 'error',
+        message: 'Por favor, preencha todos os campos'
+      });
+      return;
+    }
+    
     try {
-      console.log('Attempting to sign in with:', email);
+      setLoading(true);
       await signIn(email, password);
-      console.log('Sign in successful');
       
-      // Debug auth state after login
-      await debugAuth();
-    } catch (err: any) {
-      console.error('Login error:', err);
-      setError(err.message || 'Email ou senha inválidos');
+      addNotification({
+        type: 'success',
+        message: 'Login realizado com sucesso!'
+      });
+      
+      // Usar o método de redirecionamento
+      handleRedirectAfterLogin();
+    } catch (error) {
+      console.error('Error during login:', error);
+      addNotification({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Erro ao fazer login'
+      });
     } finally {
       setLoading(false);
     }
-  };return (
+  };
+
+  return (
     <div className="min-h-screen bg-brand-sand flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
@@ -69,12 +98,6 @@ export const Login = () => {
               onChange={(e) => setPassword(e.target.value)}
               required
             />
-
-            {error && (
-              <div className="text-sm text-brand-orange text-center">
-                {error}
-              </div>
-            )}
 
             <Button
               type="submit"

@@ -4,6 +4,8 @@ import { calculateGroupRankings, GroupRanking } from '../utils/rankingUtils'; //
 import { createTwoSidedBracket, BracketSidesMetadata } from '../utils/bracketSidesUtil'; // Import two-sided bracket utilities
 import { distributeTeamsIntoGroups } from '../utils/groupFormationUtils'; // Import group formation utility
 import { BracketPosition } from '../utils/bracketUtils';
+// Import the tournament store
+import { useTournamentStore } from '../store/tournamentStore';
 
 // Interface for potential tournament settings
 interface TournamentSettings {
@@ -159,16 +161,14 @@ export const TournamentService = {
       // Adicionar lógica para processar randomTeams
     }
 
-    // No método que gera a estrutura do torneio
-    // Valide o tamanho do grupo
+    // Validar o tamanho do grupo para compatibilidade com o campo settings.groupSize no banco
     if (options?.groupSize) {
       if (options.groupSize < 3 || options.groupSize > 5) {
         throw new Error("O tamanho do grupo deve estar entre 3 e 5 duplas, preferencialmente 4.");
       }
-    }    // Use um valor padrão de 3 se não for especificado (mudança de 4 para 3)
-    // O valor pode ser sobrescrito pelo chamador, mas manteremos 3 como padrão
+    }
+    
     const defaultGroupSize = options?.groupSize || 3;
-
     const { forceReset = false } = options;
 
     try {
@@ -196,7 +196,14 @@ export const TournamentService = {
 
         const { data: updatedTournament, error: updateError } = await supabase
           .from('tournaments')
-          .update({ status: 'CREATED', updated_at: new Date().toISOString() })
+          .update({ 
+            status: 'CREATED', 
+            updated_at: new Date().toISOString(),
+            settings: { 
+              groupSize: defaultGroupSize,
+              qualifiersPerGroup: 2
+            }
+          })
           .eq('id', existingTournament.id)
           .select()
           .single();
@@ -209,13 +216,20 @@ export const TournamentService = {
           .insert({
             event_id: eventId,
             status: 'CREATED',
+            settings: { 
+              groupSize: defaultGroupSize,
+              qualifiersPerGroup: 2
+            },
+            team_formation: teamFormationType
           })
           .select()
           .single();
 
         if (insertError) throw insertError;
         tournamentId = newTournament.id;
-      }      // Use a função utilitária para distribuir os times em grupos conforme regras do Beach Tênis
+      }
+      
+      // Use a função utilitária para distribuir os times em grupos conforme regras do Beach Tênis
       const shuffledTeams = [...teams].sort(() => Math.random() - 0.5);
       const groups = distributeTeamsIntoGroups(shuffledTeams, defaultGroupSize);
 
@@ -230,11 +244,11 @@ export const TournamentService = {
         const { error: insertMatchesError } = await supabase
           .from('tournament_matches')
           .insert(allGroupMatches.map(match => ({
-            // Mapeamento explícito para snake_case
+            // Mapeamento explícito para snake_case para corresponder ao schema do banco de dados
             tournament_id: match.tournamentId,
             event_id: match.eventId,
             round: match.round,
-            position: match.position, // Posição inicial (pode ser 0 ou 1 dependendo da lógica)
+            position: match.position,
             team1: match.team1,
             team2: match.team2,
             score1: match.score1, // Será null inicialmente
@@ -245,12 +259,13 @@ export const TournamentService = {
             scheduled_time: match.scheduledTime, // Será null inicialmente
             stage: match.stage, // Será 'GROUP'
             group_number: match.groupNumber,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
           })));
-
         if (insertMatchesError) {
-             // Logar o erro detalhado para depuração
-             console.error("Erro detalhado ao inserir partidas de grupo:", insertMatchesError);
-             handleSupabaseError(insertMatchesError, 'inserting group matches'); // Re-lançar usando o handler
+          // Logar o erro detalhado para depuração
+          console.error("Erro detalhado ao inserir partidas de grupo:", insertMatchesError);
+          handleSupabaseError(insertMatchesError, 'inserting group matches'); // Re-lançar usando o handler
         }
       }
 
@@ -259,7 +274,6 @@ export const TournamentService = {
         throw new Error("Failed to fetch the newly created/updated tournament structure.");
       }
       return finalTournament;
-
     } catch (error) {
       handleSupabaseError(error, 'generateTournamentStructure');
       throw error;
@@ -571,90 +585,70 @@ export const TournamentService = {
     }
   },  updateMatch: async (matchId: string, score1: number, score2: number): Promise<Match> => {
     try {
-      const { data: matchData, error: fetchError } = await supabase
-        .from('tournament_matches')
-        .select('*, tournaments(status)')
-        .eq('id', matchId)
-        .single();
+      console.log(`Updating match ${matchId} with scores: ${score1}-${score2}`);
 
-      if (fetchError) throw fetchError;
-      if (!matchData) throw new Error("Match not found");
-
-      const tournamentStatus = matchData.tournaments?.status;
-      if (tournamentStatus !== 'STARTED' && tournamentStatus !== 'FINISHED') {
-        throw new Error("O torneio precisa estar em andamento para atualizar resultados.");
-      }
-
+      // Determinar vencedor baseado nos scores (garantir que não há empate)
       let winnerId: 'team1' | 'team2' | null = null;
       if (score1 > score2) {
         winnerId = 'team1';
+        console.log("Winner determined: team1");
       } else if (score2 > score1) {
         winnerId = 'team2';
+        console.log("Winner determined: team2");
       } else {
-        if (matchData.stage === 'ELIMINATION') {
-          throw new Error("Empates não são permitidos na fase eliminatória.");
-        }
-      }      // Verificar se esta é uma partida já concluída anteriormente
-      const isEditingCompletedMatch = matchData.completed && matchData.winner_id !== null;
-      
-      const { data: updatedMatch, error: updateError } = await supabase
-        .from('tournament_matches')
-        .update({
-          score1: score1,
-          score2: score2,
-          winner_id: winnerId,
-          completed: true,
-          updated_at: new Date().toISOString(),
-          editable: isEditingCompletedMatch ? true : undefined // Marca como editável se estava completa anteriormente
-        })
-        .eq('id', matchId)
-        .select()
-        .single();
-
-      if (updateError) throw updateError;
-
-      // Transformar os dados do formato da DB para o formato da interface Match
-      const transformedMatch: Match = {
-        id: updatedMatch.id,
-        tournamentId: updatedMatch.tournament_id,
-        eventId: updatedMatch.event_id,  // Esta é a propriedade crítica que estava faltando
-        round: updatedMatch.round,
-        position: updatedMatch.position,
-        team1: updatedMatch.team1,
-        team2: updatedMatch.team2,
-        score1: updatedMatch.score1,
-        score2: updatedMatch.score2,
-        winnerId: updatedMatch.winner_id,
-        completed: updatedMatch.completed,
-        courtId: updatedMatch.court_id,
-        scheduledTime: updatedMatch.scheduled_time,
-        stage: updatedMatch.stage,
-        groupNumber: updatedMatch.group_number,
-        createdAt: updatedMatch.created_at,
-        updatedAt: updatedMatch.updated_at,
-      };      // Verificar se o vencedor mudou (edição de partida já concluída)
-      const previousWinnerId = matchData.winner_id;
-      const winnerChanged = previousWinnerId !== null && previousWinnerId !== winnerId;
-      
-      if (updatedMatch.stage === 'ELIMINATION') {
-        // Se a partida já tinha um vencedor diferente, precisamos atualizar as partidas subsequentes
-        if (winnerChanged) {
-          // Se necessário, poderíamos implementar uma lógica para verificar e corrigir todas as partidas afetadas
-          console.log(`O resultado da partida ${matchId} foi alterado. Vencedor anterior: ${previousWinnerId}, Novo vencedor: ${winnerId}`);
-        }
-        
-        // Sempre avança o vencedor (isso atualizará a próxima partida com o vencedor correto)
-        if (winnerId) {
-          await TournamentService.advanceWinner(transformedMatch);
-        }
-        
-        await TournamentService.checkTournamentCompletion(transformedMatch.tournamentId);
+        throw new Error("Empate não é permitido. Um time deve vencer a partida.");
       }
 
-      return transformedMatch;
+      // Dados para atualizar
+      const updateData = {
+        score1,
+        score2,
+        winner_id: winnerId,
+        completed: true, // Garantir que a partida é marcada como concluída
+        updated_at: new Date().toISOString()
+      };
+      console.log("Update data:", updateData);
 
+      const { data, error } = await supabase
+        .from('tournament_matches')
+        .update(updateData)
+        .eq('id', matchId)
+        .select('*')
+        .single();
+
+      if (error) {
+        console.error("Error updating match:", error);
+        throw handleSupabaseError(error, 'updating match');
+      }
+      
+      if (!data) {
+        throw new Error("Falha ao atualizar partida - nenhum dado retornado");
+      }
+
+      console.log("Match updated successfully:", data);
+      
+      // Atualizar também os dados em memória usando o store adequadamente
+      const tournamentStore = useTournamentStore.getState();
+      if (tournamentStore.tournament) {
+        const updatedMatches = tournamentStore.tournament.matches.map(m => 
+          m.id === matchId ? {...m, score1, score2, winnerId, completed: true} : m
+        );
+        
+        // Usar setState com tipagem adequada
+        useTournamentStore.setState((state) => ({
+          ...state,
+          tournament: {...state.tournament!, matches: updatedMatches}
+        }));
+      }
+
+      // Avançar vencedor se necessário
+      if (winnerId) {
+        await TournamentService.advanceWinner(data as Match);
+      }
+
+      return data as Match;
     } catch (error) {
-      handleSupabaseError(error, 'updateMatch');
+      console.error('Error in updateMatch:', error);
       throw error;
     }
   },

@@ -5,6 +5,9 @@
  * @returns true se o CPF é válido, false caso contrário
  */
 export function validateCPF(cpf: string): boolean {
+  // Se for null, undefined ou string vazia
+  if (!cpf) return false;
+  
   // Remove caracteres não numéricos
   cpf = cpf.replace(/[^\d]/g, '');
 

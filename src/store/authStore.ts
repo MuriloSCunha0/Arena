@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 
-// User role types
-export type UserRole = 'admin' | 'participante';
+// User role types based on the roles used in app_metadata.roles
+export type UserRole = 'admin' | 'organizer' | 'participante';
 
 interface AuthState {
   user: any;
@@ -32,51 +32,75 @@ export const useAuthStore = create<AuthState>((set) => ({
   
   setUser: (user) => set({ user, loading: false }),
   
-  setUserRole: (role) => set({ userRole: role }),  signIn: async (email, password) => {
-  console.log('=== Attempting sign in for:', email, '===');
+  setUserRole: (role) => set({ userRole: role }),
+  
+  signIn: async (email, password) => {
+    console.log('=== Attempting sign in for:', email, '===');
 
-  try {
-    // 1. Consultar a tabela users no esquema public
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .select('id, email, password, app_metadata')
-      .eq('email', email)
-      .maybeSingle();
+    try {
+      // 1. Consultar a tabela users no esquema public
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('id, email, password, app_metadata, user_metadata')
+        .eq('email', email)
+        .maybeSingle();
 
-    if (userError) {
-      console.error('❌ Error querying users table:', userError);
-      throw new Error('Erro ao consultar a tabela de usuários.');
+      if (userError) {
+        console.error('❌ Error querying users table:', userError);
+        throw new Error('Erro ao consultar a tabela de usuários.');
+      }
+
+      if (!userData) {
+        console.error('❌ User not found in users table');
+        throw new Error('Usuário não encontrado.');
+      }
+
+      // 2. Validar a senha (substitua por uma função de hash real, se necessário)
+      const isPasswordValid = password === userData.password; // Substitua por validação de hash
+      if (!isPasswordValid) {
+        console.error('❌ Invalid password');
+        throw new Error('Senha inválida.');
+      }
+
+      console.log('✅ Login successful for user ID:', userData.id);
+
+      // 3. Determinar o papel do usuário baseado em app_metadata.roles ou app_metadata.role
+      let userRole: UserRole = 'participante';
+      const appMeta = userData.app_metadata || {};
+      
+      // Verificar app_metadata.roles (array)
+      if (appMeta.roles && Array.isArray(appMeta.roles)) {
+        if (appMeta.roles.includes('admin')) {
+          userRole = 'admin';
+        } else if (appMeta.roles.includes('organizer')) {
+          userRole = 'organizer';
+        }
+      } 
+      // Verificar app_metadata.role (string)
+      else if (appMeta.role && typeof appMeta.role === 'string') {
+        if (appMeta.role === 'admin') {
+          userRole = 'admin';
+        } else if (appMeta.role === 'organizer') {
+          userRole = 'organizer';
+        }
+      }
+      // Verificar user_metadata.role (compatibilidade)
+      else if (userData.user_metadata?.role) {
+        if (userData.user_metadata.role === 'admin') {
+          userRole = 'admin';
+        } else if (userData.user_metadata.role === 'organizer') {
+          userRole = 'organizer';
+        }
+      }
+
+      // 4. Atualizar o estado com os dados do usuário
+      set({ user: userData, userRole, loading: false });
+      console.log(`✅ User role definida como: ${userRole}`);
+    } catch (error) {
+      console.error('❌ Erro no login:', error);
+      throw new Error('Falha no login. Por favor, verifique suas credenciais e tente novamente.');
     }
-
-    if (!userData) {
-      console.error('❌ User not found in users table');
-      throw new Error('Usuário não encontrado.');
-    }
-
-    // 2. Validar a senha (substitua por uma função de hash real, se necessário)
-    const isPasswordValid = password === userData.password; // Substitua por validação de hash
-    if (!isPasswordValid) {
-      console.error('❌ Invalid password');
-      throw new Error('Senha inválida.');
-    }
-
-    console.log('✅ Login successful for user ID:', userData.id);
-
-    // 3. Determinar o papel do usuário
-    let userRole: UserRole = 'participante';
-    const appMeta = userData.app_metadata || {};
-    if (appMeta.roles && Array.isArray(appMeta.roles) && appMeta.roles.includes('admin')) {
-      userRole = 'admin';
-    }
-
-    // 4. Atualizar o estado com os dados do usuário
-    set({ user: userData, userRole, loading: false });
-    console.log(`✅ User role definida como: ${userRole}`);
-  } catch (error) {
-    console.error('❌ Erro no login:', error);
-    throw new Error('Falha no login. Por favor, verifique suas credenciais e tente novamente.');
-  }
-},
+  },
     signUp: async (email, password, userData, role = 'participante') => {
   const roleValue = role === 'admin' ? 'admin' : 'user';
   let appMetadata = role === 'admin' ? { roles: [roleValue] } : { role: roleValue };
@@ -137,7 +161,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     });
     
     if (error) throw error;
-  },  checkUserRole: async (userId) => {
+  },  checkUserRole: async (userId: string) => {
     try {
       console.log("=== Checking user role for ID:", userId, "===");
       

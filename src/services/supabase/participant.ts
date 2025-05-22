@@ -14,8 +14,8 @@ const transformParticipant = (data: any): Participant => ({
   paymentId: data.payment_id,
   paymentDate: data.payment_date,
   registeredAt: data.registered_at,
-});
-
+  cpf: data.cpf,
+  userId: data.user_id,
 const toSupabaseParticipant = (participant: Partial<Participant>) => ({
   event_id: participant.eventId,
   name: participant.name,
@@ -24,6 +24,10 @@ const toSupabaseParticipant = (participant: Partial<Participant>) => ({
   partner_id: participant.partnerId,
   payment_status: participant.paymentStatus,
   payment_id: participant.paymentId,
+  payment_date: participant.paymentDate,
+  cpf: participant.cpf,
+  user_id: participant.userId,
+});
   payment_date: participant.paymentDate,
 });
 

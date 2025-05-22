@@ -1,313 +1,193 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  User, Calendar, Trophy, Upload, Camera, Edit, CheckCircle,
-  MapPin, DollarSign, ArrowRight, Loader, ShieldCheck, Users
+  User, 
+  Phone, 
+  Mail, 
+  Calendar, 
+  Edit, 
+  UserCheck,
+  Bell,
+  ClipboardList
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
-import { ParticipanteService, ParticipanteProfileWithStats } from '../../services/participanteService';
-import { Button } from '../../components/ui/Button';
-import { formatDate } from '../../utils/formatters';
-import { useNotificationStore } from '../../components/ui/Notification';
+import { useParticipant } from '../../hooks/useParticipant';
+import { formatCPF, formatPhone, formatDate } from '../../utils/formatters';
 import { supabase } from '../../lib/supabase';
+import { Button } from '../../components/ui/Button';
+import { PartnerInvites } from '../../components/PartnerInvites';
 
-export const UserProfile = () => {  const { user, userRole, isAdmin, isParticipante } = useAuth();
-  const navigate = useNavigate();
-  const addNotification = useNotificationStore(state => state.addNotification);
-  
-  const [profile, setProfile] = useState<ParticipanteProfileWithStats | null>(null);
+interface ProfileData {
+  id: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  cpf: string;
+  birth_date: string;
+  created_at: string;
+}
+
+export const UserProfile = () => {
+  const { user } = useAuth();
+  const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);  useEffect(() => {
-    const loadProfile = async () => {
+  const [showInvites, setShowInvites] = useState(false);
+  const { pendingInvites, fetchPendingInvites } = useParticipant();
+  
+  useEffect(() => {
+    const fetchUserProfile = async () => {
       if (!user) return;
       
       try {
         setLoading(true);
         
-        if (isAdmin()) {
-          // For admin users, we just need basic information
-          const { data } = await supabase.auth.getUser();
-          if (data.user) {
-            setProfile({
-              id: data.user.id,
-              email: data.user.email || '',
-              full_name: data.user.user_metadata?.name || 'Administrador',
-              phone: '',
-              cpf: '',
-              birth_date: '',
-              totalParticipations: 0,
-              upcomingEvents: [],
-              pastEvents: []
-            });
-          }
-        } else {
-          // For regular users, load full profile with stats
-          const profileData = await ParticipanteService.getProfileWithStats(user.id);
-          setProfile(profileData);
-        }
+        // Buscar dados do perfil
+        const { data, error } = await supabase
+          .from('users')
+          .select('id, full_name, email, phone, cpf, birth_date, created_at')
+          .eq('id', user.id)
+          .single();
+        
+        if (error) throw error;
+        setProfile(data);
+        
+        // Buscar convites pendentes
+        await fetchPendingInvites(user.id);
       } catch (error) {
-        console.error('Error loading profile:', error);
-        addNotification({
-          type: 'error',
-          message: 'Erro ao carregar perfil de usuário'
-        });
+        console.error('Error fetching profile:', error);
       } finally {
         setLoading(false);
       }
     };
     
-    loadProfile();
-  }, [user, addNotification, isAdmin]);
-
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      setPhotoFile(e.target.files[0]);
-    }
-  };
-  const handlePhotoUpload = async () => {
-    if (!user || !photoFile) return;
-    
-    try {
-      setUploadingPhoto(true);
-      const photoUrl = await ParticipanteService.uploadProfilePhoto(user.id, photoFile);
-      
-      // Update local state
-      setProfile(prev => prev ? { ...prev, photo_url: photoUrl } : null);
-      setPhotoFile(null);
-      
-      addNotification({
-        type: 'success',
-        message: 'Foto de perfil atualizada com sucesso!'
-      });
-    } catch (error) {
-      console.error('Error uploading photo:', error);
-      addNotification({
-        type: 'error',
-        message: 'Erro ao fazer upload da foto'
-      });
-    } finally {
-      setUploadingPhoto(false);
-    }
-  };
-
-  const navigateToEditProfile = () => {
-    navigate('/configuracoes');
-  };
-
+    fetchUserProfile();
+  }, [user, fetchPendingInvites]);
+  
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader className="w-8 h-8 text-brand-green animate-spin" />
+      <div className="p-8 flex justify-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-brand-blue"></div>
+      </div>
+    );
+  }
+  
+  if (!profile) {
+    return (
+      <div className="p-8 text-center">
+        <p className="text-gray-600">Não foi possível carregar os dados do perfil</p>
+        <Button 
+          variant="primary"
+          className="mt-4"
+          onClick={() => window.location.reload()}
+        >
+          Tentar Novamente
+        </Button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-brand-blue">Meu Perfil</h1>
-        <Button onClick={navigateToEditProfile}>
-          <Edit size={16} className="mr-2" />
-          Editar Perfil
-        </Button>
-      </div>
-
-      {/* Profile Header */}
-      <div className="bg-white rounded-lg shadow border border-brand-gray p-6">
-        <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
-          {/* Profile Photo */}
-          <div className="relative">
-            <div className="h-32 w-32 rounded-full bg-brand-purple/10 overflow-hidden flex items-center justify-center text-brand-purple">
-              {profile?.photo_url ? (
-                <img 
-                  src={profile.photo_url} 
-                  alt={profile?.full_name || 'Profile'} 
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <User size={48} />
+    <div className="max-w-4xl mx-auto p-4">
+      <h1 className="text-2xl font-bold text-gray-900 mb-6">Meu Perfil</h1>
+      
+      {/* Card de perfil */}
+      <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+        <div className="flex justify-between items-start">
+          <div className="flex items-center">
+            <div className="bg-brand-blue/10 p-4 rounded-full mr-4">
+              <User size={40} className="text-brand-blue" />
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold">{profile.full_name}</h2>
+              <p className="text-gray-500">Membro desde {formatDate(profile.created_at)}</p>
+            </div>
+          </div>
+          
+          <Button variant="outline" size="sm" className="flex items-center">
+            <Edit size={16} className="mr-1" />
+            Editar
+          </Button>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+          {/* Informações pessoais */}
+          <div className="space-y-4">
+            <h3 className="text-lg font-medium mb-2">Informações pessoais</h3>
+            
+            <div className="flex items-center text-gray-600">
+              <Mail className="w-5 h-5 mr-2 text-brand-blue/70" />
+              <p>{profile.email}</p>
+            </div>
+            
+            <div className="flex items-center text-gray-600">
+              <Phone className="w-5 h-5 mr-2 text-brand-blue/70" />
+              <p>{formatPhone(profile.phone)}</p>
+            </div>
+            
+            <div className="flex items-center text-gray-600">
+              <UserCheck className="w-5 h-5 mr-2 text-brand-blue/70" />
+              <p>{formatCPF(profile.cpf)}</p>
+            </div>
+            
+            <div className="flex items-center text-gray-600">
+              <Calendar className="w-5 h-5 mr-2 text-brand-blue/70" />
+              <p>{formatDate(profile.birth_date)}</p>
+            </div>
+          </div>
+          
+          {/* Convites de parceiros */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-lg font-medium">Convites pendentes</h3>
+              {pendingInvites.length > 0 && (
+                <span className="bg-red-500 text-white text-xs rounded-full px-2 py-1">
+                  {pendingInvites.length}
+                </span>
               )}
             </div>
-            <label 
-              htmlFor="photo-upload" 
-              className="absolute -right-2 bottom-0 bg-brand-green text-white rounded-full p-2 cursor-pointer hover:bg-brand-green/90 transition-colors"
-            >
-              <Camera size={16} />
-            </label>
-            <input 
-              id="photo-upload" 
-              type="file" 
-              accept="image/*" 
-              className="hidden" 
-              onChange={handlePhotoChange}
-            />
-          </div>
-
-          {/* Profile Info */}
-          <div className="flex-1 text-center md:text-left">
-            <h2 className="text-xl font-bold text-brand-blue">{profile?.full_name || user?.email}</h2>
             
-            <div className="mt-2 space-y-1 text-gray-600">
-              <p>{user?.email}</p>
-              <p>{profile?.phone ? `Telefone: ${profile.phone}` : ''}</p>
-              <p>{profile?.birth_date ? `Data de Nascimento: ${formatDate(profile.birth_date)}` : ''}</p>
-            </div>
-              {/* Role Badge */}
-            <div className="mt-3">
-              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                ${isAdmin() ? 'bg-brand-purple/20 text-brand-purple' : 'bg-gray-200 text-gray-700'}`}
-              >
-                {isAdmin() ? (
-                  <>
-                    <ShieldCheck size={12} className="mr-1" />
-                    Administrador
-                  </>
-                ) : (
-                  <>
-                    <Users size={12} className="mr-1" />
-                    Participante
-                  </>
-                )}
-              </span>
-            </div>
-          </div>
-
-          {/* Stats */}
-          <div className="bg-brand-sand/40 rounded-lg p-4 md:self-stretch min-w-[200px]">
-            <div className="text-center">
-              <p className="text-sm text-gray-500">Total de Participações</p>
-              <p className="text-3xl font-semibold text-brand-purple">{profile?.totalParticipations || 0}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Photo Upload Button */}
-        {photoFile && (
-          <div className="mt-4 flex justify-center md:justify-start">
-            <Button onClick={handlePhotoUpload} loading={uploadingPhoto}>
-              <Upload size={16} className="mr-2" />
-              {uploadingPhoto ? 'Enviando...' : 'Enviar Nova Foto'}
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {/* Upcoming Tournaments Section */}
-      <div className="bg-white rounded-lg shadow border border-brand-gray p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-brand-blue flex items-center">
-            <Calendar className="mr-2 text-brand-green" size={20} />
-            Próximos Torneios
-          </h2>
-        </div>
-
-        {profile?.upcomingEvents && profile.upcomingEvents.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {profile.upcomingEvents.map(event => (
-              <div key={event.id} className="border border-brand-gray rounded-lg overflow-hidden hover:shadow-md transition-shadow">
-                <div className="h-32 bg-brand-sand flex items-center justify-center overflow-hidden">
-                  {event.imageUrl ? (
-                    <img src={event.imageUrl} alt={event.title} className="w-full h-full object-cover" />
-                  ) : (
-                    <Trophy size={32} className="text-brand-purple opacity-30" />
-                  )}
-                </div>
-                <div className="p-4">
-                  <h3 className="font-medium text-brand-blue">{event.title}</h3>
-                  <div className="mt-2 space-y-1">
-                    <div className="flex items-center text-sm text-gray-600">
-                      <Calendar size={14} className="mr-1 text-brand-green" />
-                      {formatDate(event.date)}
-                    </div>
-                    <div className="flex items-center text-sm text-gray-600">
-                      <MapPin size={14} className="mr-1 text-brand-green" />
-                      {event.location}
-                    </div>
-                    <div className="flex items-center text-sm text-gray-600">
-                      <DollarSign size={14} className="mr-1 text-brand-green" />
-                      R$ {event.price?.toFixed(2).replace('.', ',') || '0,00'}
-                    </div>
+            {pendingInvites.length > 0 ? (
+              <div className="border rounded-md">
+                <div 
+                  className="p-3 border-b bg-gray-50 flex justify-between cursor-pointer"
+                  onClick={() => setShowInvites(!showInvites)}
+                >
+                  <div className="flex items-center">
+                    <Bell size={18} className="mr-2 text-brand-blue" />
+                    <span>
+                      Você tem {pendingInvites.length} {pendingInvites.length === 1 ? 'convite' : 'convites'} pendente{pendingInvites.length !== 1 ? 's' : ''}
+                    </span>
                   </div>
-                  <Button 
-                    variant="outline" 
-                    className="w-full mt-3"
-                    onClick={() => navigate(`/inscricao/${event.id}`)}
-                  >
-                    Inscrever-se
-                    <ArrowRight size={14} className="ml-1" />
-                  </Button>
+                  <span>{showInvites ? '▲' : '▼'}</span>
                 </div>
+                
+                {showInvites && (
+                  <div className="p-2">
+                    <PartnerInvites 
+                      onActionTaken={() => fetchPendingInvites(user!.id)}
+                    />
+                  </div>
+                )}
               </div>
-            ))}
+            ) : (
+              <div className="p-4 border rounded-md text-center text-gray-500 bg-gray-50">
+                <Bell size={24} className="mx-auto mb-1 text-gray-400" />
+                <p>Sem convites pendentes</p>
+              </div>
+            )}
+            
+            <div className="mt-4">
+              <Button 
+                variant="outline" 
+                className="w-full flex items-center justify-center"
+                onClick={() => window.location.href = '/meus-torneios'}
+              >
+                <ClipboardList size={18} className="mr-2" />
+                Ver meus torneios
+              </Button>
+            </div>
           </div>
-        ) : (
-          <div className="text-center py-8 text-gray-500">
-            <p>Não há torneios próximos disponíveis no momento.</p>
-          </div>
-        )}
-      </div>
-
-      {/* Tournament History Section */}
-      <div className="bg-white rounded-lg shadow border border-brand-gray p-6">
-        <div className="flex items-center mb-4">
-          <Trophy className="mr-2 text-brand-purple" size={20} />
-          <h2 className="text-lg font-semibold text-brand-blue">Histórico de Torneios</h2>
         </div>
-
-        {profile?.pastEvents && profile.pastEvents.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-brand-gray">
-              <thead>
-                <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  <th className="px-6 py-3">Torneio</th>
-                  <th className="px-6 py-3">Data</th>
-                  <th className="px-6 py-3">Local</th>
-                  <th className="px-6 py-3">Parceiro</th>
-                  <th className="px-6 py-3">Colocação</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-brand-gray">
-                {profile.pastEvents.map(event => (
-                  <tr key={event.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="font-medium text-brand-blue">{event.title}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {formatDate(event.date)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {event.location}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {event.teamPartner || 'Individual'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {typeof event.placement === 'number' && event.placement <= 3 ? (
-                        <div className={`flex items-center font-medium
-                          ${event.placement === 1 ? 'text-yellow-600' : 
-                           event.placement === 2 ? 'text-gray-500' : 
-                           event.placement === 3 ? 'text-amber-700' : 'text-gray-600'}`}
-                        >
-                          <Trophy size={16} className="mr-1" />
-                          {event.placement}º Lugar
-                        </div>
-                      ) : (
-                        <span className="text-sm text-gray-600">
-                          {event.placement?.toString() || 'Participou'}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="text-center py-8 text-gray-500">
-            <p>Você ainda não participou de nenhum torneio.</p>
-          </div>
-        )}
       </div>
     </div>
   );

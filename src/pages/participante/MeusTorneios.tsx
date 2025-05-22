@@ -5,12 +5,16 @@ import {
   MapPin,
   Users,
   Loader,
-  Medal
+  Medal,
+  Clock,
+  RefreshCcw
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { formatDate } from '../../utils/formatters';
 import { useNotificationStore } from '../../components/ui/Notification';
-import { ParticipanteService } from '../../services/participanteService';
+import { useParticipant } from '../../hooks/useParticipant';
+import { Link } from 'react-router-dom';
+import { Button } from '../../components/ui/Button';
 
 interface Tournament {
   id: string;
@@ -24,8 +28,10 @@ interface Tournament {
 
 export const MeusTorneios = () => {
   const { user } = useAuth();
-  const [tournaments, setTournaments] = useState<Tournament[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { getParticipantTournaments, loading } = useParticipant();
+  const [upcomingTournaments, setUpcomingTournaments] = useState<Tournament[]>([]);
+  const [pastTournaments, setPastTournaments] = useState<Tournament[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
   const addNotification = useNotificationStore(state => state.addNotification);
 
   useEffect(() => {
@@ -33,29 +39,48 @@ export const MeusTorneios = () => {
       if (!user) return;
       
       try {
-        setLoading(true);
-        // Use ParticipanteService to fetch tournaments
-        const { upcomingTournaments, pastTournaments } = await ParticipanteService.getTorneiasParticipante(user.id);
+        // Buscar dados de torneios diretamente do banco
+        const result = await getParticipantTournaments(user.id);
         
-        // Combine the tournaments
-        setTournaments([...upcomingTournaments, ...pastTournaments]);
+        // Atualizar os estados com dados do banco
+        setUpcomingTournaments(result.upcomingTournaments);
+        setPastTournaments(result.pastTournaments);
       } catch (error) {
         console.error('Error fetching tournaments:', error);
         addNotification({
           type: 'error',
           message: 'Erro ao carregar seus torneios'
         });
-      } finally {
-        setLoading(false);
       }
     };
     
     fetchTournaments();
-  }, [user, addNotification]);
+  }, [user, getParticipantTournaments, addNotification]);
 
-  // Separar torneios futuros e passados
-  const upcomingTournaments = tournaments.filter(t => t.upcoming);
-  const pastTournaments = tournaments.filter(t => !t.upcoming);
+  const handleRefresh = async () => {
+    if (!user) return;
+    
+    try {
+      setRefreshing(true);
+      const result = await getParticipantTournaments(user.id);
+      
+      setUpcomingTournaments(result.upcomingTournaments);
+      setPastTournaments(result.pastTournaments);
+      
+      addNotification({
+        type: 'success',
+        message: 'Torneios atualizados'
+      });
+    } catch (error) {
+      console.error('Error refreshing tournaments:', error);
+      addNotification({
+        type: 'error',
+        message: 'Erro ao atualizar seus torneios'
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -68,108 +93,135 @@ export const MeusTorneios = () => {
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-brand-blue">Meus Torneios</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Meus Torneios</h1>
+        
+        <Button
+          variant="outline"
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="flex items-center"
+        >
+          <RefreshCcw size={16} className={`mr-1 ${refreshing ? 'animate-spin' : ''}`} />
+          Atualizar
+        </Button>
       </div>
 
-      {/* Torneios Futuros */}
-      <div className="bg-white rounded-lg shadow border border-brand-gray p-6">
-        <div className="flex items-center mb-4">
-          <Calendar className="mr-2 text-brand-green" size={20} />
-          <h2 className="text-lg font-semibold text-brand-blue">Torneios Futuros</h2>
-        </div>
-
+      {/* Torneios próximos */}
+      <div>
+        <h2 className="text-xl font-semibold mb-4 flex items-center">
+          <Clock size={20} className="mr-2 text-brand-orange" /> 
+          Torneios Próximos
+        </h2>
+        
         {upcomingTournaments.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {upcomingTournaments.map(tournament => (
-              <div key={tournament.id} className="border border-brand-gray rounded-lg p-4 hover:shadow-sm transition-shadow">
-                <h3 className="font-medium text-brand-blue mb-2">{tournament.title}</h3>
-                <div className="space-y-1 text-sm text-gray-600">
-                  <div className="flex items-center">
-                    <Calendar size={14} className="mr-1 text-brand-green" />
-                    {formatDate(tournament.date)}
-                  </div>
-                  <div className="flex items-center">
-                    <MapPin size={14} className="mr-1 text-brand-green" />
-                    {tournament.location}
-                  </div>
-                  {tournament.partner_name && (
-                    <div className="flex items-center">
-                      <Users size={14} className="mr-1 text-brand-green" />
-                      Parceiro: {tournament.partner_name}
+            {upcomingTournaments.map((tournament) => (
+              <div 
+                key={tournament.id} 
+                className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-shadow"
+              >
+                <div className="p-5">
+                  <h3 className="text-lg font-bold text-brand-blue mb-2">
+                    {tournament.title}
+                  </h3>
+                  
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center text-gray-600">
+                      <Calendar size={16} className="mr-2 text-brand-green" />
+                      {formatDate(tournament.date)}
                     </div>
-                  )}
+                    
+                    <div className="flex items-center text-gray-600">
+                      <MapPin size={16} className="mr-2 text-brand-red" />
+                      {tournament.location}
+                    </div>
+                    
+                    {tournament.partner_name && (
+                      <div className="flex items-center text-gray-600">
+                        <Users size={16} className="mr-2 text-brand-purple" />
+                        Parceiro: {tournament.partner_name}
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="mt-4 pt-4 border-t border-gray-100 flex justify-end">
+                    <Link 
+                      to={`/eventos/${tournament.id}`}
+                      className="text-brand-blue hover:text-brand-blue/80 text-sm font-medium"
+                    >
+                      Ver detalhes
+                    </Link>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-center text-gray-500 py-4">
-            Você não está inscrito em nenhum torneio futuro.
-          </p>
-        )}
-      </div>
-
-      {/* Histórico de Torneios */}
-      <div className="bg-white rounded-lg shadow border border-brand-gray p-6">
-        <div className="flex items-center mb-4">
-          <Trophy className="mr-2 text-brand-purple" size={20} />
-          <h2 className="text-lg font-semibold text-brand-blue">Histórico de Torneios</h2>
-        </div>
-
-        {pastTournaments.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-brand-gray">
-              <thead>
-                <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  <th className="px-6 py-3">Torneio</th>
-                  <th className="px-6 py-3">Data</th>
-                  <th className="px-6 py-3">Local</th>
-                  <th className="px-6 py-3">Parceiro</th>
-                  <th className="px-6 py-3">Colocação</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-brand-gray">
-                {pastTournaments.map(tournament => (
-                  <tr key={tournament.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="font-medium text-brand-blue">{tournament.title}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {formatDate(tournament.date)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {tournament.location}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {tournament.partner_name || 'Individual'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {typeof tournament.placement === 'number' && tournament.placement <= 3 ? (
-                        <div className={`flex items-center font-medium
-                          ${tournament.placement === 1 ? 'text-yellow-600' : 
-                           tournament.placement === 2 ? 'text-gray-500' : 
-                           tournament.placement === 3 ? 'text-amber-700' : 'text-gray-600'}`}
-                        >
-                          <Medal size={16} className="mr-1" />
-                          {tournament.placement}º Lugar
-                        </div>
-                      ) : (
-                        <span className="text-sm text-gray-600">
-                          {tournament.placement?.toString() || 'Participou'}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
+            <Trophy size={48} className="mx-auto text-gray-400 mb-3" />
+            <p className="text-gray-600">
+              Você não possui torneios agendados.
+            </p>
+            <Link 
+              to="/eventos-disponiveis" 
+              className="mt-4 inline-block px-4 py-2 bg-brand-blue text-white rounded-md hover:bg-brand-blue/90"
+            >
+              Explorar eventos
+            </Link>
           </div>
-        ) : (
-          <p className="text-center text-gray-500 py-4">
-            Você ainda não participou de nenhum torneio.
-          </p>
         )}
       </div>
+
+      {/* Torneios passados */}
+      {pastTournaments.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold mb-4 flex items-center">
+            <Trophy size={20} className="mr-2 text-brand-gold" /> 
+            Torneios Concluídos
+          </h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {pastTournaments.map((tournament) => (
+              <div 
+                key={tournament.id} 
+                className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-shadow"
+              >
+                <div className="p-5">
+                  <h3 className="text-lg font-bold text-gray-800 mb-2">
+                    {tournament.title}
+                  </h3>
+                  
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center text-gray-600">
+                      <Calendar size={16} className="mr-2 text-brand-green" />
+                      {formatDate(tournament.date)}
+                    </div>
+                    
+                    <div className="flex items-center text-gray-600">
+                      <MapPin size={16} className="mr-2 text-brand-red" />
+                      {tournament.location}
+                    </div>
+                    
+                    {tournament.partner_name && (
+                      <div className="flex items-center text-gray-600">
+                        <Users size={16} className="mr-2 text-brand-purple" />
+                        Parceiro: {tournament.partner_name}
+                      </div>
+                    )}
+                    
+                    {tournament.placement && (
+                      <div className="flex items-center font-medium text-brand-gold">
+                        <Medal size={16} className="mr-2" />
+                        Posição: {tournament.placement}º
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

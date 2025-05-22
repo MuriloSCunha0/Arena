@@ -7,11 +7,13 @@ const transformTransaction = (data: any): FinancialTransaction => ({
   eventId: data.event_id,
   participantId: data.participant_id,
   amount: data.amount,
-  type: data.type,
+  type: data.type, // INCOME ou EXPENSE conforme o enum transaction_type
   description: data.description,
-  paymentMethod: data.payment_method,
-  status: data.status,
+  paymentMethod: data.payment_method, // PIX, CARD, CASH, OTHER conforme o enum payment_method
+  status: data.status, // PENDING, CONFIRMED, CANCELLED conforme o enum payment_status
   transactionDate: data.transaction_date,
+  createdAt: data.created_at,
+  updatedAt: data.updated_at
 });
 
 // Função para converter nosso tipo FinancialTransaction para o formato do Supabase
@@ -35,7 +37,7 @@ export const FinancialsService = {
       .order('transaction_date', { ascending: false });
 
     if (error) throw error;
-    return data.map(transformTransaction);
+    return data ? data.map(transformTransaction) : [];
   },
 
   // Buscar transações por evento
@@ -47,7 +49,7 @@ export const FinancialsService = {
       .order('transaction_date', { ascending: false });
 
     if (error) throw error;
-    return data.map(transformTransaction);
+    return data ? data.map(transformTransaction) : [];
   },
 
   // Buscar uma transação por ID
@@ -58,16 +60,36 @@ export const FinancialsService = {
       .eq('id', id)
       .single();
 
-    if (error) throw error;
-    if (!data) return null;
-    return transformTransaction(data);
+    if (error) {
+      if (error.code === 'PGRST116') return null; // No data found
+      throw error;
+    }
+    
+    return data ? transformTransaction(data) : null;
   },
 
   // Criar uma nova transação
   async create(transaction: Partial<FinancialTransaction>): Promise<FinancialTransaction> {
+    // Validar tipo e status conforme os enums do banco
+    if (transaction.type && !['INCOME', 'EXPENSE'].includes(transaction.type)) {
+      throw new Error('O tipo de transação precisa ser INCOME ou EXPENSE');
+    }
+    
+    if (transaction.status && !['PENDING', 'CONFIRMED', 'CANCELLED'].includes(transaction.status)) {
+      throw new Error('O status de pagamento precisa ser PENDING, CONFIRMED ou CANCELLED');
+    }
+    
+    if (transaction.paymentMethod && !['PIX', 'CARD', 'CASH', 'OTHER'].includes(transaction.paymentMethod)) {
+      throw new Error('O método de pagamento precisa ser PIX, CARD, CASH ou OTHER');
+    }
+    
     const { data, error } = await supabase
       .from('financial_transactions')
-      .insert(toSupabaseTransaction(transaction))
+      .insert({
+        ...toSupabaseTransaction(transaction),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
       .select()
       .single();
 
@@ -77,9 +99,25 @@ export const FinancialsService = {
 
   // Atualizar uma transação existente
   async update(id: string, transaction: Partial<FinancialTransaction>): Promise<FinancialTransaction> {
+    // Validar tipo e status conforme os enums do banco
+    if (transaction.type && !['INCOME', 'EXPENSE'].includes(transaction.type)) {
+      throw new Error('O tipo de transação precisa ser INCOME ou EXPENSE');
+    }
+    
+    if (transaction.status && !['PENDING', 'CONFIRMED', 'CANCELLED'].includes(transaction.status)) {
+      throw new Error('O status de pagamento precisa ser PENDING, CONFIRMED ou CANCELLED');
+    }
+    
+    if (transaction.paymentMethod && !['PIX', 'CARD', 'CASH', 'OTHER'].includes(transaction.paymentMethod)) {
+      throw new Error('O método de pagamento precisa ser PIX, CARD, CASH ou OTHER');
+    }
+    
     const { data, error } = await supabase
       .from('financial_transactions')
-      .update(toSupabaseTransaction(transaction))
+      .update({
+        ...toSupabaseTransaction(transaction),
+        updated_at: new Date().toISOString()
+      })
       .eq('id', id)
       .select()
       .single();
@@ -103,6 +141,7 @@ export const FinancialsService = {
     income: number;
     expenses: number;
     pendingIncome: number;
+    profit: number; // Adicionado para calcular automaticamente o lucro
   }> {
     const { data, error } = await supabase
       .from('financial_transactions')
@@ -111,19 +150,22 @@ export const FinancialsService = {
 
     if (error) throw error;
 
-    const transactions = data.map(transformTransaction);
+    const transactions = data ? data.map(transformTransaction) : [];
     const income = transactions
       .filter(t => t.type === 'INCOME' && t.status === 'CONFIRMED')
-      .reduce((sum, t) => sum + t.amount, 0);
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
     
     const expenses = transactions
       .filter(t => t.type === 'EXPENSE' && t.status === 'CONFIRMED')
-      .reduce((sum, t) => sum + t.amount, 0);
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
     
     const pendingIncome = transactions
       .filter(t => t.type === 'INCOME' && t.status === 'PENDING')
-      .reduce((sum, t) => sum + t.amount, 0);
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
 
-    return { income, expenses, pendingIncome };
+    // Calcular o lucro (receitas - despesas)
+    const profit = income - expenses;
+
+    return { income, expenses, pendingIncome, profit };
   }
 };

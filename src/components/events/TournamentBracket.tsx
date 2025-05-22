@@ -892,19 +892,18 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     return 'NONE';
   }, [tournament]);
   const isGroupStageComplete = useMemo(() => {
-      // If there are no groups defined, the group stage is considered not complete
-      // This prevents showing buttons when there are no groups yet
+      // Se não há grupos definidos, a fase de grupos é considerada não completa
       if (groupNumbers.length === 0) {
           return false;
       }
       
-      // If groups exist, all matches in every group must be completed.
+      // Para cada grupo, verificar se todas as partidas estão concluídas
       const result = groupNumbers.every(num => {
-          // Make sure the group exists and has matches
+          // Garantir que o grupo existe e tem partidas
           if (!matchesByStage.GROUP[num] || matchesByStage.GROUP[num].length === 0) {
               return false;
           }
-          // Check if all matches in the group are completed
+          // Verificar se todas as partidas do grupo estão completas
           return matchesByStage.GROUP[num].every(match => match.completed === true);
       });
       
@@ -1131,6 +1130,61 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       bracketContainer.removeEventListener('scroll', handleScroll);
     };
   }, []);
+
+  const handleForceRecalculateRankings = () => {
+    try {
+      if (!tournament || !matchesByStage.GROUP) {
+        addNotification({ 
+          type: 'warning', 
+          message: 'Não há dados suficientes para calcular rankings.' 
+        });
+        return;
+      }
+
+      const allRankings: Record<number, GroupRanking[]> = {};
+      let allGroupMatchesCompleted = true;
+
+      // Para cada grupo, recalcular rankings
+      Object.keys(matchesByStage.GROUP).forEach(groupNumStr => {
+        const groupNum = parseInt(groupNumStr);
+        const groupMatches = matchesByStage.GROUP[groupNum];
+        const completedMatches = groupMatches.filter(m => m.completed);
+        
+        console.log(`Grupo ${groupNum}: ${completedMatches.length}/${groupMatches.length} partidas concluídas`);
+        
+        // Verificar se todas as partidas do grupo estão concluídas
+        if (completedMatches.length !== groupMatches.length) {
+          allGroupMatchesCompleted = false;
+        }
+        
+        // Calcular rankings para este grupo
+        allRankings[groupNum] = calculateGroupRankings(groupMatches, true);
+      });
+
+      // Exibir resultados 
+      setCalculatedRankings(allRankings);
+      setShowGroupRankingsModal(true);
+      
+      // Informar o status das partidas
+      if (!allGroupMatchesCompleted) {
+        addNotification({ 
+          type: 'warning', 
+          message: 'Nem todas as partidas da fase de grupos estão concluídas.' 
+        });
+      } else {
+        addNotification({ 
+          type: 'success', 
+          message: 'Todas as partidas da fase de grupos estão concluídas. Você pode gerar a fase eliminatória.' 
+        });
+      }
+    } catch (error) {
+      console.error("Error calculating rankings:", error);
+      addNotification({ 
+        type: 'error', 
+        message: 'Erro ao calcular rankings: ' + (error instanceof Error ? error.message : 'Erro desconhecido')
+      });
+    }
+  };
 
   if (isDataLoading) {
      return (
@@ -1862,16 +1916,16 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     }
   } else {
     if (!currentEvent) {
-       return <div className="text-center text-gray-500 py-8">Carregando detalhes do evento...</div>;
+      return <div className="text-center text-gray-500 py-8">Carregando detalhes do evento...</div>;
     }
-
+    
     if (currentEvent.type === EventType.TOURNAMENT) {
         if (currentEvent.team_formation === TeamFormationType.RANDOM) {
             if (eventParticipants.length < 4) {
                 return (
                 <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-lg shadow">
                     <p className="text-yellow-700">
-                    É necessário pelo menos  4 participantes confirmados para iniciar o sorteio de duplas.
+                    É necessário pelo menos 4 participantes confirmados para iniciar o sorteio de duplas.
                     </p>
                 </div>
                 );
@@ -1885,15 +1939,16 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                 </div>
                 );
             }
+            
             return (
                 <div className="bg-white p-6 md:p-8 rounded-lg shadow border border-brand-gray">
-                <h3 className="text-lg font-medium text-brand-blue mb-4">
+                  <h3 className="text-lg font-medium text-brand-blue mb-4">
                     Gerar Grupos e Chaveamento Aleatório
-                </h3>
-                <p className="text-gray-600 mb-6">
+                  </h3>
+                  <p className="text-gray-600 mb-6">
                     Use a roleta para sortear as duplas, formar os grupos e atribuir as quadras iniciais.
-                </p>
-                <TournamentRandomizer
+                  </p>
+                  <TournamentRandomizer
                     eventId={eventId}
                     participants={eventParticipants}
                     courts={courts}
@@ -1906,37 +1961,37 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                           .then(() => addNotification({ type: 'success', message: 'Grupos e partidas aleatórias gerados e salvos!' }))
                           .catch((err: any) => addNotification({ type: 'error', message: `Erro ao salvar estrutura: ${err.message}` }));
                     }}
-                />
+                  />
                 </div>
             );
         } else {
             return (
                 <div className="bg-white p-8 text-center rounded-lg shadow border border-brand-gray">
-                <PlayCircle className="mx-auto h-12 w-12 text-gray-300" />
-                <h3 className="mt-2 text-sm font-semibold text-gray-900">Estrutura não gerada</h3>
-                <p className="mt-1 text-sm text-gray-500">
+                  <PlayCircle className="mx-auto h-12 w-12 text-gray-300" />
+                  <h3 className="mt-2 text-sm font-semibold text-gray-900">Estrutura não gerada</h3>
+                  <p className="mt-1 text-sm text-gray-500">
                     Gere os grupos e a fase inicial do torneio quando todos os participantes estiverem inscritos.
-                </p>
-                <div className="mt-6 flex flex-col md:flex-row justify-center gap-3">
+                  </p>
+                  <div className="mt-6 flex flex-col md:flex-row justify-center gap-3">
                     <Button
-                        onClick={handleGenerateFormedStructure}
-                        disabled={eventParticipants.length < 2 || generatingStructure}
-                        loading={generatingStructure}
+                      onClick={handleGenerateFormedStructure}
+                      disabled={eventParticipants.length < 2 || generatingStructure}
+                      loading={generatingStructure}
                     >
-                        <RefreshCw size={18} className="mr-1" />
-                        Gerar Grupos e Partidas
+                      <RefreshCw size={18} className="mr-1" />
+                      Gerar Grupos e Partidas
                     </Button>
-                </div>
-                 {eventParticipants.length < 2 && (
+                  </div>
+                  {eventParticipants.length < 2 && (
                     <p className="mt-4 text-sm text-brand-orange">
-                    Mínimo de 2 participantes/duplas para gerar estrutura.
+                      Mínimo de 2 participantes/duplas para gerar estrutura.
                     </p>
-                )}
+                  )}
                 </div>
             );
         }
     } else {
          return <div className="text-center text-gray-500 py-8">Gerenciamento para tipo de evento '{currentEvent.type}' não implementado aqui.</div>;
+    }
   }
-}
 }

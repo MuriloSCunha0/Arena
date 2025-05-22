@@ -348,25 +348,29 @@ export const TournamentService = {
   },
 
   generateEliminationBracket: async (tournamentId: string): Promise<Tournament> => {
-     console.log(`Generating elimination bracket for tournament ${tournamentId}`);
      try {
+        // First get the tournament data to access settings and event_id
         const { data: tournamentData, error: tournamentError } = await supabase
-            .from('tournaments')
-            .select('*, settings') // Fetch settings JSONB column
-            .eq('id', tournamentId)
-            .single();
-        if (tournamentError) throw handleSupabaseError(tournamentError, 'fetching tournament');
+          .from('tournaments')
+          .select('*')
+          .eq('id', tournamentId)
+          .single();
+          
+        if (tournamentError) throw handleSupabaseError(tournamentError, 'fetching tournament data');
         if (!tournamentData) throw new Error("Tournament not found");
-
-        const settings: TournamentSettings = tournamentData.settings || {};
+        
+        // Extract qualifiersPerGroup from settings, default to 2 if not specified
+        const settings = tournamentData.settings || {};
         const qualifiersPerGroup = settings.qualifiersPerGroup || 2;
-
+        
+        // Verificação crítica: buscar apenas partidas de grupo COMPLETAS
         const { data: groupMatchesData, error: matchesError } = await supabase
             .from('tournament_matches')
             .select('*')
-            .eq('tournament_id', tournamentId) // Use tournament_id
+            .eq('tournament_id', tournamentId)
             .eq('stage', 'GROUP')
-            .eq('completed', true);
+            .eq('completed', true); // Confirme que este campo está sendo definido corretamente
+
         if (matchesError) throw handleSupabaseError(matchesError, 'fetching group matches');
 
         if (!groupMatchesData || groupMatchesData.length === 0) {
@@ -468,18 +472,23 @@ export const TournamentService = {
             const winnerId = isBye ? (team1 !== null ? 'team1' : 'team2') : null;
             const completed = isBye;
             eliminationMatches.push({
-                tournamentId: tournamentId!, eventId: tournamentData.event_id, round: 1, position: position,
+                tournamentId: tournamentId, 
+                eventId: tournamentData.event_id, 
+                round: 1, position: position,
                 team1: team1, team2: team2, score1: completed ? 1 : null, score2: completed ? 0 : null,
                 winnerId: winnerId, completed: completed, courtId: null, scheduledTime: null,
                 stage: 'ELIMINATION', groupNumber: null,
             });
         }
+        
         let previousRoundMatches = firstRoundMatchesCount;
         for (let round = 2; round <= numRounds; round++) {
             const matchesInThisRound = previousRoundMatches / 2;
             for (let position = 1; position <= matchesInThisRound; position++) {
                 eliminationMatches.push({
-                    tournamentId: tournamentId!, eventId: tournamentData.event_id, round: round, position: position,
+                    tournamentId: tournamentId, 
+                    eventId: tournamentData.event_id, 
+                    round: round, position: position,
                     team1: null, team2: null, score1: null, score2: null, winnerId: null, completed: false,
                     courtId: null, scheduledTime: null, stage: 'ELIMINATION', groupNumber: null,
                 });

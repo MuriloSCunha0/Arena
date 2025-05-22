@@ -1,377 +1,621 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Calendar, MapPin, DollarSign, Users, Info, Loader2, Check } from 'lucide-react';
-import { EventsService } from '../../services/supabase/events';
-import { Event, TeamFormationType } from '../../types';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { User, AlertCircle, Check, ArrowLeft, Users, QrCode } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
-import { Input } from '../../components/ui/Input';
-import { PaymentQRCode } from '../../components/registration/PaymentQRCode';
-import { PixPaymentService } from '../../services/payment/pixProcessor';
-import { formatCurrency } from '../../utils/formatters';
-import { useForm } from 'react-hook-form';
-import { z } from 'zod';
-import { zodResolver } from '@hookform/resolvers/zod';
-
-enum RegistrationStep {
-  LOADING,
-  FORM,
-  PAYMENT,
-  CONFIRMATION
-}
-
-const formSchema = z.object({
-  name: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres'),
-  cpf: z.string().min(11, 'CPF é obrigatório'),
-  phone: z.string().min(8, 'Telefone deve ter pelo menos 8 dígitos'),
-  email: z.string().email('Email inválido').optional(),
-  paymentMethod: z.enum(['PIX', 'CASH']),
-});
+import { useNotificationStore } from '../../components/ui/Notification';
+import { useAuth } from '../../hooks/useAuth';
+import { useParticipant } from '../../hooks/useParticipant';
+import { formatCurrency, formatCPF, formatPhone, formatDate } from '../../utils/formatters';
+import { validateCPF } from '../../utils/validation';
+import { supabase } from '../../lib/supabase';
+import { EventDetail } from '../../types';
+import { UserSearchInput } from '../../components/UserSearchInput';
+import { PaymentMethodSelector } from '../../components/PaymentMethodSelector';
+import { PaymentService } from '../../services/supabase/paymentService';
 
 export const EventRegistration: React.FC = () => {
   const { eventId } = useParams<{ eventId: string }>();
+  const { user, isAuth, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
-  
-  const [event, setEvent] = useState<Event | null>(null);
+  const addNotification = useNotificationStore(state => state.addNotification);
+  const { registerForEvent, checkEventRegistration, invitePartner, loading: participantLoading } = useParticipant();
+
+  const [event, setEvent] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState<RegistrationStep>(RegistrationStep.LOADING);
-  const [submittedData, setSubmittedData] = useState<any>(null); // Store submitted form data
-  
-  const { register, handleSubmit, formState: { errors } } = useForm({
-    resolver: zodResolver(formSchema),
+  const [submitting, setSubmitting] = useState(false);
+  const [isAlreadyRegistered, setIsAlreadyRegistered] = useState(false);
+  const [partnerId, setPartnerId] = useState<string | null>(null);
+  const [partnerData, setPartnerData] = useState<any | null>(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    cpf: '',
+    birthDate: '',
+    paymentMethod: 'PIX'
   });
-  
-  // Payment state
-  const [paymentProcessing, setPaymentProcessing] = useState(false);
-  const [pixCode, setPixCode] = useState('');
-  const [pixQrcode, setPixQrcode] = useState('');
-  const [transactionId, setTransactionId] = useState('');
-  const [participantId, setParticipantId] = useState('');
-  const [codeCopied, setCodeCopied] = useState(false);
-  
-  // Load event data
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showSuccessScreen, setShowSuccessScreen] = useState(false);
+  const [paymentInfo, setPaymentInfo] = useState<any>(null);
+
+  // Carregar dados do evento
   useEffect(() => {
     const fetchEvent = async () => {
+      if (!eventId) return;
+      
       try {
-        if (!eventId) {
-          setError('ID do evento não fornecido');
-          return;
-        }
-        
-        const eventData = await EventsService.getByIdWithOrganizer(eventId);
-        if (!eventData) {
-          setError('Evento não encontrado');
-          return;
-        }
-        
-        setEvent(eventData);
-        setStep(RegistrationStep.FORM);
-      } catch (err) {
-        console.error('Error fetching event:', err);
-        setError('Erro ao carregar informações do evento');
+        const { data, error } = await supabase
+          .from('events')
+          .select('*, organizers(*)')
+          .eq('id', eventId)
+          .single();
+          
+        if (error) throw error;
+        setEvent(data as EventDetail);
+      } catch (error) {
+        console.error('Error fetching event:', error);
+        addNotification({
+          type: 'error',
+          message: 'Não foi possível carregar os dados do evento'
+        });
       } finally {
         setLoading(false);
       }
     };
     
     fetchEvent();
-  }, [eventId]);
-  const onSubmit = async (data: any) => {
-    if (!event) return;
+  }, [eventId, addNotification]);
+
+  // Verificar se usuário já está inscrito
+  useEffect(() => {
+    const checkRegistration = async () => {
+      if (!eventId || !user) return;
+      
+      try {
+        const participant = await checkEventRegistration(user.id, eventId);
+        if (participant) {
+          setIsAlreadyRegistered(true);
+          addNotification({
+            type: 'info',
+            message: 'Você já está inscrito neste evento'
+          });
+        }
+      } catch (error) {
+        console.error('Error checking registration:', error);
+      }
+    };
     
-    setPaymentProcessing(true);
-    setSubmittedData(data); // Store form data
-    
-    try {
-      // 1. Register participant
-      // 1. Register participant
-      const participant = await EventsService.registerParticipant(event.id, {
-        name: data.name,
-        birthDate: data.birthDate,
-        phone: data.phone,
-        email: data.email,
-        partnerName: event.teamFormation === TeamFormationType.FORMED ? data.partnerName : undefined,
-        paymentMethod: data.paymentMethod,
-        paymentStatus: 'PENDING'
+    if (user) {
+      // Preencher dados do formulário com informações do usuário
+      const fetchUserData = async () => {
+        try {
+          const { data: userData, error } = await supabase
+            .from('users')
+            .select('full_name, email, phone, cpf, birth_date')
+            .eq('id', user.id)
+            .single();
+            
+          if (error) throw error;
+          
+          setFormData({
+            name: userData.full_name || '',
+            email: userData.email || '',
+            phone: userData.phone || '',
+            cpf: userData.cpf || '',
+            birthDate: userData.birth_date || '',
+            paymentMethod: 'PIX'
+          });
+        } catch (error) {
+          console.error('Error fetching user data:', error);
+        }
+      };
+      
+      fetchUserData();
+      checkRegistration();
+    }
+  }, [user, eventId, checkEventRegistration, addNotification]);
+
+  // Redirecionar para login se não estiver autenticado
+  useEffect(() => {
+    if (!authLoading && !isAuth() && !loading) {
+      // Salvar a URL atual para redirecionar de volta após login
+      sessionStorage.setItem('redirectAfterLogin', window.location.pathname);
+      
+      addNotification({
+        type: 'info',
+        message: 'Faça login para se inscrever neste evento'
       });
       
-      setParticipantId(participant.id);
+      navigate('/login', { replace: true });
+    }
+  }, [authLoading, isAuth, loading, navigate, addNotification]);
+
+  const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+    
+    // Limpar erro do campo quando o usuário digitar
+    if (errors[name]) {
+      setErrors(prev => ({ ...prev, [name]: '' }));
+    }
+  };
+
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
+    
+    if (!formData.name.trim()) {
+      newErrors.name = 'Nome é obrigatório';
+    }
+    
+    if (!formData.email.trim()) {
+      newErrors.email = 'Email é obrigatório';
+    } else if (!/^\S+@\S+\.\S+$/.test(formData.email)) {
+      newErrors.email = 'Email inválido';
+    }
+    
+    if (!formData.phone.trim()) {
+      newErrors.phone = 'Telefone é obrigatório';
+    }
+    
+    if (!formData.cpf.trim()) {
+      newErrors.cpf = 'CPF é obrigatório';
+    } else if (!validateCPF(formData.cpf)) {
+      newErrors.cpf = 'CPF inválido';
+    }
+    
+    // Validar parceiro se for torneio de duplas formadas
+    if (event?.team_formation === 'FORMED' && !partnerId) {
+      newErrors.partner = 'Selecione um parceiro para o torneio';
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!validateForm()) return;
+    if (!eventId || !user) return;
+    
+    try {
+      setSubmitting(true);
       
-      // 2. Process payment if PIX
-      if (data.paymentMethod === 'PIX') {
-        const paymentResult = await PixPaymentService.generatePayment(
-          event.id,
-          participant.id,
-          event.price || 0,
-          data.name
-        );
-        
-        if (paymentResult.success) {
-          setPixCode(paymentResult.paymentCode || '');
-          setPixQrcode(paymentResult.qrcodeUrl || '');
-          setTransactionId(paymentResult.transactionId || '');
-          setStep(RegistrationStep.PAYMENT);
-        } else {
-          setError(`Erro ao gerar pagamento PIX: ${paymentResult.message}`);
-        }
-      } else {
-        // For other payment methods, just show confirmation
-        setStep(RegistrationStep.CONFIRMATION);
+      // 1. Registrar o participante
+      const participant = await registerForEvent(user.id, eventId, formData);
+      
+      // 2. Se for evento de duplas formadas e tiver parceiro selecionado
+      if (event?.team_formation === 'FORMED' && partnerId) {
+        await invitePartner(user.id, eventId, partnerId);
+        addNotification({
+          type: 'success',
+          message: 'Convite enviado ao seu parceiro'
+        });
       }
-    } catch (err: any) {
-      setError(`Erro ao processar inscrição: ${err.message || 'Erro desconhecido'}`);
+      
+      // 3. Processar pagamento - usando dados reais do banco
+      if (formData.paymentMethod === 'PIX') {
+        // Gerar dados de pagamento PIX reais
+        const pixInfo = await PaymentService.generatePixPayment(participant.id, eventId);
+        
+        setPaymentInfo({
+          qrCodeUrl: pixInfo.pixQrcodeUrl,
+          pixKey: pixInfo.pixPaymentCode,
+          amount: pixInfo.amount,
+          description: `Inscrição: ${event?.title}`
+        });
+        
+        setShowSuccessScreen(true);
+      } else if (formData.paymentMethod === 'CARD') {
+        // Em produção: Integrar com gateway de pagamento
+        // Registrar intenção de pagamento no banco
+        await supabase
+          .from('participants')
+          .update({
+            payment_method: 'CARD',
+          })
+          .eq('id', participant.id);
+        
+        // Redirecionar para gateway ou exibir formulário de cartão
+        setShowSuccessScreen(true);
+      } else {
+        // Para outros métodos de pagamento, apenas registrar
+        await supabase
+          .from('participants')
+          .update({
+            payment_method: formData.paymentMethod,
+          })
+          .eq('id', participant.id);
+        
+        setShowSuccessScreen(true);
+      }
+    } catch (error) {
+      console.error('Error submitting registration:', error);
+      addNotification({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Erro ao processar inscrição'
+      });
     } finally {
-      setPaymentProcessing(false);
+      setSubmitting(false);
     }
   };
-  
-  const handleCopyPix = () => {
-    navigator.clipboard.writeText(pixCode);
-    setCodeCopied(true);
-    setTimeout(() => setCodeCopied(false), 3000);
+
+  const handlePartnerSelect = (selectedUser: any) => {
+    if (selectedUser) {
+      setPartnerId(selectedUser.id);
+      setPartnerData(selectedUser);
+    } else {
+      setPartnerId(null);
+      setPartnerData(null);
+    }
+    
+    // Limpar erro se tiver
+    if (errors.partner) {
+      setErrors(prev => ({ ...prev, partner: '' }));
+    }
   };
-  
-  const renderContent = () => {
-    if (loading) {
-      return (
-        <div className="flex justify-center items-center py-16">
-          <Loader2 size={36} className="animate-spin text-brand-green" />
+
+  if (loading || authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="spinner-border text-primary" role="status">
+          <span className="sr-only">Carregando...</span>
         </div>
-      );
-    }
-    
-    if (error) {
-      return (
-        <div className="text-center py-16">
-          <div className="text-red-500 mb-4">{error}</div>
-          <Button onClick={() => navigate('/')}>Voltar</Button>
-        </div>
-      );
-    }
-    
-    if (!event) {
-      return (
-        <div className="text-center py-16">
-          <div className="text-gray-500 mb-4">Evento não encontrado</div>
-          <Button onClick={() => navigate('/')}>Voltar</Button>
-        </div>
-      );
-    }
-    
-    switch (step) {
-      case RegistrationStep.FORM:
-        return (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Event Info */}
-            <div className="bg-white rounded-lg shadow p-6 border border-gray-200">
-              <h2 className="text-xl font-bold text-brand-blue mb-4">{event.title}</h2>
-              <p className="text-gray-600 mb-6">{event.description}</p>
-              
-              <div className="space-y-4">
-                <div className="flex items-start">
-                  <Calendar className="text-brand-purple mr-2 mt-1" size={18} />
-                  <div>
-                    <p className="font-medium">Data e Hora</p>
-                    <p className="text-gray-600">
-                      {new Date(event.date).toLocaleDateString('pt-BR')} às {event.time}
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="flex items-start">
-                  <MapPin className="text-brand-purple mr-2 mt-1" size={18} />
-                  <div>
-                    <p className="font-medium">Local</p>
-                    <p className="text-gray-600">{event.location}</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-start">
-                  <DollarSign className="text-brand-purple mr-2 mt-1" size={18} />
-                  <div>
-                    <p className="font-medium">Valor da Inscrição</p>
-                    <p className="text-gray-600">{formatCurrency(event.price || 0)}</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-start">
-                  <Users className="text-brand-purple mr-2 mt-1" size={18} />
-                  <div>
-                    <p className="font-medium">Formato das Equipes</p>
-                    <p className="text-gray-600">
-                      {event.teamFormation === TeamFormationType.FORMED ? 'Duplas formadas' : 'Duplas aleatórias'}
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="flex items-start">
-                  <Info className="text-brand-purple mr-2 mt-1" size={18} />
-                  <div>
-                    <p className="font-medium">Categorias</p>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {event.categories?.map(category => (
-                        <span key={category} className="bg-brand-purple/10 text-brand-purple text-xs px-2 py-0.5 rounded-full">
-                          {category}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            {/* Registration Form */}
-            <div className="bg-white rounded-lg shadow p-6 border border-gray-200">
-              <h2 className="text-xl font-bold text-brand-blue mb-4">Formulário de Inscrição</h2>
-              
-              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-                {/* Campo de nome */}
-                <div className="space-y-1">
-                  <label className="text-sm font-medium">Nome completo *</label>
-                  <input
-                    {...register('name')}
-                    className="w-full px-3 py-2 border rounded"
-                  />
-                  {errors.name && <p className="text-red-500 text-xs">{errors.name.message}</p>}
-                </div>
-                
-                {/* Campo de CPF - Adicionar */}
-                <div className="space-y-1">
-                  <label className="text-sm font-medium">CPF *</label>
-                  <input
-                    {...register('cpf')}
-                    placeholder="000.000.000-00"
-                    className="w-full px-3 py-2 border rounded"
-                  />
-                  {errors.cpf && <p className="text-red-500 text-xs">{errors.cpf.message}</p>}
-                </div>
-                
-                {/* Campo de telefone */}
-                <div className="space-y-1">
-                  <label className="text-sm font-medium">Telefone *</label>
-                  <input
-                    {...register('phone')}
-                    className="w-full px-3 py-2 border rounded"
-                  />
-                  {errors.phone && <p className="text-red-500 text-xs">{errors.phone.message}</p>}
-                </div>
-                
-                {/* Campo de email - agora opcional */}
-                <div className="space-y-1">
-                  <label className="text-sm font-medium">Email (opcional)</label>
-                  <input
-                    {...register('email')}
-                    className="w-full px-3 py-2 border rounded"
-                  />
-                  {errors.email && <p className="text-red-500 text-xs">{errors.email.message}</p>}
-                </div>
-                
-                {event.teamFormation === TeamFormationType.FORMED && (
-                  <Input
-                    label="Nome do Parceiro (Dupla)"
-                    name="partnerName"
-                    required
-                  />
-                )}
-                
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Método de Pagamento
-                  </label>
-                  <select
-                    {...register('paymentMethod')}
-                    className="w-full px-3 py-2 border rounded-lg shadow-sm border-brand-gray focus:outline-none focus:ring-2 focus:ring-brand-green"
-                    required
-                  >
-                    <option value="PIX">PIX</option>
-                    <option value="CASH">Dinheiro (no local)</option>
-                  </select>
-                </div>
-                
-                <div className="border-t pt-4 mt-6">
-                  <p className="text-sm text-gray-500 mb-4">
-                    Ao concluir sua inscrição, você concorda com os termos e regras deste evento.
-                  </p>
-                  
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    loading={paymentProcessing}
-                  >
-                    {paymentProcessing ? 'Processando...' : 'Finalizar Inscrição'}
-                  </Button>
-                </div>
-              </form>
-            </div>
+      </div>
+    );
+  }
+
+  if (isAlreadyRegistered) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-md mx-auto bg-white p-8 rounded-lg shadow">
+          <div className="text-center mb-6">
+            <Check size={64} className="mx-auto text-green-500" />
+            <h2 className="mt-4 text-2xl font-bold text-gray-900">Você já está inscrito!</h2>
+            <p className="mt-2 text-gray-600">
+              Você já está inscrito neste evento. Confira os detalhes na sua área do participante.
+            </p>
           </div>
-        );
-        
-      case RegistrationStep.PAYMENT:
-        return (
-          <div className="max-w-md mx-auto">
-            <PaymentQRCode
-              qrcodeUrl={pixQrcode}
-              paymentCode={pixCode}
-              onCopy={handleCopyPix}
-              copied={codeCopied}
-            />
+          
+          <div className="mt-6">
+            <Link to="/meus-torneios" className="block w-full py-3 px-4 text-center text-white bg-brand-blue rounded-md hover:bg-brand-blue/90">
+              Ver Meus Torneios
+            </Link>
             
-            <div className="mt-8 text-center">
-              <Button 
-                onClick={() => setStep(RegistrationStep.CONFIRMATION)} 
-                variant="outline"
-              >
-                Já realizei o pagamento
-              </Button>
-            </div>
+            <Link to="/" className="block w-full mt-3 py-3 px-4 text-center text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">
+              Voltar para Início
+            </Link>
           </div>
-        );
-        
-      case RegistrationStep.CONFIRMATION:
-        return (
-          <div className="max-w-md mx-auto text-center">
-            <div className="flex justify-center mb-6">
-              <div className="bg-green-100 rounded-full p-4">
-                <Check className="text-green-600" size={36} />
-              </div>
-            <h2 className="text-xl font-bold text-brand-blue mb-2">Inscrição Realizada!</h2>
-            <p className="text-gray-600 mb-6">
-              {submittedData?.paymentMethod === 'PIX' 
-                ? 'Sua inscrição foi recebida e será confirmada assim que o pagamento for identificado.'
-                : 'Sua inscrição foi recebida. Realize o pagamento no dia do evento.'}
+        </div>
+      </div>
+    );
+  }
+
+  if (showSuccessScreen) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-lg mx-auto bg-white p-8 rounded-lg shadow">
+          <div className="text-center mb-6">
+            <Check size={64} className="mx-auto text-green-500" />
+            <h2 className="mt-4 text-2xl font-bold text-gray-900">Inscrição Realizada!</h2>
+            <p className="mt-2 text-gray-600">
+              Sua inscrição para {event?.title} foi registrada com sucesso.
             </p>
             
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
-              <div className="text-sm">
-                <p className="font-medium">Nome: {submittedData?.name}</p>
-                <p className="font-medium mt-1">Evento: {event.title}</p>
-                <p className="text-gray-500 mt-1">
-                  {new Date(event.date).toLocaleDateString('pt-BR')} às {event.time}
+            {event?.team_formation === 'FORMED' && partnerId && (
+              <div className="mt-4 p-4 bg-blue-50 rounded-md">
+                <p className="text-blue-700">
+                  Seu parceiro receberá um convite para confirmar a participação.
                 </p>
-                {submittedData?.paymentMethod === 'PIX' && (
-                  <p className="text-green-600 mt-1">PIX enviado - aguardando confirmação</p>
+              </div>
+            )}
+          </div>
+          
+          {paymentInfo && formData.paymentMethod === 'PIX' && (
+            <div className="mt-6 p-4 border rounded-md bg-gray-50">
+              <h3 className="text-lg font-medium mb-2 flex items-center">
+                <QrCode size={20} className="mr-2 text-brand-blue" />
+                Pagamento via PIX
+              </h3>
+              
+              <div className="flex justify-center my-4">
+                <img 
+                  src={paymentInfo.qrCodeUrl} 
+                  alt="QR Code PIX" 
+                  className="h-48 w-48 border rounded" 
+                />
+              </div>
+              
+              <div className="text-center mb-4">
+                <p className="text-gray-600 text-sm mb-1">Valor a pagar</p>
+                <p className="text-xl font-bold text-green-600">
+                  {formatCurrency(event?.price || 0)}
+                </p>
+              </div>
+              
+              <div className="mt-4">
+                <p className="text-sm text-gray-600 mb-1">Chave PIX:</p>
+                <div className="flex items-center rounded-md border bg-white p-2">
+                  <span className="flex-1 text-gray-900 truncate">{paymentInfo.pixKey}</span>
+                  <button 
+                    className="ml-2 text-brand-blue"
+                    onClick={() => {
+                      navigator.clipboard.writeText(paymentInfo.pixKey);
+                      addNotification({
+                        type: 'success',
+                        message: 'Chave PIX copiada para a área de transferência!'
+                      });
+                    }}
+                  >
+                    Copiar
+                  </button>
+                </div>
+              </div>
+              
+              <p className="mt-4 text-sm text-gray-500 text-center">
+                Após efetuar o pagamento, sua inscrição será confirmada automaticamente.
+              </p>
+            </div>
+          )}
+          
+          <div className="mt-6">
+            <Link to="/meus-torneios" className="block w-full py-3 px-4 text-center text-white bg-brand-blue rounded-md hover:bg-brand-blue/90">
+              Ver Meus Torneios
+            </Link>
+            
+            <Link to="/" className="block w-full mt-3 py-3 px-4 text-center text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">
+              Voltar para Início
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-lg mx-auto">
+        <div className="text-center mb-6">
+          <h2 className="text-3xl font-bold text-gray-900">Inscrição para Evento</h2>
+          <p className="mt-2 text-sm text-gray-600">
+            Complete o formulário abaixo para se inscrever em {event?.title}
+          </p>
+        </div>
+        
+        {/* Link para voltar */}
+        <div className="mb-6">
+          <Link 
+            to={`/eventos/${eventId}`}
+            className="inline-flex items-center text-sm text-brand-blue hover:text-brand-blue/80"
+          >
+            <ArrowLeft size={16} className="mr-1" /> Voltar para detalhes do evento
+          </Link>
+        </div>
+        
+        {/* Detalhes do Evento */}
+        <div className="bg-white p-6 rounded-lg shadow-sm mb-6">
+          <h3 className="text-xl font-bold text-gray-900 mb-2">{event?.title}</h3>
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-600">
+            <p>📅 {formatDate(event?.date || '')}</p>
+            <p>📍 {event?.location}</p>
+            <p className="font-medium text-brand-blue">💰 {formatCurrency(event?.price || 0)}</p>
+          </div>
+          
+          {event?.team_formation && (
+            <div className="mt-3 p-2 rounded bg-blue-50 text-blue-700 text-sm flex items-center">
+              <Users size={16} className="mr-2" />
+              {event.team_formation === 'FORMED' ? 'Duplas formadas' : 'Duplas aleatórias'}
+            </div>
+          )}
+        </div>
+        
+        {/* Formulário de Inscrição */}
+        <div className="bg-white p-6 rounded-lg shadow">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div>
+              <label 
+                htmlFor="name"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
+                Nome completo *
+              </label>
+              <input
+                type="text"
+                id="name"
+                name="name"
+                value={formData.name}
+                onChange={handleFormChange}
+                className={`w-full p-2 border rounded-md ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
+              />
+              {errors.name && (
+                <p className="mt-1 text-sm text-red-600">{errors.name}</p>
+              )}
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div>
+                <label 
+                  htmlFor="email"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
+                  Email *
+                </label>
+                <input
+                  type="email"
+                  id="email"
+                  name="email"
+                  value={formData.email}
+                  onChange={handleFormChange}
+                  className={`w-full p-2 border rounded-md ${errors.email ? 'border-red-500' : 'border-gray-300'}`}
+                />
+                {errors.email && (
+                  <p className="mt-1 text-sm text-red-600">{errors.email}</p>
                 )}
               </div>
+              
+              <div>
+                <label 
+                  htmlFor="phone"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
+                  Telefone *
+                </label>
+                <input
+                  type="tel"
+                  id="phone"
+                  name="phone"
+                  value={formatPhone(formData.phone)}
+                  onChange={handleFormChange}
+                  placeholder="(00) 00000-0000"
+                  className={`w-full p-2 border rounded-md ${errors.phone ? 'border-red-500' : 'border-gray-300'}`}
+                />
+                {errors.phone && (
+                  <p className="mt-1 text-sm text-red-600">{errors.phone}</p>
+                )}
               </div>
             </div>
             
-            <Button onClick={() => navigate('/')}>Voltar</Button>
-          </div>
-        );
-        
-      default:
-        return null;
-    }
-  };
-  
-  return (
-    <div className="container mx-auto max-w-6xl px-4 py-8">
-      <header className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-brand-blue">Inscrição em Evento</h1>
-        <p className="text-gray-600">Arena Conexão</p>
-      </header>
-      
-      {renderContent()}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div>
+                <label 
+                  htmlFor="cpf"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
+                  CPF *
+                </label>
+                <input
+                  type="text"
+                  id="cpf"
+                  name="cpf"
+                  value={formatCPF(formData.cpf)}
+                  onChange={handleFormChange}
+                  placeholder="000.000.000-00"
+                  className={`w-full p-2 border rounded-md ${errors.cpf ? 'border-red-500' : 'border-gray-300'}`}
+                />
+                {errors.cpf && (
+                  <p className="mt-1 text-sm text-red-600">{errors.cpf}</p>
+                )}
+              </div>
+              
+              <div>
+                <label 
+                  htmlFor="birthDate"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
+                  Data de Nascimento
+                </label>
+                <input
+                  type="date"
+                  id="birthDate"
+                  name="birthDate"
+                  value={formData.birthDate}
+                  onChange={handleFormChange}
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                />
+              </div>
+            </div>
+            
+            {/* Seleção de parceiro para eventos de dupla formada */}
+            {event?.team_formation === 'FORMED' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Selecione seu parceiro *
+                </label>
+                
+                <div className="relative">
+                  <UserSearchInput 
+                    onUserSelect={handlePartnerSelect} 
+                    excludeUserId={user?.id}
+                  />
+                </div>
+                
+                {partnerData && (
+                  <div className="mt-2 p-3 border rounded-md bg-blue-50">
+                    <p className="text-sm font-medium">Parceiro selecionado:</p>
+                    <p className="text-sm">{partnerData.full_name}</p>
+                  </div>
+                )}
+                
+                {errors.partner && (
+                  <p className="mt-1 text-sm text-red-600">{errors.partner}</p>
+                )}
+                
+                <p className="mt-1 text-xs text-gray-500">
+                  Seu parceiro receberá um convite e precisará confirmar a participação.
+                </p>
+              </div>
+            )}
+            
+            {/* Método de Pagamento */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Forma de Pagamento *
+              </label>
+              
+              <PaymentMethodSelector
+                value={formData.paymentMethod}
+                onChange={(method) => setFormData(prev => ({ ...prev, paymentMethod: method }))}
+              />
+            </div>
+            
+            {/* Informações de valores */}
+            <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+              <h3 className="text-md font-medium mb-2 flex items-center">
+                <Users size={20} className="mr-2 text-brand-blue" />
+                Detalhes da Inscrição
+              </h3>
+              
+              <div className="flex justify-between items-center">
+                <span>Inscrição</span>
+                <span className="font-medium">{formatCurrency(event?.price || 0)}</span>
+              </div>
+              
+              {event?.team_formation === 'FORMED' && (
+                <div className="mt-2 flex justify-between items-center">
+                  <span>Parceiro (convite enviado)</span>
+                  <span className="font-medium">{partnerData ? partnerData.full_name : 'Aguardando seleção'}</span>
+                </div>
+              )}
+              
+              <div className="mt-2 pt-2 border-t border-gray-200 flex justify-between items-center">
+                <span className="font-medium">Total</span>
+                <span className="font-bold text-brand-blue">{formatCurrency(event?.price || 0)}</span>
+              </div>
+            </div>
+            
+            {/* Termos e condições */}
+            <div className="flex items-start mt-4">
+              <input
+                id="terms"
+                name="terms"
+                type="checkbox"
+                className="h-4 w-4 text-brand-blue rounded border-gray-300"
+                required
+              />
+              <label htmlFor="terms" className="ml-2 block text-sm text-gray-600">
+                Concordo com os termos e regras do evento
+              </label>
+            </div>
+            
+            {/* Botão de envio */}
+            <div>
+              <Button
+                type="submit"
+                variant="primary"
+                className="w-full"
+                disabled={submitting}
+                loading={submitting}
+              >
+                {submitting ? 'Processando...' : 'Confirmar Inscrição'}
+              </Button>
+            </div>
+          </form>
+        </div>
+      </div>
     </div>
   );
 };

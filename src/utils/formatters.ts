@@ -15,13 +15,19 @@ export const formatCurrency = (value: number): string => {
 /**
  * Formata data e hora para o formato brasileiro
  */
-export const formatDateTime = (dateTime: string): string => {
+export const formatDateTime = (dateTime: string | Date | null): string => {
   if (!dateTime) return '';
   
   try {
-    const date = new Date(dateTime);
+    const date = typeof dateTime === 'string' ? new Date(dateTime) : dateTime;
     
-    return `${date.toLocaleDateString('pt-BR')} ${date.toTimeString().substring(0, 5)}`;
+    return new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(date);
   } catch {
     return '';
   }
@@ -30,11 +36,16 @@ export const formatDateTime = (dateTime: string): string => {
 /**
  * Formata apenas a data para o formato brasileiro
  */
-export const formatDate = (date: string): string => {
+export const formatDate = (date: string | Date | null): string => {
   if (!date) return '';
   
   try {
-    return new Date(date).toLocaleDateString('pt-BR');
+    const dateObj = typeof date === 'string' ? new Date(date) : date;
+    return new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    }).format(dateObj);
   } catch {
     return '';
   }
@@ -43,7 +54,7 @@ export const formatDate = (date: string): string => {
 /**
  * Formata um número de telefone para o padrão brasileiro
  */
-export const formatPhone = (phone: string): string => {
+export const formatPhone = (phone: string | null): string => {
   if (!phone) return '';
   
   // Remove caracteres não numéricos
@@ -63,27 +74,31 @@ export const formatPhone = (phone: string): string => {
 };
 
 /**
- * Format payment method to display format
+ * Format payment method to display format based on database enum
  */
-export const formatPaymentMethod = (method: string): string => {
+export const formatPaymentMethod = (method: string | null): string => {
+  if (!method) return '';
+  
   const methods: Record<string, string> = {
-    PIX: 'PIX',
-    CARD: 'Cartão',
-    CASH: 'Dinheiro',
-    OTHER: 'Outro'
+    'PIX': 'PIX',
+    'CARD': 'Cartão',
+    'CASH': 'Dinheiro',
+    'OTHER': 'Outro'
   };
   
   return methods[method] || method;
 };
 
 /**
- * Format payment status to display format
+ * Format payment status to display format based on database enum
  */
-export const formatPaymentStatus = (status: string): string => {
+export const formatPaymentStatus = (status: string | null): string => {
+  if (!status) return '';
+  
   const statuses: Record<string, string> = {
-    PENDING: 'Pendente',
-    CONFIRMED: 'Confirmado',
-    CANCELLED: 'Cancelado'
+    'PENDING': 'Pendente',
+    'CONFIRMED': 'Confirmado',
+    'CANCELLED': 'Cancelado'
   };
   
   return statuses[status] || status;
@@ -114,8 +129,8 @@ export const formattedDate = (dateString: string | Date): string => {
 /**
  * Formata um valor numérico como moeda (R$)
  */
-export const formattedCurrency = (value: number | string): string => {
-  if (value === null || value === undefined) return '';
+export const formattedCurrency = (value: number | string | null | undefined): string => {
+  if (value === null || value === undefined || value === '') return 'R$ 0,00';
   
   const numValue = typeof value === 'string' ? parseFloat(value) : value;
   
@@ -160,7 +175,7 @@ export const formattedPhone = (phone: string): string => {
   
   if (numbersOnly.length === 11) {
     // Celular: (XX) X XXXX-XXXX
-    return numbersOnly.replace(/^(\d{2})(\d)(\d{4})(\d{4})$/, '($1) $2 $3-$4');
+    return numbersOnly.replace(/^(\d{2})(\d{1})(\d{4})(\d{4})$/, '($1) $2 $3-$4');
   } else if (numbersOnly.length === 10) {
     // Fixo: (XX) XXXX-XXXX
     return numbersOnly.replace(/^(\d{2})(\d{4})(\d{4})$/, '($1) $2-$3');
@@ -176,4 +191,66 @@ export const formatTime = (time: string): string => {
   if (!time) return '';
   
   return time.substring(0, 5); // Pegando apenas HH:MM
+};
+
+/**
+ * Formata um enum de transaction_type do banco de dados
+ */
+export const formatTransactionType = (type: string | null): string => {
+  if (!type) return '';
+  
+  const types: Record<string, string> = {
+    'INCOME': 'Receita',
+    'EXPENSE': 'Despesa'
+  };
+  
+  return types[type] || type;
+};
+
+/**
+ * Formata um enum de event_status do banco de dados
+ */
+export const formatEventStatus = (status: string | null): string => {
+  if (!status) return '';
+  
+  const statuses: Record<string, string> = {
+    'SCHEDULED': 'Agendado',
+    'ONGOING': 'Em Andamento',
+    'COMPLETED': 'Concluído',
+    'CANCELLED': 'Cancelado'
+  };
+  
+  return statuses[status] || status;
+};
+
+/**
+ * Formata um enum de tournament_status do banco de dados
+ */
+export const formatTournamentStatus = (status: string | null): string => {
+  if (!status) return '';
+  
+  const statuses: Record<string, string> = {
+    'CREATED': 'Criado',
+    'STARTED': 'Iniciado',
+    'FINISHED': 'Finalizado',
+    'CANCELLED': 'Cancelado'
+  };
+  
+  return statuses[status] || status;
+};
+
+/**
+ * Formata CPF para o padrão brasileiro (XXX.XXX.XXX-XX)
+ */
+export const formatCPF = (cpf: string | null): string => {
+  if (!cpf) return '';
+  
+  // Remove caracteres não numéricos
+  const cleaned = cpf.replace(/\D/g, '');
+  
+  // Se não tiver o tamanho correto, retorna como está
+  if (cleaned.length !== 11) return cpf;
+  
+  // Formata no padrão XXX.XXX.XXX-XX
+  return cleaned.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
 };
