@@ -14,16 +14,17 @@ interface AuthState {
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
-  signUp: (email: string, password: string, userData: UserData, role?: UserRole) => Promise<void>;
+  signUp: (email: string, password: string, userData: UserData, role: UserRole) => Promise<void>;
   checkUserRole: (userId: string) => Promise<UserRole | null>;
 }
 
-interface UserData {
+export type UserData = {
   full_name: string;
-  phone: string;
-  cpf: string;
-  birth_date: string;
-}
+  phone: string | null;
+  cpf: string | null;
+  birth_date: string | null;
+  // outros campos opcionais...
+};
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,

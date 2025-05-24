@@ -60,10 +60,9 @@ export const Register = () => {
       // Preparar dados do usuário para o cadastro
       const userData = {
         full_name: fullName,
-        // Tratar campos de acordo com o tipo de usuário
-        phone: userRole === 'admin' ? '' : formatPhone(phone), // Formatado para participantes, string vazia para admins
-        cpf: userRole === 'admin' ? '' : formatCPF(cpf), // Formatado para participantes, string vazia para admins
-        birth_date: userRole === 'admin' ? '' : birthDate // Opcional para admins
+        phone: userRole === 'admin' ? null : formatPhone(phone),
+        cpf: userRole === 'admin' ? null : formatCPF(cpf),
+        birth_date: userRole === 'admin' ? null : birthDate
       };
       
       await signUp(email, password, userData, userRole);

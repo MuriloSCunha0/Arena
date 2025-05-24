@@ -66,91 +66,44 @@ const SessionValidator = () => {
     
     const validateSession = async () => {
       try {
-        console.log(`🔄 Validando sessão (tentativa ${retryCount + 1}/${MAX_RETRIES})`);
+        // Simplificar a verificação inicial de sessão
+        const { data: sessionData, error } = await supabase.auth.getSession();
         
-        // Verificar sessão no localStorage primeiro
-        const { data: localSessionData } = await supabase.auth.getSession();
+        if (error) throw error;
         
-        if (localSessionData?.session?.user && mounted) {
-          console.log('✅ Sessão encontrada no localStorage');
-          setUser(localSessionData.session.user);
+        if (sessionData?.session) {
+          // Temos uma sessão válida
+          setUser(sessionData.session.user);
           
-          // Definir papel do usuário
-          if (localSessionData.session.user.user_metadata?.role) {
-            setUserRole(localSessionData.session.user.user_metadata.role);
-          } else {
-            try {
-              const { data: adminData } = await supabase
-                .from('users')
-                .select('id')
-                .eq('id', localSessionData.session.user.id)
-                .single();
-                
-              if (adminData && mounted) {
-                setUserRole('admin');
-              } else if (mounted) {
-                setUserRole('participante');
-              }
-            } catch (err) {
-              console.warn('⚠️ Erro ao verificar papel na DB:', err);
-              if (mounted) setUserRole('participante');
+          // Buscar o papel do usuário
+          try {
+            const { data: userData, error: userError } = await supabase
+              .from('users')
+              .select('app_metadata')
+              .eq('id', sessionData.session.user.id)
+              .single();
+              
+            if (!userError && userData) {
+              const role = userData.app_metadata?.role || 'participante';
+              setUserRole(role);
+            } else {
+              setUserRole('participante'); // Papel padrão
             }
+          } catch (err) {
+            console.warn('Erro ao verificar papel do usuário:', err);
+            setUserRole('participante'); // Papel padrão em caso de erro
           }
-          
-          if (mounted) setIsChecking(false);
-          return;
-        }
-        
-        // Se não encontrou no localStorage, tenta renovar
-        console.log('🔄 Tentando renovar sessão...');
-        const session = await refreshSession();
-        
-        if (session?.user && mounted) {
-          console.log('✅ Sessão renovada com sucesso');
-          setUser(session.user);
-          
-          if (session.user.user_metadata?.role) {
-            setUserRole(session.user.user_metadata.role);
-          } else {
-            // Mesma verificação na DB
-            try {
-              const { data: adminData } = await supabase
-                .from('users')
-                .select('id')
-                .eq('id', session.user.id)
-                .single();
-                
-              if (adminData && mounted) {
-                setUserRole('admin');
-              } else if (mounted) {
-                setUserRole('participante');
-              }
-            } catch (err) {
-              if (mounted) setUserRole('participante');
-            }
-          }
-          
-          if (mounted) setIsChecking(false);
-          return;
-        }
-        
-        // Tentar novamente se não atingiu o máximo de tentativas
-        if (retryCount < MAX_RETRIES - 1 && mounted) {
-          setRetryCount(prevCount => prevCount + 1);
-        } else if (mounted) {
-          console.log('❌ Falha ao recuperar sessão após várias tentativas');
+        } else {
+          // Nenhuma sessão, limpar estado
           setUser(null);
-          setIsChecking(false);
+          setUserRole(null);
         }
       } catch (error) {
         console.error('Erro ao validar sessão:', error);
-        
-        if (retryCount < MAX_RETRIES - 1 && mounted) {
-          setRetryCount(prevCount => prevCount + 1);
-        } else if (mounted) {
-          setUser(null);
-          setIsChecking(false);
-        }
+        setUser(null);
+        setUserRole(null);
+      } finally {
+        setIsChecking(false);
       }
     };
     

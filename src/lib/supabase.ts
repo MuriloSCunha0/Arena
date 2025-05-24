@@ -11,57 +11,43 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     storage: localStorage, // Use localStorage para persistir a sessão
     autoRefreshToken: true,
     detectSessionInUrl: true,
-    // Adicionar opções adicionais que são suportadas pela versão do Supabase que você está usando
-    // As opções storageKey e flowType podem não estar disponíveis em versões mais antigas
+    flowType: 'implicit' // Adicione esta linha
   }
 });
 
 // Função para verificar e renovar o token automaticamente
 export const refreshSession = async () => {
   try {
-    // Primeiro verificar se temos uma sessão
     const { data, error } = await supabase.auth.getSession();
     
     if (error) {
-      console.error('Error checking session:', error);
+      console.error('Erro ao verificar sessão:', error);
       return null;
     }
     
-    // Se temos uma sessão, verificar se precisa renovar
     if (data?.session) {
+      // Verificar se o token está prestes a expirar (menos de 10 minutos)
       const expiresAt = data.session.expires_at;
-      const now = Math.floor(Date.now() / 1000); // Tempo atual em segundos
+      const now = Math.floor(Date.now() / 1000);
       
-      // Se o token expira em breve (menos de 10 minutos) ou já expirou
-      if (!expiresAt || expiresAt - now < 600) {
-        console.log('Token precisa ser renovado (expira em:', expiresAt ? `${expiresAt - now}s` : 'N/A', ')');
+      if (expiresAt && expiresAt - now < 600) {
+        console.log('Token prestes a expirar, renovando...');
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
         
-        try {
-          const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
-          
-          if (refreshError) {
-            console.error('Error refreshing token:', refreshError);
-          } else if (refreshData?.session) {
-            console.log('Token renovado com sucesso, nova expiração em:', 
-              refreshData.session.expires_at ? 
-              `${refreshData.session.expires_at - Math.floor(Date.now() / 1000)}s` : 'N/A');
-            
-            return refreshData.session;
-          }
-        } catch (refreshErr) {
-          console.error('Exception during token refresh:', refreshErr);
+        if (refreshError) {
+          console.error('Erro ao renovar token:', refreshError);
+          return data.session;
         }
-      } else {
-        console.log('Token ainda é válido, expira em:', expiresAt - now, 'segundos');
+        
+        return refreshData.session;
       }
       
       return data.session;
     }
     
-    console.log('Nenhuma sessão encontrada para renovar');
     return null;
   } catch (err) {
-    console.error('Exception in refreshSession:', err);
+    console.error('Erro ao renovar sessão:', err);
     return null;
   }
 };

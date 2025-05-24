@@ -10,7 +10,8 @@ const transformEvent = (data: any): Event => ({
   location: data.location,
   date: data.date,
   time: data.time,
-  price: data.price,
+  price: data.price || data.entry_fee, // Mapear para compatibilidade
+  entry_fee: data.entry_fee, // Garantir que entry_fee esteja disponível
   maxParticipants: data.max_participants,
   prize: data.prize,
   rules: data.rules,

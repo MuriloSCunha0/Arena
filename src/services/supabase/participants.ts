@@ -31,10 +31,10 @@ const toSupabaseParticipantCreate = (participant: CreateParticipantDTO) => ({
   name: participant.name,
   email: participant.email,
   phone: participant.phone,
-  cpf: participant.cpf, // Certifique-se de que esta linha exista
-  birth_date: participant.birthDate,
+  cpf: participant.cpf, 
+  birth_date: participant.birthDate || null, // Tratar string vazia como null
   partner_id: participant.partnerId,
-  payment_status: participant.paymentStatus || 'PENDING', // Default to PENDING
+  payment_status: participant.paymentStatus || 'PENDING',
   payment_id: participant.paymentId,
   // payment_date is set below based on status
 });
@@ -45,12 +45,12 @@ const toSupabaseParticipantUpdate = (participant: Partial<Participant>) => ({
   name: participant.name,
   email: participant.email,
   phone: participant.phone,
-  birth_date: participant.birthDate, // Add birthDate mapping
+  birth_date: participant.birthDate || null, // Tratar string vazia como null
   partner_id: participant.partnerId,
   payment_status: participant.paymentStatus,
   payment_id: participant.paymentId,
-  payment_date: participant.paymentDate,
-  cpf: participant.cpf, // Adicione esta linha
+  payment_date: participant.paymentDate || null, // Tratar string vazia como null
+  cpf: participant.cpf,
   // Add other updatable fields
 });
 

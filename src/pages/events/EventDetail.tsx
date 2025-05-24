@@ -270,7 +270,18 @@ export const EventDetail: React.FC = () => {
                       <DollarSign size={20} className="text-brand-purple mr-3 mt-1 flex-shrink-0" />
                       <div>
                         <p className="font-medium text-brand-blue">Inscrição</p>
-                        <p className="text-gray-600">R$ {currentEvent.price.toFixed(2).replace('.', ',')}</p>
+                        <p className="text-gray-600">
+                          R$ {(() => {
+    // Verificar entry_fee primeiro, depois price, para garantir compatibilidade
+    const fee = currentEvent?.entry_fee !== undefined 
+      ? currentEvent.entry_fee 
+      : currentEvent?.price;
+    
+    return fee !== undefined && fee !== null
+      ? Number(fee).toFixed(2).replace('.', ',')
+      : '0,00';
+  })()}
+                        </p>
                       </div>
                     </div>
 

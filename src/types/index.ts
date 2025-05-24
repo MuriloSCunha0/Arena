@@ -36,6 +36,7 @@ export interface Event {
   organizer?: Organizer;
   status?: EventStatus;
   settings?: TournamentSettings;
+  entry_fee?: number; // Adicione esta propriedade
 }
 
 export interface Participant {
@@ -379,6 +380,7 @@ export interface EventDetail {
   date: string;
   time?: string;
   price: number;
+  entry_fee?: number; // Adicionar esta propriedade
   max_participants: number;
   banner_image_url?: string;
   team_formation: 'FORMED' | 'RANDOM';
