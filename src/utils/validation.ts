@@ -73,19 +73,16 @@ export function formatCPF(cpf: string): string {
  * @param phone O número de telefone a ser formatado
  * @returns O telefone formatado (XX) XXXXX-XXXX
  */
-export function formatPhone(phone: string): string {
-  // Remove caracteres não numéricos
-  phone = phone.replace(/[^\d]/g, '');
+export const formatPhone = (phone: string): string => {
+  // Remove todos os caracteres não numéricos
+  const phoneDigits = phone.replace(/\D/g, '');
   
-  // Limita a 11 dígitos (com DDD)
-  phone = phone.substring(0, 11);
-  
-  // Adiciona a formatação
-  if (phone.length <= 2) {
-    return phone;
-  } else if (phone.length <= 7) {
-    return `(${phone.substring(0, 2)}) ${phone.substring(2)}`;
+  // Aplicar a formatação (xx) xxxxx-xxxx
+  if (phoneDigits.length <= 2) {
+    return `(${phoneDigits}`;
+  } else if (phoneDigits.length <= 7) {
+    return `(${phoneDigits.slice(0, 2)}) ${phoneDigits.slice(2)}`;
   } else {
-    return `(${phone.substring(0, 2)}) ${phone.substring(2, 7)}-${phone.substring(7)}`;
+    return `(${phoneDigits.slice(0, 2)}) ${phoneDigits.slice(2, 7)}-${phoneDigits.slice(7, 11)}`;
   }
-}
+};

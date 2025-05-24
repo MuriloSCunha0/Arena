@@ -137,11 +137,9 @@ export const OrganizersService = {
       const { error } = await supabase
         .from('organizers')
         .delete()
-        .eq('id', id);
-
-      if (error) {
+        .eq('id', id);      if (error) {
         console.error('Error deleting organizer:', error);
-        throw new Error(`Failed to delete organizer: ${error.message}`);
+        throw new Error(`Falha ao excluir organizador: ${error.message}`);
       }
     } catch (error) {
       console.error(`Error in delete organizer ${id}:`, error);

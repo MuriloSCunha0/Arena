@@ -46,19 +46,16 @@ export const useAuthStore = create<AuthState>((set) => ({
         .maybeSingle();
 
       if (userError) {
-        console.error('❌ Error querying users table:', userError);
-        throw new Error('Erro ao consultar a tabela de usuários.');
+        console.error('❌ Error querying users table:', userError);      throw new Error('Erro ao consultar a tabela de usuários.');
       }
 
       if (!userData) {
-        console.error('❌ User not found in users table');
+        console.error('❌ Usuário não encontrado na tabela de usuários');
         throw new Error('Usuário não encontrado.');
-      }
-
-      // 2. Validar a senha (substitua por uma função de hash real, se necessário)
+      }      // 2. Validar a senha (substitua por uma função de hash real, se necessário)
       const isPasswordValid = password === userData.password; // Substitua por validação de hash
       if (!isPasswordValid) {
-        console.error('❌ Invalid password');
+        console.error('❌ Senha inválida');
         throw new Error('Senha inválida.');
       }
 
@@ -97,8 +94,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ user: userData, userRole, loading: false });
       console.log(`✅ User role definida como: ${userRole}`);
     } catch (error) {
-      console.error('❌ Erro no login:', error);
-      throw new Error('Falha no login. Por favor, verifique suas credenciais e tente novamente.');
+      console.error('❌ Erro no login:', error);      throw new Error('Falha no login. Por favor, verifique suas credenciais e tente novamente.');
     }
   },
     signUp: async (email, password, userData, role = 'participante') => {
@@ -128,11 +124,11 @@ export const useAuthStore = create<AuthState>((set) => ({
         {
           id: authData.user.id,
           email: email,
-          password: password, // Adiciona a senha na tabela users
+          password: password, 
           full_name: userData.full_name,
-          phone: userData.phone,
-          cpf: userData.cpf,
-          birth_date: userData.birth_date || null,
+          phone: userData.phone, // Já deve vir formatado ou nulo
+          cpf: userData.cpf, // Já deve vir formatado ou nulo
+          birth_date: userData.birth_date, // Já deve vir formatado ou nulo
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           user_metadata: { role: roleValue },
@@ -234,23 +230,20 @@ export const useAuthStore = create<AuthState>((set) => ({
         } else {
           console.log('❌ User not found in users table or error retrieving data');
           
-          // Se não encontrou o usuário na tabela users, mas está autenticado, definir como participante
-          console.log('⚠️ User not found in public.users table - defaulting to participante');
+          // Se não encontrou o usuário na tabela users, mas está autenticado, definir como participante      console.log('⚠️ Usuário não encontrado na tabela public.users - usando padrão participante');
           const defaultRole: UserRole = 'participante';
           set({ userRole: defaultRole });
           return defaultRole;
-        }
-      } catch (metadataCheckError) {
-        console.warn('⚠️ Error checking users table for metadata:', metadataCheckError);
+        }      } catch (metadataCheckError) {
+        console.warn('⚠️ Erro ao verificar metadados na tabela de usuários:', metadataCheckError);
         
         // Se ocorreu erro ao verificar metadados, mas está autenticado, definir como participante
-        console.log('⚠️ Error checking public.users table - defaulting to participante');
+        console.log('⚠️ Erro ao verificar tabela public.users - usando padrão participante');
         const defaultRole: UserRole = 'participante';
         set({ userRole: defaultRole });
         return defaultRole;
-      }
-    } catch (error) {
-      console.error('❌ Error checking user role:', error);
+      }    } catch (error) {
+      console.error('❌ Erro ao verificar papel do usuário:', error);
       return null;
     }
   }

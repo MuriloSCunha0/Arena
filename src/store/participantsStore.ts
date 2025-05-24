@@ -39,8 +39,7 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
     try {
       const participants = await ParticipantsService.getByEventId(eventId);
       set({ eventParticipants: participants, loading: false });
-    } catch (error) {
-      console.error(`Error fetching participants for event ${eventId}:`, error);
+    } catch (error) {      console.error(`Erro ao buscar participantes para o evento ${eventId}:`, error);
       set({
         error: error instanceof Error ? error.message : 'Falha ao buscar participantes',
         loading: false
@@ -53,8 +52,7 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
     try {
       const participants = await ParticipantsService.getAll();
       set({ allParticipants: participants, loading: false });
-    } catch (error) {
-      console.error('Error fetching all participants:', error);
+    } catch (error) {      console.error('Erro ao buscar todos os participantes:', error);
       set({
         error: error instanceof Error ? error.message : 'Falha ao buscar todos os participantes',
         loading: false
@@ -89,8 +87,7 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
 
 
       return newParticipant;
-    } catch (error) {
-      console.error('Error creating participant:', error);
+    } catch (error) {      console.error('Erro ao criar participante:', error);
       set({
         error: error instanceof Error ? error.message : 'Falha ao criar participante',
         loading: false
@@ -110,8 +107,7 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
       );
 
       set({ eventParticipants, loading: false });
-    } catch (error) {
-      console.error(`Error updating participant payment ${id}:`, error);
+    } catch (error) {      console.error(`Erro ao atualizar pagamento do participante ${id}:`, error);
       set({
         error: error instanceof Error ? error.message : 'Falha ao atualizar status de pagamento',
         loading: false
@@ -131,8 +127,7 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
       );
 
       set({ eventParticipants, loading: false });
-    } catch (error) {
-      console.error(`Error deleting participant ${id}:`, error);
+    } catch (error) {      console.error(`Erro ao excluir participante ${id}:`, error);
       set({
         error: error instanceof Error ? error.message : 'Falha ao excluir participante',
         loading: false

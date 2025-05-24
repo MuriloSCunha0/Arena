@@ -16,6 +16,8 @@ const transformParticipant = (data: any): Participant => ({
   registeredAt: data.registered_at,
   cpf: data.cpf,
   userId: data.user_id,
+});
+
 const toSupabaseParticipant = (participant: Partial<Participant>) => ({
   event_id: participant.eventId,
   name: participant.name,
@@ -27,8 +29,6 @@ const toSupabaseParticipant = (participant: Partial<Participant>) => ({
   payment_date: participant.paymentDate,
   cpf: participant.cpf,
   user_id: participant.userId,
-});
-  payment_date: participant.paymentDate,
 });
 
 interface CreateParticipantDTO {

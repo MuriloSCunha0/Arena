@@ -65,11 +65,9 @@ export const EventsService = {
       const { data, error } = await supabase
         .from('events')
         .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) {
+        .order('created_at', { ascending: false });      if (error) {
         console.error('Supabase error fetching events:', error);
-        throw new Error(`Failed to fetch events: ${error.message}`);
+        throw new Error(`Falha ao buscar eventos: ${error.message}`);
       }
       
       return (data || []).map(transformEvent);
@@ -157,11 +155,9 @@ export const EventsService = {
       const { error } = await supabase
         .from('events')
         .delete()
-        .eq('id', id);
-
-      if (error) {
+        .eq('id', id);      if (error) {
         console.error(`Supabase error deleting event ${id}:`, error);
-        throw new Error(`Failed to delete event: ${error.message}`);
+        throw new Error(`Falha ao excluir evento: ${error.message}`);
       }
     } catch (error) {
       console.error(`Error in delete event ${id}:`, error);

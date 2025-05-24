@@ -50,6 +50,7 @@ export const Register = () => {
         throw new Error('A senha deve ter pelo menos 6 caracteres');
       }
       
+      // Validar CPF apenas para participantes
       if (!validateCPF(cpf) && userRole === 'participante') {
         throw new Error('CPF inválido');
       }
@@ -59,9 +60,10 @@ export const Register = () => {
       // Preparar dados do usuário para o cadastro
       const userData = {
         full_name: fullName,
-        phone: phone.replace(/[^\d]/g, ''), // Remove formatação
-        cpf: cpf.replace(/[^\d]/g, ''), // Remove formatação
-        birth_date: birthDate
+        // Tratar campos de acordo com o tipo de usuário
+        phone: userRole === 'admin' ? '' : formatPhone(phone), // Formatado para participantes, string vazia para admins
+        cpf: userRole === 'admin' ? '' : formatCPF(cpf), // Formatado para participantes, string vazia para admins
+        birth_date: userRole === 'admin' ? '' : birthDate // Opcional para admins
       };
       
       await signUp(email, password, userData, userRole);

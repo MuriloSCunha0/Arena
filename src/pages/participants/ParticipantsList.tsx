@@ -18,8 +18,7 @@ export const ParticipantsList = () => {
       try {
         setIsProcessing(true);
         await fetchAllParticipants();
-      } catch (err) {
-        addNotification({
+      } catch (err) {        addNotification({
           type: 'error',
           message: 'Falha ao carregar participantes'
         });
@@ -66,8 +65,8 @@ export const ParticipantsList = () => {
       // Search filter
       const matchesSearch = searchTerm === '' || 
         participant.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        participant.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        participant.phone.includes(searchTerm);
+        (participant.email?.toLowerCase().includes(searchTerm.toLowerCase()) || false) ||
+        (participant.phone?.includes(searchTerm) || false);
       
       // Payment status filter
       const matchesPayment = 
@@ -90,8 +89,7 @@ export const ParticipantsList = () => {
       setIsProcessing(true);
       const newStatus = currentStatus === 'PENDING' ? 'CONFIRMED' : 'PENDING';
       await updateParticipantPayment(participantId, newStatus);
-      
-      addNotification({
+        addNotification({
         type: 'success',
         message: `Status de pagamento ${newStatus === 'CONFIRMED' ? 'confirmado' : 'marcado como pendente'}`
       });
@@ -113,13 +111,12 @@ export const ParticipantsList = () => {
       // Evitar processamento síncrono que pode travar a UI
       setTimeout(() => {
         // Create CSV data
-        const headers = ['Nome', 'Email', 'Telefone', 'Evento', 'Status de Pagamento', 'Data de Inscrição'];
-        const csvData = [
+        const headers = ['Nome', 'Email', 'Telefone', 'Evento', 'Status de Pagamento', 'Data de Inscrição'];        const csvData = [
           headers.join(','),
           ...filteredParticipants.map(p => [
-            p.name.replace(/,/g, ' '), // Evitar problemas com vírgulas
-            p.email.replace(/,/g, ' '),
-            p.phone,
+            p.name?.replace(/,/g, ' ') || '', // Evitar problemas com vírgulas
+            p.email?.replace(/,/g, ' ') || '',
+            p.phone || '',
             (p.eventName || '').replace(/,/g, ' '),
             p.paymentStatus === 'CONFIRMED' ? 'Pago' : 'Pendente',
             new Date(p.registeredAt).toLocaleString('pt-BR')

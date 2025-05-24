@@ -21,6 +21,8 @@ const transformParticipant = (data: any): Participant => ({
   pixQrcodeUrl: data.pix_qrcode_url,
   paymentTransactionId: data.payment_transaction_id,
   partnerName: data.partner_name, // Assuming partner_name exists if needed
+  userId: data.user_id, // Adicionar userId para filtragem
+  eventName: data.event_name // Adicionar nome do evento se disponível
 });
 
 // Função para converter nosso tipo CreateParticipantDTO para o formato do Supabase
@@ -53,28 +55,71 @@ const toSupabaseParticipantUpdate = (participant: Partial<Participant>) => ({
 });
 
 
-export const ParticipantsService = {
-  // Buscar todos os participantes
-  async getAll(): Promise<Participant[]> {
+export const ParticipantsService = {  /**
+   * Buscar todos os participantes (apenas usuários com tipo "user")
+   * Esta função filtra os participantes para mostrar apenas aqueles com papel de usuário comum,
+   * excluindo administradores e organizadores conforme solicitação de requisito de negócio.
+   * Isso é feito verificando se app_metadata.role === "user" ou se app_metadata.roles contém "user"
+   */  async getAll(): Promise<Participant[]> {
+    // Primeiro, buscar os IDs de usuários com app_metadata.role === "user" ou app_metadata.roles contém "user"
+    // Usando sintaxe correta do PostgREST para consultar campos JSON
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('id, app_metadata')
+      .or('app_metadata->>role.eq.user,app_metadata->roles.cs.["user"]');
+
+    if (userError) throw userError;
+
+    // Extrair os IDs de usuário
+    const userIds = userData.map(user => user.id);
+
+    // Buscar participantes que correspondem a esses usuários
     const { data, error } = await supabase
       .from('participants')
-      .select('*')
+      .select('*, events(title)')
+      .in('user_id', userIds)
       .order('registered_at', { ascending: false });
 
     if (error) throw error;
-    return data.map(transformParticipant);
-  },
 
-  // Buscar participantes por evento
-  async getByEventId(eventId: string): Promise<Participant[]> {
+    // Transformar os dados para incluir o nome do evento
+    return data.map(item => ({
+      ...transformParticipant(item),
+      eventName: item.events?.title || 'Evento sem nome'
+    }));
+  },  /**
+   * Buscar participantes por evento (apenas usuários do tipo "user")
+   * Esta função filtra os participantes para mostrar apenas aqueles com papel de usuário comum,
+   * excluindo administradores e organizadores conforme solicitação de requisito de negócio.
+   * @param eventId ID do evento para filtrar os participantes
+   */  async getByEventId(eventId: string): Promise<Participant[]> {
+    // Primeiro, buscar os IDs de usuários com app_metadata.role === "user" ou app_metadata.roles contém "user"
+    // Usando sintaxe correta do PostgREST para consultar campos JSON
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('id, app_metadata')
+      .or('app_metadata->>role.eq.user,app_metadata->roles.cs.["user"]');
+
+    if (userError) throw userError;
+
+    // Extrair os IDs de usuário
+    const userIds = userData.map(user => user.id);
+
+    // Buscar participantes que correspondem a esses usuários e ao evento específico
     const { data, error } = await supabase
       .from('participants')
-      .select('*')
+      .select('*, events(title)')
       .eq('event_id', eventId)
+      .in('user_id', userIds)
       .order('registered_at', { ascending: false });
 
     if (error) throw error;
-    return data.map(transformParticipant);
+
+    // Transformar os dados para incluir o nome do evento
+    return data.map(item => ({
+      ...transformParticipant(item),
+      eventName: item.events?.title || 'Evento sem nome'
+    }));
   },
 
   // Buscar um participante por ID
@@ -101,9 +146,8 @@ export const ParticipantsService = {
     if (participantData.paymentStatus === 'CONFIRMED') {
       supabaseData.payment_date = new Date().toISOString();
       // Ensure paymentId is set if confirming payment (might be generated in form or service)
-      if (!supabaseData.payment_id) {
-          supabaseData.payment_id = `manual_${Date.now()}`; // Example manual ID
-          console.warn("Confirmed payment status without paymentId, generated manual ID:", supabaseData.payment_id);
+      if (!supabaseData.payment_id) {          supabaseData.payment_id = `manual_${Date.now()}`; // Example manual ID
+          console.warn("Status de pagamento confirmado sem paymentId, ID manual gerado:", supabaseData.payment_id);
       }
     } else {
         // Ensure payment_date and payment_id are null if PENDING
@@ -119,7 +163,7 @@ export const ParticipantsService = {
       .single();
 
     if (error) {
-        console.error("Supabase error creating participant:", error);
+      console.error("Erro ao criar participante no Supabase:", error);
         throw error;
     }
 

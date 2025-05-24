@@ -72,6 +72,24 @@ class ErrorBoundary extends Component<Props, State> {
     window.location.href = '/';
   };
 
+  private formatDatabaseError(error: any): string {
+    // Verificar se é um erro de banco de dados PostgreSQL
+    if (error && error.code === '23514') {
+      // Constraint violations
+      if (error.message?.includes('users_cpf_format')) {
+        return 'O CPF informado está em um formato inválido. Use o formato xxx.xxx.xxx-xx';
+      }
+      if (error.message?.includes('users_phone_format')) {
+        return 'O telefone informado está em um formato inválido. Use o formato (xx) xxxxx-xxxx';
+      }
+      // Outros erros de constraint podem ser adicionados aqui
+      return 'Um campo do formulário contém dados em formato inválido.';
+    }
+    
+    // Se não for um erro de banco de dados específico, retorne a mensagem original
+    return error?.toString() || 'Erro desconhecido';
+  }
+
   public render() {
     if (this.state.hasError) {
       // Se definido um fallback personalizado, use-o
@@ -83,8 +101,7 @@ class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="p-6 bg-red-50 border border-red-200 rounded-lg max-w-3xl mx-auto my-8">
           <div className="flex items-center mb-4">
-            <AlertCircle size={24} className="text-red-500 mr-3" />
-            <h2 className="text-xl font-medium text-red-700">Ops! Algo deu errado</h2>
+            <AlertCircle size={24} className="text-red-500 mr-3" />            <h2 className="text-xl font-medium text-red-700">Ops! Algo deu errado</h2>
           </div>
           
           <p className="text-sm text-red-600 mb-4">
@@ -95,7 +112,9 @@ class ErrorBoundary extends Component<Props, State> {
           {import.meta.env.DEV && (
             <div className="bg-white p-4 rounded border border-red-100 overflow-auto max-h-64 text-xs font-mono mb-6 text-gray-700">
               <p className="font-bold mb-2">Detalhes do erro (apenas em desenvolvimento):</p>
-              <p className="text-red-600 mb-2">{this.state.error?.toString()}</p>
+              <p className="text-red-600 mb-2">
+                {this.state.error ? this.formatDatabaseError(this.state.error) : 'Erro desconhecido'}
+              </p>
               <hr className="my-2 border-red-100" />
               <pre>{this.state.errorInfo?.componentStack}</pre>
             </div>
