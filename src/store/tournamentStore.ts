@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Tournament, Match, TeamFormationType } from '../types';
 import { TournamentService } from '../services/TournamentService'; // Use the updated service
+import { traduzirErroSupabase } from '../lib/supabase';
 
 interface TournamentState {
   tournament: Tournament | null;
@@ -44,10 +45,9 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const tournament = await TournamentService.getByEventId(eventId);
-      set({ tournament, loading: false });
-    } catch (error) {
+      set({ tournament, loading: false });    } catch (error) {
       console.error(`Error fetching tournament for event ${eventId}:`, error);
-      set({ error: error instanceof Error ? error.message : 'Falha ao buscar torneio', loading: false });
+      set({ error: traduzirErroSupabase(error) || 'Falha ao buscar torneio', loading: false });
     }
   },
 
@@ -70,11 +70,11 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
         tournament: resultTournament,
         loading: false,
         isNewTournament: resultTournament.isNewTournament // Set flag from result
-      });
-    } catch (error) {
+      });    } catch (error) {
       console.error('Error generating formed tournament structure:', error);
-      set({ error: error instanceof Error ? error.message : 'Falha ao gerar estrutura do torneio', loading: false });
-      throw error; // Re-throw for component handling
+      const mensagemErro = traduzirErroSupabase(error) || 'Falha ao gerar estrutura do torneio';
+      set({ error: mensagemErro, loading: false });
+      throw new Error(mensagemErro); // Re-throw for component handling
     }
   },
 
@@ -100,11 +100,11 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
         tournament: resultTournament,
         loading: false,
         isNewTournament: resultTournament.isNewTournament // Set flag from result
-      });
-    } catch (error) {
+      });    } catch (error) {
       console.error('Error generating random tournament structure:', error);
-      set({ error: error instanceof Error ? error.message : 'Falha ao gerar estrutura aleatória do torneio', loading: false });
-      throw error; // Re-throw for component handling
+      const mensagemErro = traduzirErroSupabase(error) || 'Falha ao gerar estrutura aleatória do torneio';
+      set({ error: mensagemErro, loading: false });
+      throw new Error(mensagemErro); // Re-throw for component handling
     }
   },
 
@@ -113,11 +113,11 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
      set({ loading: true, error: null });
      try {
         const updatedTournament = await TournamentService.generateEliminationBracket(tournamentId);
-        set({ tournament: updatedTournament, loading: false });
-     } catch (error) {
+        set({ tournament: updatedTournament, loading: false });     } catch (error) {
         console.error('Error generating elimination bracket:', error);
-        set({ error: error instanceof Error ? error.message : 'Falha ao gerar fase eliminatória', loading: false });
-        throw error; // Re-throw for component handling
+        const mensagemErro = traduzirErroSupabase(error) || 'Falha ao gerar fase eliminatória';
+        set({ error: mensagemErro, loading: false });
+        throw new Error(mensagemErro); // Re-throw for component handling
      }
   },
 
@@ -135,12 +135,11 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
       } else {
          console.error("Could not get eventId from updated match data.");
          set({ loading: false, error: "Falha ao obter ID do evento após atualização." }); // Handle missing eventId
-      }
-
-    } catch (error) {
+      }    } catch (error) {
       console.error(`Error updating match results for ${matchId}:`, error);
-      set({ error: error instanceof Error ? error.message : 'Falha ao atualizar resultado da partida', loading: false });
-      throw error; // Re-throw for component handling
+      const mensagemErro = traduzirErroSupabase(error) || 'Falha ao atualizar resultado da partida';
+      set({ error: mensagemErro, loading: false });
+      throw new Error(mensagemErro); // Re-throw for component handling
     }
   },
 
@@ -151,11 +150,11 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
       set(state => ({
         tournament: state.tournament ? { ...state.tournament, status: 'STARTED' } : updatedTournament,
         loading: false
-      }));
-    } catch (error) {
+      }));    } catch (error) {
       console.error(`Error starting tournament ${tournamentId}:`, error);
-      set({ error: error instanceof Error ? error.message : 'Falha ao iniciar torneio', loading: false });
-      throw error; // Re-throw for component handling
+      const mensagemErro = traduzirErroSupabase(error) || 'Falha ao iniciar torneio';
+      set({ error: mensagemErro, loading: false });
+      throw new Error(mensagemErro); // Re-throw for component handling
     }
   },
 
@@ -174,11 +173,11 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
         } : null,
         selectedMatch: state.selectedMatch?.id === matchId ? updatedMatch : state.selectedMatch,
         loading: false
-      }));
-    } catch (error) {
+      }));    } catch (error) {
       console.error(`Error updating schedule for match ${matchId}:`, error);
-      set({ error: error instanceof Error ? error.message : 'Falha ao atualizar agendamento da partida', loading: false });
-      throw error; // Re-throw for component handling
+      const mensagemErro = traduzirErroSupabase(error) || 'Falha ao atualizar agendamento da partida';
+      set({ error: mensagemErro, loading: false });
+      throw new Error(mensagemErro); // Re-throw for component handling
     }
   },
 

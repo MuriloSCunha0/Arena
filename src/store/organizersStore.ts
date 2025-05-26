@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Organizer } from '../types';
 import { OrganizersService } from '../services/supabase/organizers';
+import { traduzirErroSupabase } from '../lib/supabase';
 
 interface OrganizersState {
   organizers: Organizer[];
@@ -27,12 +28,11 @@ export const useOrganizersStore = create<OrganizersState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const organizers = await OrganizersService.getAll();
-      set({ organizers, loading: false });
-    } catch (error) {
+      set({ organizers, loading: false });    } catch (error) {
       console.error('Error fetching organizers:', error);
       set({ 
-        error: error instanceof Error ? error.message : 'Erro ao carregar organizadores', 
-        loading: false 
+        error: traduzirErroSupabase(error) || 'Erro ao carregar organizadores', 
+        loading: false
       });
     }
   },
@@ -41,11 +41,10 @@ export const useOrganizersStore = create<OrganizersState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const organizer = await OrganizersService.getById(id);
-      set({ currentOrganizer: organizer, loading: false });
-    } catch (error) {
+      set({ currentOrganizer: organizer, loading: false });    } catch (error) {
       console.error(`Error fetching organizer ${id}:`, error);
       set({ 
-        error: error instanceof Error ? error.message : 'Erro ao carregar organizador', 
+        error: traduzirErroSupabase(error) || 'Erro ao carregar organizador', 
         loading: false 
       });
     }
@@ -59,14 +58,14 @@ export const useOrganizersStore = create<OrganizersState>((set, get) => ({
         organizers: [...state.organizers, newOrganizer],
         currentOrganizer: newOrganizer,
         loading: false 
-      }));
-    } catch (error) {
+      }));    } catch (error) {
       console.error('Error creating organizer:', error);
+      const mensagemErro = traduzirErroSupabase(error) || 'Erro ao criar organizador';
       set({ 
-        error: error instanceof Error ? error.message : 'Erro ao criar organizador', 
+        error: mensagemErro, 
         loading: false 
       });
-      throw error;
+      throw new Error(mensagemErro);
     }
   },
   
@@ -78,14 +77,14 @@ export const useOrganizersStore = create<OrganizersState>((set, get) => ({
         organizers: state.organizers.map(o => o.id === id ? updatedOrganizer : o),
         currentOrganizer: updatedOrganizer,
         loading: false 
-      }));
-    } catch (error) {
+      }));    } catch (error) {
       console.error(`Error updating organizer ${id}:`, error);
+      const mensagemErro = traduzirErroSupabase(error) || 'Erro ao atualizar organizador';
       set({ 
-        error: error instanceof Error ? error.message : 'Erro ao atualizar organizador', 
+        error: mensagemErro, 
         loading: false 
       });
-      throw error;
+      throw new Error(mensagemErro);
     }
   },
   
@@ -96,14 +95,14 @@ export const useOrganizersStore = create<OrganizersState>((set, get) => ({
       set(state => ({ 
         organizers: state.organizers.filter(o => o.id !== id),
         loading: false 
-      }));
-    } catch (error) {
+      }));    } catch (error) {
       console.error(`Error deleting organizer ${id}:`, error);
+      const mensagemErro = traduzirErroSupabase(error) || 'Erro ao excluir organizador';
       set({ 
-        error: error instanceof Error ? error.message : 'Erro ao excluir organizador', 
+        error: mensagemErro, 
         loading: false 
       });
-      throw error;
+      throw new Error(mensagemErro);
     }
   },
   
@@ -114,14 +113,14 @@ export const useOrganizersStore = create<OrganizersState>((set, get) => ({
     try {
       const commissions = await OrganizersService.calculateCommissions(organizerId, startDate, endDate);
       set({ loading: false });
-      return commissions;
-    } catch (error) {
+      return commissions;    } catch (error) {
       console.error(`Error calculating commissions for organizer ${organizerId}:`, error);
+      const mensagemErro = traduzirErroSupabase(error) || 'Erro ao calcular comissões';
       set({ 
-        error: error instanceof Error ? error.message : 'Erro ao calcular comissões', 
+        error: mensagemErro, 
         loading: false 
       });
-      throw error;
+      throw new Error(mensagemErro);
     }
   }
 }));

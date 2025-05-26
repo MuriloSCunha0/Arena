@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { supabase } from '../lib/supabase';
+import { supabase, tratarErroSupabase } from '../lib/supabase';
 
 // User role types based on the roles used in app_metadata.roles
 export type UserRole = 'admin' | 'organizer' | 'participante';
@@ -93,9 +93,9 @@ export const useAuthStore = create<AuthState>((set) => ({
 
       // 4. Atualizar o estado com os dados do usuário
       set({ user: userData, userRole, loading: false });
-      console.log(`✅ User role definida como: ${userRole}`);
-    } catch (error) {
-      console.error('❌ Erro no login:', error);      throw new Error('Falha no login. Por favor, verifique suas credenciais e tente novamente.');
+      console.log(`✅ User role definida como: ${userRole}`);    } catch (error) {
+      console.error('❌ Erro no login:', error);
+      throw tratarErroSupabase(error, 'fazer login');
     }
   },
     signUp: async (email, password, userData, role = 'participante') => {
@@ -245,6 +245,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         return defaultRole;
       }    } catch (error) {
       console.error('❌ Erro ao verificar papel do usuário:', error);
+      console.error(tratarErroSupabase(error, 'verificar papel do usuário'));
       return null;
     }
   }

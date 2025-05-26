@@ -2,6 +2,7 @@ import { create } from 'zustand';
 // Import the shared CreateParticipantDTO
 import { Participant, CreateParticipantDTO } from '../types';
 import { ParticipantsService } from '../services';
+import { traduzirErroSupabase } from '../lib/supabase';
 
 // Remove the local definition of CreateParticipantDTO
 // interface CreateParticipantDTO {
@@ -38,10 +39,10 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const participants = await ParticipantsService.getByEventId(eventId);
-      set({ eventParticipants: participants, loading: false });
-    } catch (error) {      console.error(`Erro ao buscar participantes para o evento ${eventId}:`, error);
+      set({ eventParticipants: participants, loading: false });    } catch (error) {      
+      console.error(`Erro ao buscar participantes para o evento ${eventId}:`, error);
       set({
-        error: error instanceof Error ? error.message : 'Falha ao buscar participantes',
+        error: traduzirErroSupabase(error) || 'Falha ao buscar participantes',
         loading: false
       });
     }
@@ -51,10 +52,10 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const participants = await ParticipantsService.getAll();
-      set({ allParticipants: participants, loading: false });
-    } catch (error) {      console.error('Erro ao buscar todos os participantes:', error);
+      set({ allParticipants: participants, loading: false });    } catch (error) {      
+      console.error('Erro ao buscar todos os participantes:', error);
       set({
-        error: error instanceof Error ? error.message : 'Falha ao buscar todos os participantes',
+        error: traduzirErroSupabase(error) || 'Falha ao buscar todos os participantes',
         loading: false
       });
     }
@@ -86,13 +87,17 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
       }
 
 
-      return newParticipant;
-    } catch (error) {      console.error('Erro ao criar participante:', error);
+      return newParticipant;    } catch (error) {      
+      console.error('Erro ao criar participante:', error);
+      const mensagemErro = traduzirErroSupabase(error) || 'Falha ao criar participante';
       set({
-        error: error instanceof Error ? error.message : 'Falha ao criar participante',
+        error: mensagemErro,
         loading: false
       });
-      throw error; // Re-throw error to be caught by the form
+      
+      // Lançar um erro com a mensagem traduzida
+      const erroTraduzido = new Error(mensagemErro);
+      throw erroTraduzido; // Re-throw error to be caught by the form
     }
   },
 
@@ -106,13 +111,17 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
         participant.id === id ? updatedParticipant : participant
       );
 
-      set({ eventParticipants, loading: false });
-    } catch (error) {      console.error(`Erro ao atualizar pagamento do participante ${id}:`, error);
+      set({ eventParticipants, loading: false });    } catch (error) {      
+      console.error(`Erro ao atualizar pagamento do participante ${id}:`, error);
+      const mensagemErro = traduzirErroSupabase(error) || 'Falha ao atualizar status de pagamento';
       set({
-        error: error instanceof Error ? error.message : 'Falha ao atualizar status de pagamento',
+        error: mensagemErro,
         loading: false
       });
-      throw error;
+      
+      // Lançar um erro com a mensagem traduzida
+      const erroTraduzido = new Error(mensagemErro);
+      throw erroTraduzido;
     }
   },
 
@@ -126,13 +135,17 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
         participant => participant.id !== id
       );
 
-      set({ eventParticipants, loading: false });
-    } catch (error) {      console.error(`Erro ao excluir participante ${id}:`, error);
+      set({ eventParticipants, loading: false });    } catch (error) {      
+      console.error(`Erro ao excluir participante ${id}:`, error);
+      const mensagemErro = traduzirErroSupabase(error) || 'Falha ao excluir participante';
       set({
-        error: error instanceof Error ? error.message : 'Falha ao excluir participante',
+        error: mensagemErro,
         loading: false
       });
-      throw error;
+      
+      // Lançar um erro com a mensagem traduzida
+      const erroTraduzido = new Error(mensagemErro);
+      throw erroTraduzido;
     }
   },
 

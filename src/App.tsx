@@ -1,6 +1,6 @@
 import React, { useEffect, Suspense, lazy, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { supabase, debugAuth, refreshSession } from './lib/supabase';
+import { supabase, debugAuth, refreshSession, traduzirErroSupabase } from './lib/supabase';
 import { useAuthStore } from './store/authStore';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
@@ -20,6 +20,7 @@ const EventsList = lazy(() => import('./pages/events/EventsList').then(module =>
 const EventForm = lazy(() => import('./pages/events/EventForm').then(module => ({ default: module.EventForm })));
 const EventDetail = lazy(() => import('./pages/events/EventDetail').then(module => ({ default: module.EventDetail })));
 const ParticipantsList = lazy(() => import('./pages/participants/ParticipantsList').then(module => ({ default: module.ParticipantsList })));
+const ParticipantProfileNew = lazy(() => import('./pages/participants/ParticipantProfileNew').then(module => ({ default: module.ParticipantProfileNew })));
 const FinancialOverview = lazy(() => import('./pages/financial/FinancialOverview').then(module => ({ default: module.FinancialOverview })));
 const ReportsDashboard = lazy(() => import('./pages/reports/ReportsDashboard').then(module => ({ default: module.ReportsDashboard })));
 const Settings = lazy(() => import('./pages/settings/Settings').then(module => ({ default: module.Settings })));
@@ -88,21 +89,19 @@ const SessionValidator = () => {
               setUserRole(role);
             } else {
               setUserRole('participante'); // Papel padrão
-            }
-          } catch (err) {
-            console.warn('Erro ao verificar papel do usuário:', err);
+            }          } catch (err) {
+            console.warn('Erro ao verificar papel do usuário:', traduzirErroSupabase(err));
             setUserRole('participante'); // Papel padrão em caso de erro
           }
         } else {
           // Nenhuma sessão, limpar estado
           setUser(null);
           setUserRole(null);
-        }
-      } catch (error) {
-        console.error('Erro ao validar sessão:', error);
+        }      } catch (error) {
+        console.error('Erro ao validar sessão:', traduzirErroSupabase(error));
         setUser(null);
         setUserRole(null);
-      } finally {
+      }finally {
         setIsChecking(false);
       }
     };
@@ -161,9 +160,8 @@ function App() {
                 setUserRole('admin');
               } else if (mounted) {
                 setUserRole('participante');
-              }
-            } catch (err) {
-              console.warn('⚠️ Error checking user role:', err);
+              }            } catch (err) {
+              console.warn('⚠️ Error checking user role:', traduzirErroSupabase(err));
               if (mounted) setUserRole('participante');
             }
           }
@@ -191,8 +189,8 @@ function App() {
                   setUserRole('admin');
                 } else if (mounted) {
                   setUserRole('participante');
-                }
-              } catch (err) {
+                }              } catch (err) {
+                console.warn('Erro ao verificar papel do usuário:', traduzirErroSupabase(err));
                 if (mounted) setUserRole('participante');
               }
             }
@@ -200,13 +198,12 @@ function App() {
             console.log('=== No valid session found ===');
             setUser(null);
           }
-        }
-      } catch (error) {
-        console.error('Error during auth initialization:', error);
+        }      } catch (error) {
+        console.error('Error during auth initialization:', traduzirErroSupabase(error));
         if (mounted) {
           setUser(null);
         }
-      } finally {
+      }finally {
         if (mounted) {
           setSessionChecked(true);
         }
@@ -237,9 +234,8 @@ function App() {
     const sessionRefreshInterval = setInterval(async () => {
       if (mounted) {
         try {
-          await refreshSession();
-        } catch (error) {
-          console.error('Error in auto session refresh:', error);
+          await refreshSession();        } catch (error) {
+          console.error('Error in auto session refresh:', traduzirErroSupabase(error));
         }
       }
     }, 4 * 60 * 1000); // 4 minutos
@@ -333,9 +329,8 @@ const AuthenticatedRoutes = () => {
       }
       
       console.log("❌ User is not an administrator in either source");
-      return false;
-    } catch (error) {
-      console.error("❌ Error checking admin status:", error);
+      return false;    } catch (error) {
+      console.error("❌ Error checking admin status:", traduzirErroSupabase(error));
       return false;
     }
   };
@@ -394,10 +389,10 @@ const AuthenticatedRoutes = () => {
             <Route path="/" element={<Dashboard />} />
             <Route path="/profile" element={<AdminProfile />} />
             <Route path="/eventos" element={<EventsList />} />
-            <Route path="/eventos/novo" element={<EventForm />} />
-            <Route path="/eventos/:id" element={<EventDetail />} />
+            <Route path="/eventos/novo" element={<EventForm />} />            <Route path="/eventos/:id" element={<EventDetail />} />
             <Route path="/eventos/:id/editar" element={<EventForm />} />
             <Route path="/participantes" element={<ParticipantsList />} />
+            <Route path="/participantes/:id" element={<ParticipantProfileNew />} />
             <Route path="/financeiro" element={<FinancialOverview />} />
             <Route path="/relatorios" element={<ReportsDashboard />} />
             <Route path="/configuracoes" element={<Settings />} />

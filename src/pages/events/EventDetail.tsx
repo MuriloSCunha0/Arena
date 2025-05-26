@@ -19,6 +19,7 @@ import {
 import { Button } from '../../components/ui/Button';
 import { useEventsStore, useParticipantsStore, useFinancialsStore, useCourtsStore } from '../../store'; // Import useCourtsStore
 import { useNotificationStore } from '../../components/ui/Notification';
+import { traduzirErroSupabase } from '../../lib/supabase';
 import { ParticipantsList } from '../../components/events/ParticipantsList';
 import { TournamentBracket } from '../../components/events/TournamentBracket';
 import { EventFinancial } from '../../components/events/EventFinancial';
@@ -41,15 +42,14 @@ export const EventDetail: React.FC = () => {
   const addNotification = useNotificationStore(state => state.addNotification);
 
   useEffect(() => {
-    if (id) {
-      // Fetch event with organizer data
-      getByIdWithOrganizer(id).catch(() => {
-        addNotification({ type: 'error', message: 'Falha ao carregar detalhes do evento' });
+    if (id) {      // Fetch event with organizer data
+      getByIdWithOrganizer(id).catch((error) => {
+        addNotification({ type: 'error', message: traduzirErroSupabase(error) || 'Falha ao carregar detalhes do evento' });
         navigate('/eventos');
       });
       // Fetch courts for displaying names
-      fetchCourts().catch(() => {
-         addNotification({ type: 'warning', message: 'Não foi possível carregar nomes das quadras.' });
+      fetchCourts().catch((error) => {
+         addNotification({ type: 'warning', message: traduzirErroSupabase(error) || 'Não foi possível carregar nomes das quadras.' });
       });
     }
   }, [id, getByIdWithOrganizer, fetchCourts, addNotification, navigate]);
@@ -57,11 +57,10 @@ export const EventDetail: React.FC = () => {
   // ... (useEffect for participants, financials, errors remain the same) ...
   // Load participants when tab is participants
   useEffect(() => {
-    if (activeTab === 'participants' && id) {
-      fetchParticipantsByEvent(id).catch(() => {
+    if (activeTab === 'participants' && id) {      fetchParticipantsByEvent(id).catch((error) => {
         addNotification({
           type: 'error',
-          message: 'Falha ao carregar participantes'
+          message: traduzirErroSupabase(error) || 'Falha ao carregar participantes'
         });
       });
     }
@@ -79,12 +78,15 @@ export const EventDetail: React.FC = () => {
 
   // Quando mudar para a aba financeira, garantir que os dados financeiros estão atualizados
   useEffect(() => {
-    if (activeTab === 'financials' && id) {
-      Promise.all([
+    if (activeTab === 'financials' && id) {      Promise.all([
         fetchTransactionsByEvent(id),
         fetchEventSummary(id)
       ]).catch(error => {
         console.error('Error fetching financial data:', error);
+        addNotification({
+          type: 'error',
+          message: traduzirErroSupabase(error) || 'Falha ao carregar dados financeiros'
+        });
       });
     }
   }, [activeTab, id, fetchTransactionsByEvent, fetchEventSummary]);
@@ -110,11 +112,10 @@ export const EventDetail: React.FC = () => {
           type: 'success',
           message: 'Evento excluído com sucesso!'
         });
-        navigate('/eventos');
-      } catch (err) {
+        navigate('/eventos');      } catch (err) {
         addNotification({
           type: 'error',
-          message: 'Erro ao excluir evento. Tente novamente.'
+          message: traduzirErroSupabase(err) || 'Erro ao excluir evento. Tente novamente.'
         });
       }
     }

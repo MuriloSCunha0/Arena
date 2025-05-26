@@ -5,6 +5,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { validateCPF, formatCPF, formatPhone } from '../utils/validation';
 import { useAuthStore, UserRole } from '../store/authStore';
+import { traduzirErroSupabase } from '../lib/supabase';
 
 export const Register = () => {
   const [fullName, setFullName] = useState('');
@@ -72,10 +73,9 @@ export const Register = () => {
       setTimeout(() => {
         navigate('/login');
         resetForm();
-      }, 3000);
-    } catch (err: any) {
+      }, 3000);    } catch (err: any) {
       console.error('Registration error:', err);
-      setError(err.message || 'Erro ao cadastrar');
+      setError(traduzirErroSupabase(err) || 'Erro ao cadastrar');
     } finally {
       setLoading(false);
     }

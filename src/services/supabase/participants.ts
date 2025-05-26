@@ -36,6 +36,7 @@ const toSupabaseParticipantCreate = (participant: CreateParticipantDTO) => ({
   partner_id: participant.partnerId,
   payment_status: participant.paymentStatus || 'PENDING',
   payment_id: participant.paymentId,
+  user_id: participant.userId, // Adicionar userId quando disponível
   // payment_date is set below based on status
 });
 

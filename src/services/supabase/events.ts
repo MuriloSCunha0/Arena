@@ -1,4 +1,4 @@
-import { supabase } from '../../lib/supabase';
+import { supabase, tratarErroSupabase } from '../../lib/supabase';
 import { Event, EventType, TeamFormationType, Organizer } from '../../types'; // Import Organizer
 
 // Função para converter dados do Supabase para nosso tipo Event
@@ -71,10 +71,8 @@ export const EventsService = {
         throw new Error(`Falha ao buscar eventos: ${error.message}`);
       }
       
-      return (data || []).map(transformEvent);
-    } catch (error) {
-      console.error('Error in getAll events:', error);
-      throw error;
+      return (data || []).map(transformEvent);    } catch (error) {
+      throw tratarErroSupabase(error, 'buscar todos os eventos');
     }
   },
 
@@ -96,10 +94,8 @@ export const EventsService = {
       }
       
       if (!data) return null;
-      return transformEvent(data);
-    } catch (error) {
-      console.error(`Error in getById event ${id}:`, error);
-      throw error;
+      return transformEvent(data);    } catch (error) {
+      throw tratarErroSupabase(error, `buscar evento ${id}`);
     }
   },
 
@@ -119,10 +115,8 @@ export const EventsService = {
         throw new Error(`Failed to create event: ${error.message}`);
       }
 
-      return transformEvent(data);
-    } catch (error) {
-      console.error('Error in create event:', error);
-      throw error;
+      return transformEvent(data);    } catch (error) {
+      throw tratarErroSupabase(error, 'criar evento');
     }
   },
 
@@ -143,10 +137,8 @@ export const EventsService = {
         throw new Error(`Failed to update event: ${error.message}`);
       }
 
-      return transformEvent(data);
-    } catch (error) {
-      console.error(`Error in update event ${id}:`, error);
-      throw error;
+      return transformEvent(data);    } catch (error) {
+      throw tratarErroSupabase(error, `atualizar evento ${id}`);
     }
   },
 
@@ -159,10 +151,8 @@ export const EventsService = {
         .eq('id', id);      if (error) {
         console.error(`Supabase error deleting event ${id}:`, error);
         throw new Error(`Falha ao excluir evento: ${error.message}`);
-      }
-    } catch (error) {
-      console.error(`Error in delete event ${id}:`, error);
-      throw error;
+      }    } catch (error) {
+      throw tratarErroSupabase(error, `excluir evento ${id}`);
     }
   },
 
@@ -179,10 +169,8 @@ export const EventsService = {
         throw new Error(`Failed to get participant count: ${error.message}`);
       }
       
-      return count || 0;
-    } catch (error) {
-      console.error(`Error in getParticipantCount for event ${eventId}:`, error);
-      throw error;
+      return count || 0;    } catch (error) {
+      throw tratarErroSupabase(error, `buscar contagem de participantes para o evento ${eventId}`);
     }
   },
 
@@ -204,16 +192,12 @@ export const EventsService = {
         }
         console.error(`Supabase error fetching event ${id} with organizer:`, error);
         throw new Error(`Failed to fetch event with organizer: ${error.message}`);
-      }
-
-      if (!data) return null;
+      }      if (!data) return null;
 
       // Transform the event data and include organizer if available
       return transformEvent(data); // transformEvent now handles the joined organizer data
-
     } catch (error) {
-      console.error(`Error in getByIdWithOrganizer event ${id}:`, error);
-      throw error;
+      throw tratarErroSupabase(error, `buscar evento ${id} com dados do organizador`);
     }
   },
   
@@ -276,10 +260,8 @@ export const EventsService = {
         paymentStatus: data.payment_status,
         paymentMethod: data.payment_method,
         registeredAt: data.registered_at
-      };
-    } catch (error) {
-      console.error('Error in registerParticipant:', error);
-      throw error;
+      };    } catch (error) {
+      throw tratarErroSupabase(error, `registrar participante para o evento ${eventId}`);
     }
   },
 };

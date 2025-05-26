@@ -311,6 +311,7 @@ export interface CreateParticipantDTO {
   paymentStatus?: 'PENDING' | 'CONFIRMED';
   paymentMethod?: string | null;
   paymentId?: string | null;
+  userId?: string; // ID do usuário do sistema, se selecionado
 }
 
 // Interfaces adicionais que devem ser centralizadas
