@@ -285,12 +285,12 @@ const PublicTournamentView: React.FC = () => {
                   <h3 className="text-lg font-semibold mb-2">Grupo {groupNum}</h3>
                   <div className="overflow-x-auto">
                     <table className="min-w-full border-collapse bg-white border border-gray-300 rounded-md overflow-hidden">
-                      <thead className="bg-gray-50">
+                      <thead className="bg-gray-100">
                         <tr>
-                          <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Equipe 1</th>
-                          <th className="px-4 py-2 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Resultado</th>
-                          <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Equipe 2</th>
-                          <th className="px-4 py-2 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
+                          <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Time 1</th>
+                          <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">Resultado</th>
+                          <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Time 2</th>
+                          <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">

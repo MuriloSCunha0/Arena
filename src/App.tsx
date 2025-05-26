@@ -127,85 +127,44 @@ const SessionValidator = () => {
 function App() {
   const { user, setUser, loading, setUserRole } = useAuthStore();
   const [sessionChecked, setSessionChecked] = useState(false);
+  const [appInitialized, setAppInitialized] = useState(false);
   
   useEffect(() => {
     let mounted = true;
     
     const initAuth = async () => {
-      // Debug current auth state
-      const authDebugInfo = await debugAuth();
-      console.log('=== Auth debugging complete ===', authDebugInfo.success);
-
+      if (appInitialized) return;
+      
       try {
-        // Tenta recuperar a sessão do localStorage primeiro
-        const { data: localSessionData, error: localSessionError } = await supabase.auth.getSession();
+        // Debug current auth state
+        const authDebugInfo = await debugAuth();
+        console.log('=== Auth debugging complete ===', authDebugInfo.success);
+
+        // Get current session
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
         
-        if (!localSessionError && localSessionData?.session?.user && mounted) {
-          console.log('=== Session found in localStorage ===');
-          setUser(localSessionData.session.user);
+        if (!sessionError && sessionData?.session?.user && mounted) {
+          console.log('=== Session found ===');
+          setUser(sessionData.session.user);
           
-          // Verificar papel do usuário
-          if (localSessionData.session.user.user_metadata?.role) {
-            setUserRole(localSessionData.session.user.user_metadata.role);
-          } else {
-            try {
-              const { data: adminData } = await supabase
-                .from('users')
-                .select('id')
-                .eq('id', localSessionData.session.user.id)
-                .single();
-                
-              if (adminData && mounted) {
-                console.log('✅ User found as admin in DB check');
-                setUserRole('admin');
-              } else if (mounted) {
-                setUserRole('participante');
-              }            } catch (err) {
-              console.warn('⚠️ Error checking user role:', traduzirErroSupabase(err));
-              if (mounted) setUserRole('participante');
-            }
-          }
-        } else {
-          // Se não encontrou no localStorage, tenta renovar a sessão
-          console.log('=== Attempting to refresh session ===');
-          const session = await refreshSession();
-        
-          if (session?.user && mounted) {
-            console.log('=== Session refreshed successfully ===');
-            setUser(session.user);
-            
-            if (session.user.user_metadata?.role) {
-              setUserRole(session.user.user_metadata.role);
-            } else {
-              // Verificação na DB como feito acima
-              try {
-                const { data: adminData } = await supabase
-                  .from('users')
-                  .select('id')
-                  .eq('id', session.user.id)
-                  .single();
-                
-                if (adminData && mounted) {
-                  setUserRole('admin');
-                } else if (mounted) {
-                  setUserRole('participante');
-                }              } catch (err) {
-                console.warn('Erro ao verificar papel do usuário:', traduzirErroSupabase(err));
-                if (mounted) setUserRole('participante');
-              }
-            }
-          } else if (mounted) {
-            console.log('=== No valid session found ===');
-            setUser(null);
-          }
-        }      } catch (error) {
-        console.error('Error during auth initialization:', traduzirErroSupabase(error));
+          // Set role from metadata or default
+          const role = sessionData.session.user.user_metadata?.role || 'participante';
+          setUserRole(role);
+        } else if (mounted) {
+          console.log('=== No valid session found ===');
+          setUser(null);
+          setUserRole(null);
+        }
+      } catch (error) {
+        console.error('Error during auth initialization:', error);
         if (mounted) {
           setUser(null);
+          setUserRole(null);
         }
-      }finally {
+      } finally {
         if (mounted) {
           setSessionChecked(true);
+          setAppInitialized(true);
         }
       }
     };
@@ -222,33 +181,20 @@ function App() {
           setUserRole(null);
         } else if (session?.user) {
           setUser(session.user);
-          
-          if (session.user.user_metadata?.role) {
-            setUserRole(session.user.user_metadata.role);
-          }
+          const role = session.user.user_metadata?.role || 'participante';
+          setUserRole(role);
         }
       }
     });
 
-    // Configurar intervalo para renovar a sessão regularmente
-    const sessionRefreshInterval = setInterval(async () => {
-      if (mounted) {
-        try {
-          await refreshSession();        } catch (error) {
-          console.error('Error in auto session refresh:', traduzirErroSupabase(error));
-        }
-      }
-    }, 4 * 60 * 1000); // 4 minutos
-
     return () => {
       mounted = false;
       subscription.unsubscribe();
-      clearInterval(sessionRefreshInterval);
     };
-  }, [setUser, setUserRole]);
+  }, [setUser, setUserRole, appInitialized]);
 
-  // Esperar até que a verificação inicial da sessão seja concluída
-  if (loading || !sessionChecked) {
+  // Wait for app initialization
+  if (!appInitialized || loading || !sessionChecked) {
     return <LoadingFallback />;
   }
   
@@ -257,7 +203,8 @@ function App() {
       <Router>
         <AuthProvider>
           <NotificationContainer />
-          <BlockDetector />          <Routes>
+          <BlockDetector />
+          <Routes>
             {/* Public Routes */}
             <Route path="/login" element={
               user === null ? <Login /> : <Navigate to="/" replace />
@@ -267,15 +214,12 @@ function App() {
             } />
             <Route path="/inscricao/:eventId" element={<EventRegistration />} />
             
-            {/* Protected Routes with improved session handling */}
+            {/* Protected Routes */}
             <Route path="/*" element={
-              loading ? (
-                <LoadingFallback />
-              ) : user !== null ? (
+              user !== null ? (
                 <AuthenticatedRoutes />
               ) : (
-                // Tenta renovar a sessão antes de redirecionar
-                <SessionValidator />
+                <Navigate to="/login" replace />
               )
             } />
             
@@ -289,98 +233,94 @@ function App() {
 }
 
 const AuthenticatedRoutes = () => {
-  const { isAdmin, isParticipante, isLoading, userRole, user, userData } = useAuth();
+  const { isAdmin, isParticipante, isLoading, userRole, user } = useAuth();
+  const [isVerified, setIsVerified] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(true);
   
-  // Show loading while checking permissions
-  if (isLoading) {
-    return <LoadingFallback />;
-  }
-  
-  // Debug logging
-  console.log("AuthenticatedRoutes - User:", user?.id);
-  console.log("AuthenticatedRoutes - User Metadata:", user?.user_metadata);
-  console.log("AuthenticatedRoutes - User Data:", userData);
-  console.log("AuthenticatedRoutes - User Role:", userRole);
-  console.log("AuthenticatedRoutes - Is Admin:", isAdmin());
-  console.log("AuthenticatedRoutes - Is Participante:", isParticipante());
-    // Verificar papel do usuário de forma mais detalhada
-  const checkAdminStatus = async () => {
-    if (!user) return false;
-    
-    try {
-      console.log("=== Detailed admin status verification ===");
-      
-      // Verificar primeiro na tabela users (most reliable source)
-      const { data: adminData, error: adminError } = await supabase
-        .from('users')
-        .select('id')
-        .eq('id', user.id)
-        .single();
-        
-      if (!adminError && adminData) {
-        console.log("✅ User is confirmed admin via users table");
-        return true;
-      }
-      
-      // Depois verificar nos metadados
-      if (user.user_metadata?.role === 'admin') {
-        console.log("✅ User is confirmed admin via metadata");
-        return true;
-      }
-      
-      console.log("❌ User is not an administrator in either source");
-      return false;    } catch (error) {
-      console.error("❌ Error checking admin status:", traduzirErroSupabase(error));
-      return false;
-    }
-  };
-    // Verificação adicional para garantir que o papel está correto
+  // Perform role verification once when component mounts
   useEffect(() => {
-    const verifyUserRole = async () => {
-      if (user) {
-        console.log("=== Verifying user role accuracy ===");
+    let isMounted = true;
+    
+    const verifyRole = async () => {
+      if (!user || isLoading) {
+        setIsVerifying(false);
+        return;
+      }
+
+      try {
+        setIsVerifying(true);
         
-        // Verificar se é realmente admin mas tem outro papel
-        if (userRole !== 'admin') {
-          const isActuallyAdmin = await checkAdminStatus();
-          if (isActuallyAdmin) {
-            console.log("⚠️ Role correction needed: User was incorrectly set as non-admin, fixing to admin");
-            useAuthStore.getState().setUserRole('admin');
+        // Only verify if we don't have a role yet or verification hasn't been done
+        if (!userRole || !isVerified) {
+          console.log("=== Verifying user role ===");
+          
+          const { data: userData, error } = await supabase
+            .from('users')
+            .select('app_metadata, user_metadata')
+            .eq('id', user.id)
+            .single();
+            
+          if (!error && userData && isMounted) {
+            const appMeta = userData.app_metadata || {};
+            let detectedRole = 'participante';
+            
+            // Check various role sources
+            if (appMeta.roles && Array.isArray(appMeta.roles)) {
+              if (appMeta.roles.includes('admin')) {
+                detectedRole = 'admin';
+              }
+            } else if (appMeta.role === 'admin') {
+              detectedRole = 'admin';
+            } else if (userData.user_metadata?.role === 'admin') {
+              detectedRole = 'admin';
+            }
+            
+            // Update role if different and component is still mounted
+            if (userRole !== detectedRole && isMounted) {
+              console.log(`Updating role from ${userRole} to ${detectedRole}`);
+              useAuthStore.getState().setUserRole(detectedRole);
+            }
           }
-        } 
-        // Verificar se tem papel de admin mas na verdade não é
-        else if (userRole === 'admin') {
-          const isActuallyAdmin = await checkAdminStatus();
-          if (!isActuallyAdmin) {
-            console.log("⚠️ Role correction needed: User was incorrectly set as admin, fixing to participante");
-            useAuthStore.getState().setUserRole('participante');
-          }
+        }
+        
+        if (isMounted) {
+          setIsVerified(true);
+        }
+      } catch (error) {
+        console.error('Error verifying user role:', error);
+        // Set default role on error
+        if (!userRole && isMounted) {
+          useAuthStore.getState().setUserRole('participante');
+        }
+        if (isMounted) {
+          setIsVerified(true);
+        }
+      } finally {
+        if (isMounted) {
+          setIsVerifying(false);
         }
       }
     };
     
-    verifyUserRole();
-  }, [user, userRole]);
-    // Ensure we have a role before rendering routes
-  if (userRole === null) {
-    console.warn('No user role detected, checking if session exists...');
+    verifyRole();
     
-    // Tenta uma última recuperação antes de redirecionar
-    if (user) {
-      console.log('User exists but no role, setting default role as participante');
-      // Se temos um usuário mas nenhum papel, definimos como participante por padrão
-      setTimeout(() => {
-        useAuthStore.getState().setUserRole('participante');
-      }, 100);
-      return <LoadingFallback />;
-    }
-    
-    console.warn('No valid user found, redirecting to login');
-    // Add small delay before redirect to avoid infinite loop
+    return () => {
+      isMounted = false;
+    };
+  }, [user, userRole, isLoading, isVerified]);
+  
+  // Show loading while verifying or loading
+  if (isLoading || isVerifying || !isVerified) {
+    return <LoadingFallback />;
+  }
+  
+  // Ensure we have both user and role before rendering routes
+  if (!user || !userRole) {
+    console.warn('Missing user or role, redirecting to login');
     return <Navigate to="/login" replace />;
   }
   
-  // Choose the appropriate layout based on user type
+  // Render admin routes
   if (isAdmin()) {
     return (
       <AdminLayout>
@@ -389,7 +329,8 @@ const AuthenticatedRoutes = () => {
             <Route path="/" element={<Dashboard />} />
             <Route path="/profile" element={<AdminProfile />} />
             <Route path="/eventos" element={<EventsList />} />
-            <Route path="/eventos/novo" element={<EventForm />} />            <Route path="/eventos/:id" element={<EventDetail />} />
+            <Route path="/eventos/novo" element={<EventForm />} />
+            <Route path="/eventos/:id" element={<EventDetail />} />
             <Route path="/eventos/:id/editar" element={<EventForm />} />
             <Route path="/participantes" element={<ParticipantsList />} />
             <Route path="/participantes/:id" element={<ParticipantProfileNew />} />
@@ -405,8 +346,10 @@ const AuthenticatedRoutes = () => {
         </Suspense>
       </AdminLayout>
     );
-  } else if (isParticipante()) {
-    // Layout para participantes regulares
+  }
+  
+  // Render participant routes
+  if (isParticipante()) {
     return (
       <ParticipantLayout>
         <Suspense fallback={<LoadingFallback />}>
@@ -422,9 +365,8 @@ const AuthenticatedRoutes = () => {
       </ParticipantLayout>
     );
   }
-
-  // Safety fallback - prevents infinite redirects
-  // If we get here, userRole isn't null, but isn't matching any condition
+  
+  // Fallback for unexpected role
   console.error('Unexpected user role state:', userRole);
   return <Navigate to="/login" replace />;
 };

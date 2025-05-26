@@ -15,6 +15,7 @@ import { Participant, Court } from '../../types';
 
 // Import the metadata interface from TournamentRandomizer
 import { TournamentMetadata } from './TournamentRandomizer';
+import { createTournamentStructure } from '../../utils/groupFormationUtils';
 
 interface BracketAnimationProps {
   participants: Participant[];
@@ -117,240 +118,31 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
     });
 
     if (onComplete) {
-      // Antes de dividir os pares em lados, vamos atribuir grupos
-      const defaultGroupSize = 3; // Tamanho padrão de grupo é 3 pares
-      const totalPairs = formedPairs.length;
+      // Use the new tournament structure creation utility
+      const result = createTournamentStructure(participants, 'RANDOM', 3);
       
-      // Copiamos os pares e embaralhamos novamente para grupos aleatórios
-      let pairsWithGroups = [...formedPairs];
-      pairsWithGroups = pairsWithGroups.sort(() => Math.random() - 0.5);
-      
-      // Atribuir os grupos seguindo as regras de Beach Tênis
-      let groupCount = Math.floor(totalPairs / defaultGroupSize);
-      const remainingPairs = totalPairs % defaultGroupSize;
-      
-      // Cópia de pairsWithGroups para não modificar diretamente
-      const updatedPairs = [...pairsWithGroups];
-      
-      // Atribuir Proporção para grupos menores - para equalizar pontuação
-      const getProportionalFactor = (groupSize: number): number => {
-        // Default size is 3, so we use that as our baseline
-        return defaultGroupSize / Math.max(1, groupSize);
-      };
-      
-      // Rastrear tamanhos dos grupos para pontuação proporcional
-      const groupSizes: Record<number, number> = {};
-      
-      // Atribuir números de grupo baseado nas estratégias específicas
-      if (totalPairs <= 3) {
-        // Se temos 3 ou menos pares, todos ficam no grupo 1
-        updatedPairs.forEach(pair => {
-          pair.groupNumber = 1;
-        });
-        groupSizes[1] = totalPairs;
-      } 
-      else if (totalPairs === 4) {
-        // Para 4 pares, um grupo de 4
-        updatedPairs.forEach(pair => {
-          pair.groupNumber = 1;
-        });
-        groupSizes[1] = 4;
-      }
-      else if (totalPairs === 5) {
-        // Para 5 pares, um grupo de 3 e um grupo de 2
-        updatedPairs.forEach((pair, index) => {
-          pair.groupNumber = index < 3 ? 1 : 2;
-        });
-        groupSizes[1] = 3;
-        groupSizes[2] = 2;
-      }
-      else {
-        // Para 6+ pares
-        if (remainingPairs === 0) {
-          // Caso perfeito: todos os grupos terão exatamente 3 times
-          updatedPairs.forEach((pair, index) => {
-            const groupNum = Math.floor(index / defaultGroupSize) + 1;
-            pair.groupNumber = groupNum;
-            
-            if (!groupSizes[groupNum]) groupSizes[groupNum] = 0;
-            groupSizes[groupNum]++;
-          });
-        } 
-        else if (remainingPairs === 1) {
-          // Sobra 1 par: um grupo com 4 pares, resto com 3
-          // Primeiro distribuímos os grupos de tamanho 3
-          const regularGroups = groupCount - 1;
-          let pairIndex = 0;
-          
-          // Atribuir grupos regulares de tamanho 3
-          for (let group = 1; group <= regularGroups; group++) {
-            for (let i = 0; i < defaultGroupSize; i++) {
-              if (pairIndex < updatedPairs.length) {
-                updatedPairs[pairIndex].groupNumber = group;
-                pairIndex++;
-              }
-            }
-          }
-          
-          // Atribuir o grupo especial com 4 pares
-          for (let i = 0; i < 4; i++) {
-            if (pairIndex < updatedPairs.length) {
-              updatedPairs[pairIndex].groupNumber = regularGroups + 1;
-              pairIndex++;
-            }
-          }
-          
-          // Registrar tamanhos dos grupos
-          for (let i = 1; i <= regularGroups; i++) {
-            groupSizes[i] = defaultGroupSize;
-          }
-          groupSizes[regularGroups + 1] = 4; // Grupo especial com 4 pares
-        }
-        else if (remainingPairs === 2) {
-          // Sobram 2 pares
-          if (totalPairs >= 9) {
-            // Com 9+ pares, é melhor ter um grupo de 2
-            let pairIndex = 0;
-            
-            // Atribuir grupos regulares de tamanho 3
-            for (let group = 1; group <= groupCount; group++) {
-              for (let i = 0; i < defaultGroupSize; i++) {
-                if (pairIndex < updatedPairs.length) {
-                  updatedPairs[pairIndex].groupNumber = group;
-                  pairIndex++;
-                }
-              }
-            }
-            
-            // Atribuir o grupo especial com 2 pares
-            for (let i = 0; i < 2; i++) {
-              if (pairIndex < updatedPairs.length) {
-                updatedPairs[pairIndex].groupNumber = groupCount + 1;
-                pairIndex++;
-              }
-            }
-            
-            // Registrar tamanhos dos grupos
-            for (let i = 1; i <= groupCount; i++) {
-              groupSizes[i] = defaultGroupSize;
-            }
-            groupSizes[groupCount + 1] = 2; // Grupo especial com 2 pares
-          } else {
-            // Com menos de 9 pares, criar dois grupos de 4
-            const regularGroups = groupCount - 2;
-            let pairIndex = 0;
-            
-            // Atribuir grupos regulares de tamanho 3
-            for (let group = 1; group <= regularGroups; group++) {
-              for (let i = 0; i < defaultGroupSize; i++) {
-                if (pairIndex < updatedPairs.length) {
-                  updatedPairs[pairIndex].groupNumber = group;
-                  pairIndex++;
-                }
-              }
-            }
-            
-            // Atribuir dois grupos especiais com 4 pares cada
-            for (let extraGroup = 1; extraGroup <= 2; extraGroup++) {
-              for (let i = 0; i < 4; i++) {
-                if (pairIndex < updatedPairs.length) {
-                  updatedPairs[pairIndex].groupNumber = regularGroups + extraGroup;
-                  pairIndex++;
-                }
-              }
-            }
-            
-            // Registrar tamanhos dos grupos
-            for (let i = 1; i <= regularGroups; i++) {
-              groupSizes[i] = defaultGroupSize;
-            }
-            groupSizes[regularGroups + 1] = 4; // Primeiro grupo especial com 4 pares
-            groupSizes[regularGroups + 2] = 4; // Segundo grupo especial com 4 pares
-          }
-        }
-        else if (remainingPairs === 3) {
-          // Sobram 3 pares: criar um grupo adicional de 3
-          updatedPairs.forEach((pair, index) => {
-            pair.groupNumber = Math.floor(index / defaultGroupSize) + 1;
-          });
-          
-          // Registrar tamanhos dos grupos
-          for (let i = 1; i <= groupCount + 1; i++) {
-            groupSizes[i] = defaultGroupSize;
-          }
-        }
-      }
-      
-      // Calcular e armazenar fatores proporcionais para cada grupo
-      const proportionalFactors: Record<number, number> = {};
-      Object.entries(groupSizes).forEach(([groupNum, size]) => {
-        proportionalFactors[Number(groupNum)] = getProportionalFactor(size);
-      });
-      
-      console.log("Tamanhos dos grupos:", groupSizes);
-      console.log("Fatores proporcionais:", proportionalFactors);
-      
-      // Agora dividimos em lados esquerdo e direito para o chaveamento
-      const totalGroupCount = Math.max(...updatedPairs.map(p => p.groupNumber || 0));
-      const leftGroupCount = Math.ceil(totalGroupCount / 2);
-      
-      // Separar pares por grupos
-      const pairsByGroup: Record<number, typeof updatedPairs> = {};
-      updatedPairs.forEach(pair => {
-        const groupNum = pair.groupNumber || 1;
-        if (!pairsByGroup[groupNum]) {
-          pairsByGroup[groupNum] = [];
-        }
-        pairsByGroup[groupNum].push(pair);
-      });
-      
-      // Atribuir lado para cada grupo (esquerdo ou direito)
-      Object.entries(pairsByGroup).forEach(([groupNum, pairs], index) => {
-        const groupNumber = parseInt(groupNum);
-        const side = groupNumber <= leftGroupCount ? 'left' : 'right';
-        
-        // Atualizar lado para todos os pares deste grupo
-        pairs.forEach(pair => {
-          pair.side = side as 'left' | 'right';
-          // Adicionar informação sobre proporção para uso posterior
-          (pair as any).proportionalFactor = proportionalFactors[groupNumber] || 1;
-        });
-      });
-      
-      // Atualizar o estado com os pares atualizados
-      setFormedPairs(updatedPairs);
-      
-      // Contar pares em cada lado
-      const leftPairs = updatedPairs.filter(p => p.side === 'left');
-      const rightPairs = updatedPairs.filter(p => p.side === 'right');
-      
-      console.log(`Distribuição final: ${leftPairs.length} pares no lado esquerdo, ${rightPairs.length} pares no lado direito`);
-      console.log(`Total de ${totalGroupCount} grupos formados.`);
+      // Convert pairs to the expected format
+      const teamData = result.teams.map(team => 
+        [team[0], team[1]] as [string, string]
+      ).filter(team => team[1]); // Filter out single-person teams
 
-      // Adicionar metadados sobre tamanhos de grupos e fatores proporcionais
-      const groupMetadata = {
-        groupSizes,
-        proportionalFactors
-      };
-
-      // Convert formedPairs to ID pairs
-      const teamData = updatedPairs.map(pair => 
-        [pair.participants[0].id, pair.participants[1].id] as [string, string]
-      );
-
-      // Convert internal court assignments to expected format
+      // For simplicity, assign courts randomly to teams
       const finalCourtAssignments: Record<string, string[]> = {};
-      Object.entries(courtAssignmentsInternal).forEach(([matchKey, court]) => {
-        finalCourtAssignments[matchKey] = [court.id];
+      teamData.forEach((team, index) => {
+        if (courts.length > 0) {
+          const courtIndex = index % courts.length;
+          const matchKey = `${team[0]}|${team[1]}`;
+          finalCourtAssignments[matchKey] = [courts[courtIndex].id];
+        }
       });
 
-      // Adicionar metadados para identificar os lados do chaveamento e informações de grupos
+      // Create tournament metadata based on the structure
       const tournamentMetadata: TournamentMetadata = {
         bracketSides: {
-          left: leftPairs.map(pair => [pair.participants[0].id, pair.participants[1].id] as [string, string]),
-          right: rightPairs.map(pair => [pair.participants[0].id, pair.participants[1].id] as [string, string]),
+          left: teamData.slice(0, Math.ceil(teamData.length / 2)),
+          right: teamData.slice(Math.ceil(teamData.length / 2)),
         },
-        groupInfo: groupMetadata
+        groupInfo: result.metadata
       };
 
       console.log("Finalizando animation. Calling onComplete com:", teamData, finalCourtAssignments);
@@ -361,8 +153,9 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
     }
   };
 
+  // Update the spinning logic to work with automatic pair formation
   const spinWheel = () => {
-    if (spinning || completed || remainingParticipants.length === 0) return;
+    if (spinning || completed) return;
     setSpinning(true);
     
     if (continuousTimeout.current) {
@@ -370,17 +163,21 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
       continuousTimeout.current = null;
     }
 
+    // For automatic pair formation, we can skip the manual selection process
+    // and go directly to the completion with the structured pairs
     if (currentStep === 'pairing') {
-      // Seleciona um participante aleatório em vez do primeiro
-      const randomIndex = Math.floor(Math.random() * remainingParticipants.length);
-      const nextParticipant = remainingParticipants[randomIndex];
+      // Generate all pairs automatically using the utility function
+      const result = createTournamentStructure(participants, 'RANDOM', 3);
       
-      console.log(`Sorteando participante: ${nextParticipant.name} (ID: ${nextParticipant.id})`);
-      console.log(`Restantes antes: ${remainingParticipants.length}`);
+      // Convert to the format expected by the animation
+      const pairs = result.teams.map(team => ({
+        participants: [
+          participants.find(p => p.id === team[0])!,
+          participants.find(p => p.id === team[1]) || participants.find(p => p.id === team[0])! // Handle single person teams
+        ].filter(p => p) as [Participant, Participant]
+      })).filter(pair => pair.participants.length === 2);
       
-      setSelectedParticipant(null);
-
-      // Gera um ângulo aleatório para a rotação da roleta
+      // Simulate the spinning animation
       const randomAngle = Math.floor(Math.random() * 360) + 720;
       setRotationAngle(prev => prev + randomAngle);
 
@@ -389,69 +186,28 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
         wheelRef.current.style.transform = `rotate(${rotationAngle + randomAngle}deg)`;
       }
 
-      // Depois de um tempo, revela o participante selecionado
+      // After animation, set all pairs at once
       spinTimeout.current = setTimeout(() => {
-        setSelectedParticipant(nextParticipant);
-        
-        // Efeito visual para o participante selecionado
-        if (selectedNameRef.current) {
-          selectedNameRef.current.classList.add('animate-bounce');
-          setTimeout(() => {
-            if (selectedNameRef.current) selectedNameRef.current.classList.remove('animate-bounce');
-          }, 800);
-        }
-
-        // Atualiza o pareamento atual
-        if (currentPairing[0] === null) {
-          setCurrentPairing([nextParticipant, null]);
-          
-          // Remove o participante sorteado imediatamente
-          const newRemainingList = remainingParticipants.filter(p => p.id !== nextParticipant.id);
-          setRemainingParticipants(newRemainingList);
-          console.log(`Participante ${nextParticipant.name} removido. Restantes: ${newRemainingList.length}`);
-        } else {
-          const newPair: [Participant, Participant] = [currentPairing[0], nextParticipant];
-          setFormedPairs(prev => [...prev, { participants: newPair }]);
-          
-          // Efeito visual para o match formado
-          confetti({
-            particleCount: 50,
-            spread: 50,
-            origin: { y: 0.5, x: 0.5 }
-          });
-          
-          // Remove o participante sorteado e reseta o pareamento atual
-          const newRemainingList = remainingParticipants.filter(p => p.id !== nextParticipant.id);
-          setRemainingParticipants(newRemainingList);
-          setCurrentPairing([null, null]);
-          console.log(`Dupla formada! Restantes: ${newRemainingList.length}`);
-        }
-
+        setFormedPairs(pairs);
+        setCurrentStep('grouping');
         setSpinning(false);
-
-        // Armazena a lista atualizada para verificação
-        const updatedList = remainingParticipants.filter(p => p.id !== nextParticipant.id);
-
-        // Verifica se o pareamento está completo
-        if (updatedList.length <= 1) {
-          console.log("Pairing complete. Moving to grouping.");
-          setCurrentStep('grouping');
-          
-          // Se estiver no modo automático, continua para a próxima fase
-          if (isPlaying) {
-            continuousTimeout.current = setTimeout(() => spinWheel(), pauseDuration);
-          }
-        } else if (isPlaying) {
-          // Continue automaticamente após uma pausa curta SE no modo automático
+        
+        // Add confetti effect
+        confetti({
+          particleCount: 100,
+          spread: 70,
+          origin: { y: 0.6 }
+        });
+        
+        // If in auto mode, proceed to completion
+        if (isPlaying) {
           continuousTimeout.current = setTimeout(() => {
-            console.log("Continuing automatic draw...");
-            spinWheel();
+            finalizeAndComplete();
           }, pauseDuration);
         }
       }, spinDuration);
+      
     } else if (currentStep === 'grouping') {
-      console.log("Grouping animation step. Finalizing...");
-      // Inicia o processo de finalização
       finalizeAndComplete();
     }
   };

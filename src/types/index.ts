@@ -160,6 +160,7 @@ export interface Tournament {
   matches: Match[];
   settings?: TournamentSettings;
   type?: string;
+  format?: string; // Add format field
   teamFormation?: TeamFormationType;
   groups?: Group[];
   hasEliminationStage?: boolean;
@@ -169,6 +170,9 @@ export interface Tournament {
     left: string[][];  // Array of team IDs in the left bracket
     right: string[][]; // Array of team IDs in the right bracket
   };
+  // Add created/updated timestamps for compatibility
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Group {

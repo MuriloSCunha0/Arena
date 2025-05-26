@@ -18,21 +18,18 @@ export const ParticipantsList = () => {
   useEffect(() => {
     const loadData = async () => {
       try {
-        setIsProcessing(true);
         await fetchAllParticipants();
-      } catch (err) {        addNotification({
+      } catch (err) {
+        console.error('Error loading participants:', err);
+        addNotification({
           type: 'error',
           message: 'Falha ao carregar participantes'
         });
-      } finally {
-        setIsProcessing(false);
       }
     };
-
+    
     loadData();
-    // Remover dependências para evitar loops infinitos
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchAllParticipants, addNotification]);
 
   useEffect(() => {
     if (error) {
@@ -229,7 +226,8 @@ export const ParticipantsList = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
                 </tr>
-              </thead>              <tbody className="bg-white divide-y divide-brand-gray">
+              </thead>
+              <tbody className="bg-white divide-y divide-brand-gray">
                 {filteredParticipants.map(participant => (
                   <tr key={participant.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -268,7 +266,8 @@ export const ParticipantsList = () => {
                           <XCircle size={16} className="mr-1" />
                           <span className="text-sm">Pendente</span>
                         </span>                      )}
-                    </td>                    <td className="px-6 py-4 whitespace-nowrap">
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center space-x-2">
                         <Button 
                           variant={participant.paymentStatus === 'CONFIRMED' ? 'outline' : 'primary'}

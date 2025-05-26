@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode, useMemo, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 
@@ -32,85 +32,74 @@ const AuthContext = createContext<AuthContextType>({
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const { user, userRole, loading: authLoading, signOut, initializeFromStorage } = useAuthStore();
   const [userData, setUserData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [initialized, setInitialized] = useState(false);
   
-  // Inicializar do localStorage na primeira renderização
+  // Initialize from storage only once
   useEffect(() => {
-    initializeFromStorage();
-  }, [initializeFromStorage]);
-  
-  // Carregar dados adicionais do usuário
-  useEffect(() => {
-    const fetchUserData = async () => {
-      if (!user) {
-        setUserData(null);
-        setLoading(false);
-        return;
-      }
-      
-      try {
-        const { data, error } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', user.id)
-          .single();
-          
-        if (error) {
-          console.error('Erro ao buscar dados do usuário:', error);
-          // Não falhar completamente se não conseguir buscar dados adicionais
-          setLoading(false);
-          return;
-        }
-        
-        setUserData(data);
-      } catch (error) {
-        console.error('Error fetching user data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    // Só buscar se tivermos um usuário
-    if (user && user.id) {
-      fetchUserData();
-    } else {
-      setLoading(false);
+    if (!initialized) {
+      initializeFromStorage();
+      setInitialized(true);
     }
-  }, [user]);
+  }, [initializeFromStorage, initialized]);
   
-  // Função para verificar se o usuário está autenticado
-  const isAuth = () => {
-    return !!user;
-  };
+  // Memoize the user data fetching function
+  const fetchUserData = useCallback(async (userId: string) => {
+    if (userData && userData.id === userId) {
+      return; // Don't refetch if we already have data for this user
+    }
+    
+    setDataLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
+        
+      if (error) {
+        console.error('Erro ao buscar dados do usuário:', error);
+      } else {
+        setUserData(data);
+      }
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+    } finally {
+      setDataLoading(false);
+    }
+  }, [userData]);
   
-  // Função para verificar se o usuário é administrador
-  const isAdmin = () => {
-    return userRole === 'admin';
-  };
+  // Load additional user data when user changes
+  useEffect(() => {
+    if (user && user.id && initialized) {
+      fetchUserData(user.id);
+    } else if (!user) {
+      setUserData(null);
+      setDataLoading(false);
+    }
+  }, [user, initialized, fetchUserData]);
   
-  // Função para verificar se o usuário é participante
-  const isParticipante = () => {
-    return userRole === 'participante';
-  };
+  // Memoize auth functions to prevent recreating on every render
+  const authFunctions = useMemo(() => ({
+    isAuth: () => !!user,
+    isAdmin: () => userRole === 'admin',
+    isParticipante: () => userRole === 'participante',
+    logout: async () => {
+      setUserData(null);
+      await signOut();
+    }
+  }), [user, userRole, signOut]);
   
-  const logout = async () => {
-    await signOut();
-  };
-  
-  // Valor do contexto
-  const value: AuthContextType = {
+  // Memoize the context value to prevent unnecessary re-renders
+  const contextValue = useMemo(() => ({
     user,
-    isLoading: loading || authLoading,
+    isLoading: !initialized || authLoading || dataLoading,
     userData,
     userRole,
-    isAuth,
-    isAdmin,
-    isParticipante,
-    logout,
-    // ...outros métodos e propriedades
-  };
+    ...authFunctions
+  }), [user, initialized, authLoading, dataLoading, userData, userRole, authFunctions]);
   
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;
 };
 
 // Hook para usar o contexto
