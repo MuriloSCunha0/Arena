@@ -16,6 +16,7 @@ interface AuthState {
   resetPassword: (email: string) => Promise<void>;
   signUp: (email: string, password: string, userData: UserData, role: UserRole) => Promise<void>;
   checkUserRole: (userId: string) => Promise<UserRole | null>;
+  initializeFromStorage: () => void;
 }
 
 export type UserData = {
@@ -26,14 +27,108 @@ export type UserData = {
   // outros campos opcionais...
 };
 
-export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
-  loading: true,
-  userRole: null,
+// Chaves para localStorage
+const STORAGE_KEYS = {
+  USER: 'arena_auth_user',
+  USER_ROLE: 'arena_auth_user_role',
+  SESSION_TIMESTAMP: 'arena_auth_timestamp'
+};
+
+// Utilidades para persistência
+const persistToStorage = (user: any, userRole: UserRole | null) => {
+  try {
+    if (user) {
+      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
+      localStorage.setItem(STORAGE_KEYS.USER_ROLE, userRole || '');
+      localStorage.setItem(STORAGE_KEYS.SESSION_TIMESTAMP, Date.now().toString());
+      console.log('✅ Sessão salva no localStorage');
+    }
+  } catch (error) {
+    console.error('❌ Erro ao salvar sessão no localStorage:', error);
+  }
+};
+
+const loadFromStorage = () => {
+  try {
+    const userStr = localStorage.getItem(STORAGE_KEYS.USER);
+    const userRole = localStorage.getItem(STORAGE_KEYS.USER_ROLE);
+    const timestamp = localStorage.getItem(STORAGE_KEYS.SESSION_TIMESTAMP);
+    
+    if (!userStr || !timestamp) {
+      return { user: null, userRole: null };
+    }
+    
+    // Verificar se a sessão não está expirada (24 horas)
+    const sessionAge = Date.now() - parseInt(timestamp);
+    const MAX_SESSION_AGE = 24 * 60 * 60 * 1000; // 24 horas
+    
+    if (sessionAge > MAX_SESSION_AGE) {
+      console.log('⚠️ Sessão expirada, limpando localStorage');
+      clearStorage();
+      return { user: null, userRole: null };
+    }
+    
+    const user = JSON.parse(userStr);
+    const role = userRole || null;
+    
+    console.log('✅ Sessão recuperada do localStorage');
+    return { user, userRole: role as UserRole | null };
+  } catch (error) {
+    console.error('❌ Erro ao recuperar sessão do localStorage:', error);
+    clearStorage();
+    return { user: null, userRole: null };
+  }
+};
+
+const clearStorage = () => {
+  try {
+    localStorage.removeItem(STORAGE_KEYS.USER);
+    localStorage.removeItem(STORAGE_KEYS.USER_ROLE);
+    localStorage.removeItem(STORAGE_KEYS.SESSION_TIMESTAMP);
+    console.log('✅ Dados de sessão removidos do localStorage');
+  } catch (error) {
+    console.error('❌ Erro ao limpar localStorage:', error);
+  }
+};
+
+// Inicializar o estado com dados do localStorage se disponível
+const initializeState = () => {
+  const stored = loadFromStorage();
+  return {
+    user: stored.user,
+    userRole: stored.userRole,
+    loading: stored.user === null // Se não temos usuário armazenado, ainda estamos carregando
+  };
+};
+
+export const useAuthStore = create<AuthState>((set, get) => ({
+  ...initializeState(),
   
-  setUser: (user) => set({ user, loading: false }),
+  setUser: (user) => {
+    set({ user, loading: false });
+    const { userRole } = get();
+    persistToStorage(user, userRole);
+  },
   
-  setUserRole: (role) => set({ userRole: role }),
+  setUserRole: (role) => {
+    set({ userRole: role });
+    const { user } = get();
+    persistToStorage(user, role);
+  },
+
+  initializeFromStorage: () => {
+    const stored = loadFromStorage();
+    if (stored.user) {
+      set({ 
+        user: stored.user, 
+        userRole: stored.userRole, 
+        loading: false 
+      });
+      console.log('✅ Estado inicializado com dados do localStorage');
+    } else {
+      set({ loading: false });
+    }
+  },
   
   signIn: async (email, password) => {
     console.log('=== Attempting sign in for:', email, '===');
@@ -47,13 +142,16 @@ export const useAuthStore = create<AuthState>((set) => ({
         .maybeSingle();
 
       if (userError) {
-        console.error('❌ Error querying users table:', userError);      throw new Error('Erro ao consultar a tabela de usuários.');
+        console.error('❌ Error querying users table:', userError);
+        throw new Error('Erro ao consultar a tabela de usuários.');
       }
 
       if (!userData) {
         console.error('❌ Usuário não encontrado na tabela de usuários');
         throw new Error('Usuário não encontrado.');
-      }      // 2. Validar a senha (substitua por uma função de hash real, se necessário)
+      }
+
+      // 2. Validar a senha (substitua por uma função de hash real, se necessário)
       const isPasswordValid = password === userData.password; // Substitua por validação de hash
       if (!isPasswordValid) {
         console.error('❌ Senha inválida');
@@ -91,65 +189,83 @@ export const useAuthStore = create<AuthState>((set) => ({
         }
       }
 
-      // 4. Atualizar o estado com os dados do usuário
+      // 4. Atualizar o estado com os dados do usuário e persistir
       set({ user: userData, userRole, loading: false });
-      console.log(`✅ User role definida como: ${userRole}`);    } catch (error) {
+      persistToStorage(userData, userRole);
+      console.log(`✅ User role definida como: ${userRole} e salva no localStorage`);
+
+    } catch (error) {
       console.error('❌ Erro no login:', error);
       throw tratarErroSupabase(error, 'fazer login');
     }
   },
-    signUp: async (email, password, userData, role = 'participante') => {
-  const roleValue = role === 'admin' ? 'admin' : 'user';
-  let appMetadata = role === 'admin' ? { roles: [roleValue] } : { role: roleValue };
 
-  console.log(`Creating new user with role: ${role} (${roleValue})`);
+  signUp: async (email, password, userData, role = 'participante') => {
+    const roleValue = role === 'admin' ? 'admin' : 'user';
+    let appMetadata = role === 'admin' ? { roles: [roleValue] } : { role: roleValue };
 
-  const { data: authData, error: authError } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: {
-        ...userData,
-        role: roleValue
-      },
-      emailRedirectTo: `${window.location.origin}/auth/callback`
+    console.log(`Creating new user with role: ${role} (${roleValue})`);
+
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          ...userData,
+          role: roleValue
+        },
+        emailRedirectTo: `${window.location.origin}/auth/callback`
+      }
+    });
+
+    if (authError) throw authError;
+
+    if (authData.user) {
+      const { error: userError } = await supabase
+        .from('users')
+        .insert([
+          {
+            id: authData.user.id,
+            email: email,
+            password: password, 
+            full_name: userData.full_name,
+            phone: userData.phone, // Já deve vir formatado ou nulo
+            cpf: userData.cpf, // Já deve vir formatado ou nulo
+            birth_date: userData.birth_date, // Já deve vir formatado ou nulo
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            user_metadata: { role: roleValue },
+            app_metadata: appMetadata
+          }
+        ]);
+
+      if (userError) {
+        console.error('Error inserting user data:', userError);
+        throw userError;
+      }
+
+      console.log(`Usuário ${role} criado com sucesso.`);
+      const finalRole = role === 'admin' ? 'admin' : 'participante';
+      set({ userRole: finalRole });
+      
+      // Persistir dados do novo usuário
+      persistToStorage(authData.user, finalRole);
     }
-  });
+  },
 
-  if (authError) throw authError;
-
-  if (authData.user) {
-    const { error: userError } = await supabase
-      .from('users')
-      .insert([
-        {
-          id: authData.user.id,
-          email: email,
-          password: password, 
-          full_name: userData.full_name,
-          phone: userData.phone, // Já deve vir formatado ou nulo
-          cpf: userData.cpf, // Já deve vir formatado ou nulo
-          birth_date: userData.birth_date, // Já deve vir formatado ou nulo
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          user_metadata: { role: roleValue },
-          app_metadata: appMetadata
-        }
-      ]);
-
-    if (userError) {
-      console.error('Error inserting user data:', userError);
-      throw userError;
+  signOut: async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      
+      // Limpar estado e localStorage
+      set({ user: null, loading: false, userRole: null });
+      clearStorage();
+      console.log('✅ Logout realizado e dados limpos do localStorage');
+    } catch (error) {
+      console.error('❌ Erro durante logout:', error);
+      throw error;
     }
-
-    console.log(`Usuário ${role} criado com sucesso.`);
-    set({ userRole: role === 'admin' ? 'admin' : 'participante' });
-  }
-},
-    signOut: async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
-    set({ user: null, loading: false, userRole: null });
   },
   
   resetPassword: async (email) => {
@@ -158,7 +274,9 @@ export const useAuthStore = create<AuthState>((set) => ({
     });
     
     if (error) throw error;
-  },  checkUserRole: async (userId: string) => {
+  },
+
+  checkUserRole: async (userId: string) => {
     try {
       console.log("=== Checking user role for ID:", userId, "===");
       
@@ -181,11 +299,17 @@ export const useAuthStore = create<AuthState>((set) => ({
               console.log('✅ Admin role found in app_metadata.roles array');
               const role: UserRole = 'admin';
               set({ userRole: role });
+              // Atualizar localStorage
+              const { user } = get();
+              persistToStorage(user, role);
               return role;
             } else if (appMeta.roles.includes('user')) {
               console.log('✅ User role found in app_metadata.roles array');
               const role: UserRole = 'participante';
               set({ userRole: role });
+              // Atualizar localStorage
+              const { user } = get();
+              persistToStorage(user, role);
               return role;
             }
           }
@@ -197,11 +321,17 @@ export const useAuthStore = create<AuthState>((set) => ({
               console.log('✅ Admin role found in app_metadata.role string');
               const role: UserRole = 'admin';
               set({ userRole: role });
+              // Atualizar localStorage
+              const { user } = get();
+              persistToStorage(user, role);
               return role;
             } else if (appMeta.role === 'user') {
               console.log('✅ User role found in app_metadata.role string');
               const role: UserRole = 'participante';
               set({ userRole: role });
+              // Atualizar localStorage
+              const { user } = get();
+              persistToStorage(user, role);
               return role;
             }
           }
@@ -214,11 +344,17 @@ export const useAuthStore = create<AuthState>((set) => ({
               console.log('✅ Admin role found in user_metadata.role');
               const role: UserRole = 'admin';
               set({ userRole: role });
+              // Atualizar localStorage
+              const { user } = get();
+              persistToStorage(user, role);
               return role;
             } else if (userMeta.role === 'user') {
               console.log('✅ User role found in user_metadata.role');
               const role: UserRole = 'participante';
               set({ userRole: role });
+              // Atualizar localStorage
+              const { user } = get();
+              persistToStorage(user, role);
               return role;
             }
           }
@@ -227,23 +363,35 @@ export const useAuthStore = create<AuthState>((set) => ({
           console.log('✅ User exists in users table but no specific role - defaulting to participante');
           const role: UserRole = 'participante';
           set({ userRole: role });
+          // Atualizar localStorage
+          const { user } = get();
+          persistToStorage(user, role);
           return role;
         } else {
           console.log('❌ User not found in users table or error retrieving data');
           
-          // Se não encontrou o usuário na tabela users, mas está autenticado, definir como participante      console.log('⚠️ Usuário não encontrado na tabela public.users - usando padrão participante');
+          // Se não encontrou o usuário na tabela users, mas está autenticado, definir como participante
+          console.log('⚠️ Usuário não encontrado na tabela public.users - usando padrão participante');
           const defaultRole: UserRole = 'participante';
           set({ userRole: defaultRole });
+          // Atualizar localStorage
+          const { user } = get();
+          persistToStorage(user, defaultRole);
           return defaultRole;
-        }      } catch (metadataCheckError) {
+        }
+      } catch (metadataCheckError) {
         console.warn('⚠️ Erro ao verificar metadados na tabela de usuários:', metadataCheckError);
         
         // Se ocorreu erro ao verificar metadados, mas está autenticado, definir como participante
         console.log('⚠️ Erro ao verificar tabela public.users - usando padrão participante');
         const defaultRole: UserRole = 'participante';
         set({ userRole: defaultRole });
+        // Atualizar localStorage
+        const { user } = get();
+        persistToStorage(user, defaultRole);
         return defaultRole;
-      }    } catch (error) {
+      }
+    } catch (error) {
       console.error('❌ Erro ao verificar papel do usuário:', error);
       console.error(tratarErroSupabase(error, 'verificar papel do usuário'));
       return null;

@@ -30,9 +30,14 @@ const AuthContext = createContext<AuthContextType>({
 
 // Provider do contexto
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const { user, userRole, loading: authLoading, signOut } = useAuthStore();
+  const { user, userRole, loading: authLoading, signOut, initializeFromStorage } = useAuthStore();
   const [userData, setUserData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  
+  // Inicializar do localStorage na primeira renderização
+  useEffect(() => {
+    initializeFromStorage();
+  }, [initializeFromStorage]);
   
   // Carregar dados adicionais do usuário
   useEffect(() => {
@@ -50,7 +55,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           .eq('id', user.id)
           .single();
           
-        if (error) throw error;
+        if (error) {
+          console.error('Erro ao buscar dados do usuário:', error);
+          // Não falhar completamente se não conseguir buscar dados adicionais
+          setLoading(false);
+          return;
+        }
+        
         setUserData(data);
       } catch (error) {
         console.error('Error fetching user data:', error);
@@ -59,7 +70,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     };
     
-    fetchUserData();
+    // Só buscar se tivermos um usuário
+    if (user && user.id) {
+      fetchUserData();
+    } else {
+      setLoading(false);
+    }
   }, [user]);
   
   // Função para verificar se o usuário está autenticado
