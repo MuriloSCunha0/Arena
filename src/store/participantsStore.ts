@@ -65,31 +65,34 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
   createParticipant: async (data: CreateParticipantDTO) => {
     set({ loading: true, error: null });
     try {
-      // Pass the full data object to the service
       const newParticipant = await ParticipantsService.create(data);
-
-      // Update the list of event participants
+      
       const currentEventParticipants = get().eventParticipants;
       // Add only if the new participant belongs to the currently viewed event (if applicable)
-      // Or simply refetch if simpler
       if (currentEventParticipants.length > 0 && currentEventParticipants[0].eventId === data.eventId) {
          set(state => ({ eventParticipants: [...state.eventParticipants, newParticipant], loading: false }));
       } else {
          // If eventParticipants is empty or for a different event, just set loading false
          set({ loading: false });
-         // Optionally refetch if necessary: await get().fetchParticipantsByEvent(data.eventId);
       }
-
 
       // Optionally update allParticipants list if it's already populated
       if (get().allParticipants.length > 0) {
         set(state => ({ allParticipants: [...state.allParticipants, newParticipant] }));
       }
 
-
-      return newParticipant;    } catch (error) {      
+      return newParticipant;
+    } catch (error) {      
       console.error('Erro ao criar participante:', error);
-      const mensagemErro = traduzirErroSupabase(error) || 'Falha ao criar participante';
+      let mensagemErro = 'Falha ao criar participante';
+      
+      // Verificar se é erro 406 especificamente
+      if (error instanceof Error && error.message.includes('406')) {
+        mensagemErro = 'Erro de permissão. Verifique se você tem acesso para criar participantes.';
+      } else {
+        mensagemErro = traduzirErroSupabase(error) || mensagemErro;
+      }
+      
       set({
         error: mensagemErro,
         loading: false
@@ -111,17 +114,24 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
         participant.id === id ? updatedParticipant : participant
       );
 
-      set({ eventParticipants, loading: false });    } catch (error) {      
+      set({ eventParticipants, loading: false });
+    } catch (error) {      
       console.error(`Erro ao atualizar pagamento do participante ${id}:`, error);
-      const mensagemErro = traduzirErroSupabase(error) || 'Falha ao atualizar status de pagamento';
+      let mensagemErro = 'Falha ao atualizar status de pagamento';
+      
+      // Verificar se é erro 406 especificamente
+      if (error instanceof Error && error.message.includes('406')) {
+        mensagemErro = 'Erro de permissão. Verifique se você tem acesso para atualizar participantes.';
+      } else {
+        mensagemErro = traduzirErroSupabase(error) || mensagemErro;
+      }
+      
       set({
         error: mensagemErro,
         loading: false
       });
       
-      // Lançar um erro com a mensagem traduzida
-      const erroTraduzido = new Error(mensagemErro);
-      throw erroTraduzido;
+      throw new Error(mensagemErro);
     }
   },
 

@@ -142,7 +142,12 @@ export const BracketAnimation: React.FC<BracketAnimationProps> = ({
           left: teamData.slice(0, Math.ceil(teamData.length / 2)),
           right: teamData.slice(Math.ceil(teamData.length / 2)),
         },
-        groupInfo: result.metadata
+        groupInfo: {
+          ...result.metadata,
+          // Add the missing properties required by GroupMetadata
+          groupSizes: [],
+          proportionalFactors: []
+        }
       };
 
       console.log("Finalizando animation. Calling onComplete com:", teamData, finalCourtAssignments);

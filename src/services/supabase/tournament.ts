@@ -1,6 +1,12 @@
 import { supabase } from '../../lib/supabase';
 import { Match, Tournament, Court, TeamFormationType, TournamentSettings } from '../../types';
-import { calculateGroupRankings, GroupRanking } from '../../utils/rankingUtils';
+import { 
+  calculateGroupRankings, 
+  GroupRanking, 
+  generateEliminationBracket, 
+  updateEliminationBracket,
+  calculateRankingsForPlacement 
+} from '../../utils/rankingUtils';
 import { handleSupabaseError } from '../../utils/supabase-error-handler';
 import { distributeTeamsIntoGroups, createTournamentStructure } from '../../utils/groupFormationUtils';
 
@@ -193,8 +199,8 @@ export const TournamentService = {
   // Add the missing updateMatch method
   updateMatch: async (matchId: string, updates: Partial<Match>): Promise<Match> => {
     try {
-      // Prepare the update data for Supabase format
-      const updateData = {
+      // Prepare the update data for Supabase format with proper typing
+      const updateData: Record<string, any> = {
         score1: updates.score1,
         score2: updates.score2,
         winner_id: updates.winnerId,
@@ -207,8 +213,8 @@ export const TournamentService = {
         group_number: updates.groupNumber
       };
 
-      // Remove undefined values
-      Object.keys(updateData).forEach(key => {
+      // Remove undefined values using proper typing
+      Object.keys(updateData).forEach((key: string) => {
         if (updateData[key] === undefined) {
           delete updateData[key];
         }
@@ -374,7 +380,7 @@ export const TournamentService = {
             for (let j = 0; j < groupTeams.length; j++) {
                 for (let k = j + 1; k < groupTeams.length; k++) {
                     groupMatches.push({
-                        id: `match_${groupNum}_${j}_${k}_${Date.now()}`,
+                        id: `match_${groupNum}_${j}_${k}_${Date.now()}_${Math.random()}`,
                         tournamentId: '', // Will be set after tournament creation
                         eventId: eventId,
                         round: 0,
@@ -396,70 +402,71 @@ export const TournamentService = {
             }
         });
 
-        // Create tournament without matches column - improve the creation logic
+        // Create tournament with only the fields that exist in the database
         if (!tournamentId) {
-            const settings = { 
-              groupSize: defaultGroupSize, 
-              qualifiersPerGroup: 2,
-              teamFormationType: teamFormation
-            };
-            
-            // Try different combinations of fields to find what works with the current schema
-            const tournamentData = {
-              event_id: eventId,
-              status: 'CREATED'
-            };
-
-            // Try to add format field with a simple string value
+            // Try to fetch the valid format values from enum schema first
             try {
-              const { data: newTournamentData, error: createError } = await supabase
-                  .from('tournaments')
-                  .insert({
-                      ...tournamentData,
-                      format: 'GROUP_ELIMINATION',
-                      settings: settings,
-                      type: 'TOURNAMENT'
-                  })
-                  .select('id')
-                  .single();
-              
-              if (createError) throw createError;
-              tournamentId = newTournamentData.id;
-              isNewTournament = true;
-              console.log(`Created tournament with all fields: ${tournamentId}`);
-            } catch (createError) {
-              console.warn('Failed to create with all fields, trying with format only:', createError);
-              
-              // Try with just format
-              try {
-                const { data: newTournamentData, error: createError2 } = await supabase
+                const { data: formatEnumData, error: enumError } = await supabase
+                    .from('pg_enum')
+                    .select('enumlabel')
+                    .eq('enumtypid', 'tournament_format') // Changed: Removed ::regtype
+                    .in('enumlabel', ['GROUPS_KNOCKOUT', 'SINGLE_ELIMINATION', 'DOUBLE_ELIMINATION', 'ROUND_ROBIN']);
+
+                // Use a valid format value based on available enum options or default to SINGLE_ELIMINATION
+                const validFormat = (formatEnumData && formatEnumData.length > 0) // Changed: More explicit check
+                    ? formatEnumData[0].enumlabel 
+                    : 'SINGLE_ELIMINATION';
+
+                const { data: newTournamentData, error: createError } = await supabase
                     .from('tournaments')
                     .insert({
-                        ...tournamentData,
-                        format: 'SINGLE_ELIMINATION'
+                        event_id: eventId,
+                        status: 'CREATED',
+                        format: validFormat // Use a valid format value
                     })
                     .select('id')
                     .single();
                 
-                if (createError2) throw createError2;
+                if (createError) throw handleSupabaseError(createError, 'creating tournament');
                 tournamentId = newTournamentData.id;
                 isNewTournament = true;
-                console.log(`Created tournament with format only: ${tournamentId}`);
-              } catch (createError3) {
-                console.warn('Failed to create with format, trying minimal:', createError3);
+                console.log(`Created tournament: ${tournamentId} with format ${validFormat}`);
                 
-                // Last attempt with just the basic required fields
-                const { data: newTournamentData, error: createError4 } = await supabase
-                    .from('tournaments')
-                    .insert(tournamentData)
-                    .select('id')
-                    .single();
+            } catch (enumError) {
+                // If we can't fetch the enum values, try with a common format value
+                console.warn('Could not fetch format enum values, using default:', enumError);
                 
-                if (createError4) throw handleSupabaseError(createError4, 'creating basic tournament');
-                tournamentId = newTournamentData.id;
-                isNewTournament = true;
-                console.log(`Created basic tournament: ${tournamentId}`);
-              }
+                // Try common tournament format values one by one until one works
+                const potentialFormats = ['SINGLE_ELIMINATION', 'GROUPS_KNOCKOUT', 'ROUND_ROBIN', 'DOUBLE_ELIMINATION'];
+                
+                let created = false;
+                for (const format of potentialFormats) {
+                    try {
+                        const { data: newTournamentData, error: createError } = await supabase
+                            .from('tournaments')
+                            .insert({
+                                event_id: eventId,
+                                status: 'CREATED',
+                                format: format
+                            })
+                            .select('id')
+                            .single();
+                        
+                        if (!createError) {
+                            tournamentId = newTournamentData.id;
+                            isNewTournament = true;
+                            console.log(`Created tournament with format ${format}`);
+                            created = true;
+                            break;
+                        }
+                    } catch (formatError) {
+                        console.warn(`Failed to create tournament with format ${format}:`, formatError);
+                    }
+                }
+                
+                if (!created) {
+                    throw new Error('Could not create tournament with any of the standard format values');
+                }
             }
         }
 
@@ -470,24 +477,47 @@ export const TournamentService = {
 
         // Try to insert matches into separate table if it exists
         let matchesStored = false;
-        try {
-          const { data: insertedMatches, error: insertError } = await supabase
-              .from('tournament_matches')
-              .insert(groupMatches.map(toSupabaseMatch))
-              .select();
+        if (groupMatches.length > 0) {
+          try {
+            const matchesToInsert = groupMatches.map(match => ({
+              id: match.id,
+              event_id: match.eventId,
+              tournament_id: match.tournamentId,
+              round: match.round,
+              position: match.position,
+              team1: match.team1,
+              team2: match.team2,
+              score1: match.score1,
+              score2: match.score2,
+              winner_id: match.winnerId,
+              completed: match.completed,
+              scheduled_time: match.scheduledTime,
+              court_id: match.courtId,
+              stage: match.stage,
+              group_number: match.groupNumber,
+              created_at: match.createdAt,
+              updated_at: match.updatedAt
+            }));
 
-          if (insertError) {
-            if (insertError.code === '42P01') {
-              console.warn('tournament_matches table does not exist');
+            const { data: insertedMatches, error: insertError } = await supabase
+                .from('tournament_matches')
+                .insert(matchesToInsert)
+                .select();
+
+            if (insertError) {
+              if (insertError.code === '42P01') {
+                console.warn('tournament_matches table does not exist');
+              } else {
+                console.error('Error inserting matches:', insertError);
+                throw insertError;
+              }
             } else {
-              throw insertError;
+              console.log(`Inserted ${insertedMatches?.length ?? 0} group matches into separate table.`);
+              matchesStored = true;
             }
-          } else {
-            console.log(`Inserted ${insertedMatches?.length ?? 0} group matches into separate table.`);
-            matchesStored = true;
+          } catch (matchError) {
+            console.warn('Could not insert matches into separate table:', matchError);
           }
-        } catch (matchError) {
-          console.warn('Could not insert matches into separate table:', matchError);
         }
 
         // Create final tournament object
@@ -498,11 +528,9 @@ export const TournamentService = {
           matches: groupMatches,
           settings: { 
             groupSize: defaultGroupSize, 
-            qualifiersPerGroup: 2,
-            teamFormationType: teamFormation 
+            qualifiersPerGroup: 2
           },
-          format: 'GROUP_ELIMINATION', // Add format field
-          teamFormation: teamFormation,
+          teamFormation: teamFormation, // Keep this as a property on Tournament object
           isNewTournament: isNewTournament
         };
 
@@ -575,7 +603,7 @@ export const TournamentService = {
       
       // Update tournament status
       try {
-        await TournamentService.updateStatus(tournamentId, 'ELIMINATION');
+        await TournamentService.updateStatus(tournamentId, 'KNOCKOUTS'); // Changed: 'ELIMINATION' back to 'KNOCKOUTS' due to type error
       } catch (statusError) {
         console.warn('Could not update tournament status:', statusError);
       }
@@ -584,7 +612,7 @@ export const TournamentService = {
       const updatedTournament: Tournament = {
         ...currentTournament,
         matches: [...currentTournament.matches, ...eliminationMatches],
-        status: 'ELIMINATION'
+        status: 'KNOCKOUTS' // Changed: 'ELIMINATION' back to 'KNOCKOUTS' due to type error
       };
       
       console.log(`Elimination bracket generated with ${eliminationMatches.length} matches`);
@@ -720,115 +748,106 @@ export const TournamentService = {
     }
   },
 
-  // Add method to advance winner in the bracket
+  // Update the advanced method to handle bilateral brackets (This is the one to keep)
   advanceWinner: async (match: Match): Promise<void> => {
-        if (!match.completed || !match.winnerId) return;
-
-        const winningTeam = match.winnerId === 'team1' ? match.team1 : match.team2;
-        if (!winningTeam) {
-            console.warn(`Cannot advance winner for match ${match.id}: Winning team data is missing.`);
-            return;
-        }
-
-        const nextRound = match.round + 1;
-        const nextPosition = Math.ceil(match.position / 2);
-        const teamFieldToUpdate: 'team1' | 'team2' = (match.position % 2 === 1) ? 'team1' : 'team2';
-
-        try {
-            const { data: nextMatchData, error: findError } = await supabase
-                .from('tournament_matches')
-                .select('id, team1, team2, completed, winner_id') // Select fields needed for potential auto-completion
-                .eq('tournament_id', match.tournamentId)
-                .eq('round', nextRound)
-                .eq('position', nextPosition)
-                .maybeSingle();
-
-            if (findError && findError.code !== 'PGRST116') {
-                throw handleSupabaseError(findError, `finding next match for round ${nextRound}, pos ${nextPosition}`);
-            }
-            if (!nextMatchData) {
-                console.log(`Match ${match.id} (Round ${match.round}) appears to be the final round or next match not found.`);
-                return;
-            }
-
-            const { error: updateError } = await supabase
-                .from('tournament_matches')
-                .update({ [teamFieldToUpdate]: winningTeam })
-                .eq('id', nextMatchData.id);
-
-            if (updateError) throw handleSupabaseError(updateError, `updating next match ${nextMatchData.id}`);
-
-            console.log(`Advanced winner from match ${match.id} to match ${nextMatchData.id} (${teamFieldToUpdate})`);
-
-            const { data: updatedNextMatchData, error: refetchError } = await supabase
-                .from('tournament_matches')
-                .select('*') // Seleciona todos os campos em vez de apenas alguns
-                .eq('id', nextMatchData.id)
-                .single();
-
-            if (refetchError) {
-                console.error(`Error refetching match ${nextMatchData.id} after update:`, refetchError);
-                return;
-            }
-
-            if (updatedNextMatchData.completed) {
-                return;
-            }
-
-            const team1Present = updatedNextMatchData.team1 && updatedNextMatchData.team1.length > 0;
-            const team2Present = updatedNextMatchData.team2 && updatedNextMatchData.team2.length > 0;
-
-            if (team1Present !== team2Present) {
-                const woWinnerId: 'team1' | 'team2' = team1Present ? 'team1' : 'team2';
-                console.log(`Auto-completing match ${updatedNextMatchData.id} due to Walkover (WO). Winner: ${woWinnerId}`);
-
-                const { error: woUpdateError } = await supabase
-                    .from('tournament_matches')
-                    .update({
-                        completed: true,
-                        winner_id: woWinnerId,
-                        score1: woWinnerId === 'team1' ? 1 : 0, // Simple WO score
-                        score2: woWinnerId === 'team2' ? 1 : 0,
-                    })
-                    .eq('id', updatedNextMatchData.id);
-
-                if (woUpdateError) {
-                    handleSupabaseError(woUpdateError, `updating match ${updatedNextMatchData.id} for WO`);
-                } else {
-                    const woCompletedMatch: Match = {
-                        ...transformMatch(updatedNextMatchData),
-                        completed: true,
-                        winnerId: woWinnerId,
-                        score1: woWinnerId === 'team1' ? 1 : 0,
-                        score2: woWinnerId === 'team2' ? 1 : 0,
-                        tournamentId: match.tournamentId,
-                        eventId: match.eventId,
-                        round: updatedNextMatchData.round,
-                        position: updatedNextMatchData.position,
-                        team1: updatedNextMatchData.team1,
-                        team2: updatedNextMatchData.team2,
-                        scheduledTime: updatedNextMatchData.scheduled_time,
-                        courtId: updatedNextMatchData.court_id,
-                        stage: updatedNextMatchData.stage,
-                        groupNumber: updatedNextMatchData.group_number,
-                        createdAt: updatedNextMatchData.created_at,
-                        updatedAt: new Date().toISOString(),
-                    };
-                    await TournamentService.advanceWinner(woCompletedMatch);
-                }
-            }
-
-        } catch (error) {
-            console.error(`Error during winner advancement process for match ${match.id}:`, error);
-        }
-    },
-
-  shuffleArray: <T>(array: T[]): T[] => {
-    const shuffled = [...array];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    // Don't advance if not elimination stage, no winner, or no teams
+    if (match.stage !== 'ELIMINATION' || !match.winnerId || !match.team1 || !match.team2) {
+      return;
     }
-    return shuffled;
+
+    const winnerTeam = match.winnerId === 'team1' ? match.team1 : match.team2;
+    if (!winnerTeam) return;
+
+    // Get match metadata to determine bracket side
+    const { data: matchWithMetadata, error: getError } = await supabase
+      .from('tournament_matches')
+      .select('id, metadata')
+      .eq('id', match.id)
+      .single();
+
+    if (getError) {
+      console.error('Error getting match metadata:', getError);
+      // Continue with default behavior if we can't get metadata
+    }
+
+    const side = matchWithMetadata?.metadata?.side || null;
+    const nextRound = match.round + 1;
+    const nextPosition = Math.ceil(match.position / 2);
+
+    try {
+      // If this is the final round of a side, the winner advances to the final match
+      const { data: finalRoundMatches, error: finalRoundError } = await supabase
+        .from('tournament_matches')
+        .select('round')
+        .eq('tournament_id', match.tournamentId)
+        .eq('stage', 'ELIMINATION')
+        .order('round', { ascending: false })
+        .limit(1);
+
+      if (finalRoundError) throw finalRoundError;
+
+      const maxRound = finalRoundMatches.length > 0 ? finalRoundMatches[0].round : null;
+      
+      // Handle the special case for advancing to the final
+      if (maxRound && side && nextRound === maxRound) {
+        // This is a semi-final, so find the final match
+        const { data: finalMatch, error: findFinalError } = await supabase
+          .from('tournament_matches')
+          .select('id, team1, team2')
+          .eq('tournament_id', match.tournamentId)
+          .eq('round', maxRound)
+          .eq('position', 1)
+          .single();
+
+        if (findFinalError && findFinalError.code !== 'PGRST116') throw findFinalError;
+        
+        if (finalMatch) {
+          // Update the correct side of the final match
+          const teamField = side === 'left' ? 'team1' : 'team2';
+          
+          const { error: updateError } = await supabase
+            .from('tournament_matches')
+            .update({ [teamField]: winnerTeam })
+            .eq('id', finalMatch.id);
+
+          if (updateError) throw updateError;
+          
+          console.log(`Advanced winner from ${match.id} (${side} side) to the final match ${finalMatch.id}`);
+          return;
+        }
+      }
+
+      // Standard advancement within the same side
+      const { data: nextMatch, error: findError } = await supabase
+        .from('tournament_matches')
+        .select('id, team1, team2, metadata')
+        .eq('tournament_id', match.tournamentId)
+        .eq('round', nextRound)
+        .eq('position', nextPosition);
+
+      if (findError) throw findError;
+      
+      // Find the next match on the same side
+      const sameNextMatch = nextMatch?.find(m => 
+        !side || !m.metadata?.side || m.metadata?.side === side
+      );
+      
+      if (sameNextMatch) {
+        const updateField = match.position % 2 === 1 ? 'team1' : 'team2';
+        
+        const { error: updateError } = await supabase
+          .from('tournament_matches')
+          .update({ [updateField]: winnerTeam })
+          .eq('id', sameNextMatch.id);
+
+        if (updateError) throw updateError;
+        
+        console.log(`Advanced winner from match ${match.id} to match ${sameNextMatch.id} (${updateField})`);
+      }
+
+    } catch (error) {
+      console.error('Error advancing winner:', error);
+      throw error;
+    }
   },
 };

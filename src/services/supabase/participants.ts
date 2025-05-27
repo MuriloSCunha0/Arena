@@ -56,38 +56,35 @@ const toSupabaseParticipantUpdate = (participant: Partial<Participant>) => ({
 });
 
 
-export const ParticipantsService = {  /**
+export const ParticipantsService = {
+  /**
    * Buscar todos os participantes (apenas usuários com tipo "user")
    * Esta função filtra os participantes para mostrar apenas aqueles com papel de usuário comum,
    * excluindo administradores e organizadores conforme solicitação de requisito de negócio.
    * Isso é feito verificando se app_metadata.role === "user" ou se app_metadata.roles contém "user"
    */  async getAll(): Promise<Participant[]> {
-    // Primeiro, buscar os IDs de usuários com app_metadata.role === "user" ou app_metadata.roles contém "user"
-    // Usando sintaxe correta do PostgREST para consultar campos JSON
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .select('id, app_metadata')
-      .or('app_metadata->>role.eq.user,app_metadata->roles.cs.["user"]');
+    try {
+      // Buscar participantes diretamente da tabela participants
+      // A tabela 'participants' deve ter RLS configurado corretamente
+      const { data, error } = await supabase
+        .from('participants')
+        .select(`
+          *,
+          events(title)
+        `)
+        .order('registered_at', { ascending: false });
 
-    if (userError) throw userError;
+      if (error) throw error;
 
-    // Extrair os IDs de usuário
-    const userIds = userData.map(user => user.id);
-
-    // Buscar participantes que correspondem a esses usuários
-    const { data, error } = await supabase
-      .from('participants')
-      .select('*, events(title)')
-      .in('user_id', userIds)
-      .order('registered_at', { ascending: false });
-
-    if (error) throw error;
-
-    // Transformar os dados para incluir o nome do evento
-    return data.map(item => ({
-      ...transformParticipant(item),
-      eventName: item.events?.title || 'Evento sem nome'
-    }));
+      // Transformar os dados para incluir o nome do evento
+      return data.map(item => ({
+        ...transformParticipant(item),
+        eventName: item.events?.title || 'Evento sem nome'
+      }));
+    } catch (error) {
+      console.error('Erro ao buscar participantes:', error);
+      throw error;
+    }
   },  /**
    * Buscar participantes por evento (apenas usuários do tipo "user")
    * Esta função filtra os participantes para mostrar apenas aqueles com papel de usuário comum,

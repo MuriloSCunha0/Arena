@@ -80,18 +80,16 @@ export const ParticipantService = {
         .from('participants')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle(); // Use maybeSingle() em vez de single() para evitar erro 406
 
       if (error) {
-        if (error.code === 'PGRST116') {
-          return null; // Participante não encontrado
-        }
+        console.error(`Erro ao buscar participante ${id}:`, error);
         throw error;
       }
 
-      return transformParticipant(data);
+      return data ? transformParticipant(data) : null;
     } catch (error) {
-      console.error(`Error fetching participant ${id}:`, error);
+      console.error(`Erro ao buscar participante ${id}:`, error);
       throw error;
     }
   },

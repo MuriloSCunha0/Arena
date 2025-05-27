@@ -37,6 +37,7 @@ import {
   calculateRankingsForPlacement, // Import the new function
   getRankedQualifiers // Import the new utility for qualifiers
 } from '../../utils/rankingUtils';
+import TournamentRankings from '../TournamentRankings'; // Import the new component
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip';
 import { TournamentService } from '../../services/supabase/tournament'; // Add this import
 
@@ -73,27 +74,60 @@ const MatchCard: React.FC<MatchCardProps> = ({
 }) => {
   const hasTeams = teamA && teamB;
   const isCompleted = scoreA !== undefined && scoreB !== undefined;
+    // Enhanced BYE match visualization for better UX
+  if (byeMatch) {
+    const advancingTeam = teamA || teamB;
+    return (
+      <div 
+        className={`
+          border rounded-md p-3 min-w-[200px] cursor-pointer transition-all
+          border-indigo-300 bg-indigo-50/70 
+          ${highlighted ? 'ring-2 ring-indigo-500' : ''}
+          hover:shadow-md hover:border-indigo-400
+        `}
+        onClick={onClick}
+      >
+        <div className="flex justify-center items-center py-2">
+          <div className="text-indigo-700 font-medium flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1.5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clipRule="evenodd" />
+            </svg>
+            BYE
+          </div>
+        </div>
+        {advancingTeam && (
+          <div className="mt-3 border-t border-indigo-200 pt-2">
+            <div className="text-center font-medium text-indigo-800">
+              {advancingTeam}
+            </div>
+            <div className="text-center text-xs text-indigo-600 mt-1">
+              avança automaticamente
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
   
-  return (
-    <div 
+  return (    <div 
       className={`
         border rounded-md p-2 min-w-[200px] cursor-pointer transition-all
-        ${highlighted ? 'border-brand-green bg-brand-green/10' : 'border-gray-200'}
-        ${!hasTeams ? 'opacity-70' : ''}
-        ${byeMatch ? 'border-gray-300 bg-gray-50' : ''}
+        ${highlighted ? 'border-brand-green bg-brand-green/10 ring-2 ring-brand-green' : 'border-gray-200'}
+        ${!hasTeams ? 'opacity-90 bg-gray-50' : completed ? 'bg-green-50/50' : ''}
         hover:shadow-md hover:border-brand-gray
       `}
+      style={{borderRadius: '6px'}}
       onClick={onClick}
     >
-      <div className={`flex justify-between items-center py-1 px-2 ${winner === 'team1' ? 'bg-brand-green/20' : ''}`}>
+      <div className={`flex justify-between items-center py-1 px-2 ${winner === 'team1' ? 'bg-brand-green/20 rounded' : ''}`}>
         <span className="font-medium break-words pr-2" style={{maxWidth: 'calc(100% - 30px)'}}>
-          {teamA || 'TBD'}
+          {teamA || 'A definir'}
         </span>
         <span className="font-bold flex-shrink-0">{isCompleted ? scoreA : '-'}</span>
       </div>
-      <div className={`flex justify-between items-center py-1 px-2 mt-1 ${winner === 'team2' ? 'bg-brand-green/20' : ''}`}>
+      <div className={`flex justify-between items-center py-1 px-2 mt-1 ${winner === 'team2' ? 'bg-brand-green/20 rounded' : ''}`}>
         <span className="font-medium break-words pr-2" style={{maxWidth: 'calc(100% - 30px)'}}>
-          {teamB || 'TBD'}
+          {teamB || 'A definir'}
         </span>
         <span className="font-bold flex-shrink-0">{isCompleted ? scoreB : '-'}</span>
       </div>
@@ -112,16 +146,6 @@ const MatchCard: React.FC<MatchCardProps> = ({
               <span>{scheduledTime}</span>
             </div>
           )}
-        </div>
-      )}
-
-      {/* BYE indicator with improved styling */}
-      {byeMatch && (
-        <div className="mt-2 bg-blue-50 border border-blue-100 rounded-md p-2 text-center">
-          <span className="text-blue-600 font-medium flex items-center justify-center">
-            <XCircle size={14} className="mr-1" />
-            BYE (Avanço Automático)
-          </span>
         </div>
       )}
     </div>
@@ -395,13 +419,13 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
   const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
   const [resetInProgress, setResetInProgress] = useState(false);
   const [overallGroupRankings, setOverallGroupRankings] = useState<OverallRanking[]>([]);
-  const [showOverallRankingsModal, setShowOverallRankingsModal] = useState(false);
-  const [isFullScreen, setIsFullScreen] = useState(false); // Add state for full-screen mode
-
-  // Adicione essas variáveis ao componente para acesso global
-  const matchWidth = 280;       // Largura de cada cartão de partida
-  const matchHeight = 120;      // Altura de cada cartão de partida
-  const horizontalGap = 100;    // Espaço horizontal entre as rodadas
+  const [showOverallRankingsModal, setShowOverallRankingsModal] = useState(false);  const [isFullScreen, setIsFullScreen] = useState(false); // Add state for full-screen mode
+    // Configurações otimizadas do chaveamento
+  const matchWidth = 240;       // Largura de cada cartão de partida
+  const matchHeight = 100;      // Altura de cada cartão de partida
+  const horizontalGap = 280;    // Espaço horizontal entre as rodadas (aumentado para evitar sobreposição)
+  const verticalPadding = 80;   // Espaço vertical para centralizar o chaveamento
+  const globalCenterY = 500;    // Centro vertical para alinhamento do chaveamento
 
   // Add toggleFullScreen function implementation
   const toggleFullScreen = () => {
@@ -601,10 +625,16 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     try {
       setGeneratingStructure(true);
       
-      // Use generateRandomStructure with participants
-      await generateRandomStructure(eventId, eventParticipants, { 
-        forceReset,
-        groupSize: 3 
+      // Use the service method to form teams from participants
+      const { teams } = TournamentService.formTeamsFromParticipants(
+        eventParticipants,
+        TeamFormationType.RANDOM,
+        { groupSize: 3 }
+      );
+
+      // Use generateRandomStructure with the formed teams - remove groupSize option
+      await generateRandomStructure(eventId, teams, { 
+        forceReset
       });
 
       addNotification({ 
@@ -909,7 +939,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
 
   const handleShowPlacementRankings = (placement: number, title: string) => {
     if (!tournament || !matchesByStage.GROUP || !isGroupStageComplete) {
-      addNotification({ type: 'warning', message: 'Todas as partidas da fase de grupos devem estar concluídas.' });
+      addNotification({ type: 'warning', message: 'Todas as partidas de fase de grupos devem estar concluídas.' });
       return;
     }
     if (Object.keys(calculatedRankings).length === 0) {
@@ -964,8 +994,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       }
       return acc;
     }, { GROUP: {} as Record<number, Match[]>, ELIMINATION: [] as Match[] });
-  }, [tournament?.matches]);
-
+  }, [tournament]);
   const groupNumbers = Object.keys(matchesByStage.GROUP).map(Number).sort((a, b) => a - b);
   const eliminationMatches = matchesByStage.ELIMINATION;
   const currentStage = useMemo<'NONE' | 'GROUP' | 'ELIMINATION'>(() => {
@@ -996,169 +1025,547 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       return result;
   }, [groupNumbers, matchesByStage.GROUP, tournament]);
 
-  // Substitua o trecho que calcula as posições dos matches
-  const { eliminationRoundsArray, bracketLines, matchPositionMap } = useMemo(() => {
-    const rounds: Record<number, Match[]> = {};
+  // Add this function to handle bilateral bracket visualization
+  const handleGenerateBilateralBracket = async () => {
+    if (!tournament) return;
+    
+    try {
+      // Check if group stage is complete
+      if (!isGroupStageComplete) {
+        const confirmIncomplete = window.confirm("Algumas partidas da fase de grupos ainda não foram concluídas. Deseja gerar o chaveamento mesmo assim? Isso pode resultar em um chaveamento incompleto.");
+        if (!confirmIncomplete) return;
+      }
+      
+      // Show loading indicator
+      setGeneratingStructure(true);
+      
+      // Use the bilateral bracket generation
+      await generateEliminationBracket(tournament.id);
+      
+      addNotification({
+        type: 'success',
+        message: 'Chaveamento eliminatório bilateral gerado com sucesso!'
+      });
+    } catch (err) {
+      console.error('Error generating bilateral bracket:', err);
+      addNotification({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Erro ao gerar chaveamento eliminatório bilateral'
+      });
+    } finally {
+      setGeneratingStructure(false);
+    }
+  };
+
+  // Enhance the useMemo to support bilateral bracket visualization
+  const { eliminationRoundsArray, bracketLines, matchPositionMap } = useMemo(() => {    
+    // Create a map to organize matches by side and round
+    const leftSideMatches: Record<number, Match[]> = {};
+    const rightSideMatches: Record<number, Match[]> = {};
+    const finalMatches: Record<number, Match[]> = {};
+    
+    // Define global bracket height variable that can be used across functions
+    const maxMatchesInAnyRound = Math.max(
+      ...Object.values(leftSideMatches).map(matches => matches.length),
+      ...Object.values(rightSideMatches).map(matches => matches.length),
+      1
+    );
+    const globalTotalBracketHeight = Math.max(700, maxMatchesInAnyRound * matchHeight * 1.8);
+    
+    // Function to determine which side a match belongs to
+    const determineSide = (match: Match): 'left' | 'right' | 'final' => {
+      // Try to get metadata from match to determine side
+      const metadata = (match as any).metadata;
+      
+      if (metadata?.side === 'left') return 'left';
+      if (metadata?.side === 'right') return 'right';
+      
+      // If no metadata, determine by position or use heuristics
+      // For the final match (usually single match in the highest round)
+      if (match.round === Math.max(...eliminationMatches.map(m => m.round || 0))) {
+        return 'final';
+      }
+      
+      // For other matches, default to left side
+      return 'left';
+    };
+    
+    // Organize matches by side and round
     eliminationMatches.forEach(match => {
-      if (match?.round !== undefined && match.round !== null) {
-        if (!rounds[match.round]) rounds[match.round] = [];
-        rounds[match.round].push(match);
+      if (!match.round) return;
+      
+      const side = determineSide(match);
+      
+      if (side === 'left') {
+        if (!leftSideMatches[match.round]) leftSideMatches[match.round] = [];
+        leftSideMatches[match.round].push(match);
+      } else if (side === 'right') {
+        if (!rightSideMatches[match.round]) rightSideMatches[match.round] = [];
+        rightSideMatches[match.round].push(match);
+      } else {
+        if (!finalMatches[match.round]) finalMatches[match.round] = [];
+        finalMatches[match.round].push(match);
       }
     });
-
-    const roundsArray = Object.entries(rounds)
-      .map(([round, matches]) => ({
-        round: parseInt(round),
-        matches: matches.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)),
-      }))
-      .sort((a, b) => a.round - b.round);
+  // Function to position matches with proper horizontal center alignment and vertical spacing
+    const positionSideMatches = (sideMatches: Record<number, Match[]>, startX: number, direction: 1 | -1): Map<string, { x: number, y: number, width: number, height: number }> => {
+      const posMap = new Map<string, { x: number, y: number, width: number, height: number }>();
+      const rounds = Object.keys(sideMatches).map(Number).sort((a, b) => a - b);
       
-    // Dimensões para layout centralizado
-    // Número total de rodadas
-    const totalRounds = roundsArray.length;
-    
-    // Calcular mapa de posições para alinhamento perfeito
-    const matchPositionMap = new Map<string, { x: number, y: number, width: number, height: number }>();
-    
-    // Primeiro, calcular o tamanho total do bracket para centralização
-    let totalBracketHeight = 0;
-    const firstRoundMatches = roundsArray[0]?.matches.length || 0;
-    
-    if (firstRoundMatches > 0) {
-      // Calcular a altura do bracket com base na primeira rodada
-      const verticalGap = 40;
-      totalBracketHeight = firstRoundMatches * matchHeight + (firstRoundMatches - 1) * verticalGap;
-    }
-    
-    // Para cada rodada, calcular posições
-    roundsArray.forEach((roundData, roundIndex) => {
-      const matchesInRound = roundData.matches.length;
-      const roundX = roundIndex * (matchWidth + horizontalGap);
+      // Find the maximum number of matches in the initial round (usually the highest)
+      const initialRoundIndex = direction === 1 ? 0 : rounds.length - 1;
+      const initialRound = rounds[initialRoundIndex];
+      const maxInitialMatches = sideMatches[initialRound]?.length || 1;
       
-      // Encontrar a partida final (última rodada, única partida)
-      const isFinalRound = roundIndex === roundsArray.length - 1 && matchesInRound === 1;
+      // Calculate ideal bracket height based on number of teams
+      const bracketHeight = Math.max(700, maxInitialMatches * matchHeight * 3);
       
-      // Para a partida final, colocamos exatamente no centro vertical
-      if (isFinalRound) {
-        const finalMatch = roundData.matches[0];
-        const centerY = totalBracketHeight / 2 - matchHeight / 2;
+      // Update the global bracket height variable
+      const globalTotalBracketHeight = bracketHeight;
+      rounds.forEach((round, idx) => {
+        // Adjust roundIndex based on direction (left-to-right or right-to-left)
+        const roundIndex = direction === 1 ? idx : rounds.length - 1 - idx;
+        const matches = sideMatches[round].sort((a, b) => (a.position || 0) - (b.position || 0));
+        const matchesInRound = matches.length;
         
-        matchPositionMap.set(finalMatch.id, {
-          x: roundX,
-          y: centerY,
-          width: matchWidth,
-          height: matchHeight
-        });
-      } 
-      // Para a primeira rodada, distribuímos uniformemente
-      else if (roundIndex === 0) {
-        const verticalGap = 40;
-        const totalHeight = matchesInRound * matchHeight + (matchesInRound - 1) * verticalGap;
-        const startY = (totalBracketHeight - totalHeight) / 2;
+        // Calculate X position (horizontal position)
+        const roundX = startX + (direction * roundIndex * horizontalGap);
         
-        roundData.matches.forEach((match, matchIndex) => {
-          const y = startY + matchIndex * (matchHeight + verticalGap);
+        if (roundIndex === 0 || (direction === -1 && idx === 0)) {
+          // For the first round, distribute matches evenly along the center line
           
-          matchPositionMap.set(match.id, {
-            x: roundX,
-            y: y,
-            width: matchWidth,
-            height: matchHeight
-          });
-        });
-      }
-      // Para rodadas intermediárias, posicionamos com base nas origens
-      else {
-        roundData.matches.forEach((match) => {
-          if (!match.position) return;
+          // Calculate total height needed for this round
+          const totalRoundHeight = matchesInRound * matchHeight + (matchesInRound - 1) * verticalPadding;
           
-          // Encontrar as duas partidas da rodada anterior que alimentam esta
-          const prevRound = roundsArray[roundIndex - 1];
-          if (!prevRound) return;
+          // Calculate start Y to center the matches
+          const startY = (bracketHeight - totalRoundHeight) / 2;
           
-          const sourceMatch1 = prevRound.matches.find(m => m.position === match.position * 2 - 1);
-          const sourceMatch2 = prevRound.matches.find(m => m.position === match.position * 2);
-          
-          if (!sourceMatch1 || !sourceMatch2) return;
-          
-          const pos1 = matchPositionMap.get(sourceMatch1.id);
-          const pos2 = matchPositionMap.get(sourceMatch2.id);
-          
-          if (pos1 && pos2) {
-            // Colocamos a partida centralizada entre as duas fontes
-            const centerY = (pos1.y + pos1.height/2 + pos2.y + pos2.height/2) / 2 - matchHeight/2;
+          // Position each match with proper spacing
+          matches.forEach((match, matchIndex) => {
+            const y = startY + matchIndex * (matchHeight + verticalPadding);
             
-            matchPositionMap.set(match.id, {
+            posMap.set(match.id, {
               x: roundX,
-              y: centerY,
+              y: y,
               width: matchWidth,
               height: matchHeight
             });
-          }
-        });
+          });
+        } else {
+          // For subsequent rounds, place each match at the vertical midpoint of its child matches
+          matches.forEach((match) => {
+            const prevRound = direction === 1 ? round - 1 : round + 1;
+            const position = match.position || 0;
+            
+            // Find the two child matches from the previous round
+            const childPosition1 = position * 2 - 1;
+            const childPosition2 = position * 2;
+            
+            const childMatches = sideMatches[prevRound]?.filter(
+              m => (m.position === childPosition1 || m.position === childPosition2)
+            ) || [];
+            
+            if (childMatches.length > 0) {
+              // Calculate the vertical midpoint between child matches
+              let minY = Number.MAX_VALUE;
+              let maxY = Number.MIN_VALUE;
+              
+              childMatches.forEach(childMatch => {
+                const childPos = posMap.get(childMatch.id);
+                if (childPos) {
+                  const childCenterY = childPos.y + (childPos.height / 2);
+                  minY = Math.min(minY, childCenterY);
+                  maxY = Math.max(maxY, childCenterY);
+                }
+              });
+              
+              // Position at exact midpoint between children's centers
+              const midpointY = (minY + maxY) / 2 - (matchHeight / 2);
+              
+              posMap.set(match.id, {
+                x: roundX,
+                y: midpointY,
+                width: matchWidth,
+                height: matchHeight
+              });
+            } else {
+              // Fallback if child matches aren't found
+              posMap.set(match.id, {
+                x: roundX,
+                y: (bracketHeight - matchHeight) / 2, // Center vertically
+                width: matchWidth,
+                height: matchHeight
+              });
+            }
+          });
+        }
+      });
+      
+      return posMap;
+    };
+      // Position matches for each side with improved horizontal spacing
+    const leftRounds = Object.keys(leftSideMatches).length || 0;
+    const rightRounds = Object.keys(rightSideMatches).length || 0;
+      // Calculate the total width needed for the bracket with additional padding
+    const totalWidth = (leftRounds + rightRounds) * (matchWidth + horizontalGap) + matchWidth + horizontalGap; // Added extra padding
+    
+    // Calculate starting positions to center the bracket horizontally
+    // Add extra padding to the left to push everything more to the right
+    const leftStartX = Math.max(40, (totalWidth - (leftRounds * (matchWidth + horizontalGap) + rightRounds * (matchWidth + horizontalGap)) - matchWidth) / 2 + 40);
+    const rightStartX = leftStartX + leftRounds * (matchWidth + horizontalGap) + horizontalGap;
+    
+    const leftPositionMap = positionSideMatches(leftSideMatches, leftStartX, 1);
+    const rightPositionMap = positionSideMatches(rightSideMatches, rightStartX, -1);
+    
+    // Position final match(es) with improved calculation
+    const finalPositionMap = new Map<string, { x: number, y: number, width: number, height: number }>();
+    const finalMatches_flat = Object.values(finalMatches).flat(); // Define here to prevent redeclaration
+    
+    // Find semifinal matches from both sides to better position the final match
+    // Get the rightmost matches from the left bracket
+    const leftSideLastMatchPositions = leftPositionMap.size > 0 
+      ? Array.from(leftPositionMap.values())
+          .sort((a, b) => b.x - a.x) // Sort by x descending to find rightmost matches
+          .slice(0, Math.min(4, leftPositionMap.size)) // Take more matches for better positioning
+      : [];
+      
+    // Get the leftmost matches from the right bracket
+    const rightSideLastMatchPositions = rightPositionMap.size > 0 
+      ? Array.from(rightPositionMap.values())
+          .sort((a, b) => a.x - b.x) // Sort by x ascending to find leftmost matches
+          .slice(0, Math.min(4, rightPositionMap.size)) // Take more matches for better positioning
+      : [];
+      // Calculate the middle point between the furthest left and right rounds 
+    const leftX = leftPositionMap.size > 0 
+      ? Math.max(...Array.from(leftPositionMap.values()).map(pos => pos.x + pos.width))
+      : leftStartX;
+    
+    const rightX = rightPositionMap.size > 0 
+      ? Math.min(...Array.from(rightPositionMap.values()).map(pos => pos.x))
+      : rightStartX;
+    
+    // Calculate final match position precisely in the middle
+    const centerX = (leftX + rightX) / 2 - (matchWidth / 2);
+      // Calculate an appropriate Y position based on the semifinal positions if they exist
+    const calculateCenterY = () => {
+      // Calculate the optimal vertical position for the final match
+      if (leftSideLastMatchPositions.length > 0 && rightSideLastMatchPositions.length > 0) {
+        // Find the mid points of the last matches from both sides
+        const leftMidPoints = leftSideLastMatchPositions.map(pos => pos.y + pos.height / 2);
+        const rightMidPoints = rightSideLastMatchPositions.map(pos => pos.y + pos.height / 2);
+        
+        // Find the average midpoint of each side
+        const avgLeftMidY = leftMidPoints.reduce((sum, y) => sum + y, 0) / leftMidPoints.length;
+        const avgRightMidY = rightMidPoints.reduce((sum, y) => sum + y, 0) / rightMidPoints.length;
+        
+        // Use the average of both sides' average midpoints
+        return ((avgLeftMidY + avgRightMidY) / 2) - matchHeight / 2;
+      } else if (leftSideLastMatchPositions.length > 0) {
+        // Use average of left side positions
+        const avgY = leftSideLastMatchPositions.reduce(
+          (sum, pos) => sum + pos.y + pos.height / 2, 0
+        ) / leftSideLastMatchPositions.length;
+        return avgY - matchHeight / 2;
+      } else if (rightSideLastMatchPositions.length > 0) {
+        // Use average of right side positions
+        const avgY = rightSideLastMatchPositions.reduce(
+          (sum, pos) => sum + pos.y + pos.height / 2, 0
+        ) / rightSideLastMatchPositions.length;
+        return avgY - matchHeight / 2;
+      } else {
+        // Default center position with vertical padding
+        return globalCenterY - matchHeight / 2;
       }
+    };
+    
+    const centerY = calculateCenterY();
+    
+    finalMatches_flat.forEach((match, index) => {
+      // If there's more than one final match, space them vertically with improved spacing
+      const verticalGap = 100; // Increased vertical spacing between final matches
+      const offset = finalMatches_flat.length > 1 
+        ? (index - (finalMatches_flat.length - 1) / 2) * (matchHeight + verticalGap)
+        : 0;
+      
+      finalPositionMap.set(match.id, {
+        x: centerX,
+        y: centerY + offset,
+        width: matchWidth,
+        height: matchHeight
+      });
     });
     
-    // Gerar linhas de conexão entre as rodadas
+    // Combine all position maps
+    const combinedPositionMap = new Map([
+      ...leftPositionMap,
+      ...rightPositionMap,
+      ...finalPositionMap
+    ]);
+      // Generate lines between matches
     const lines: Array<{ key: string; path: string; fromMatch: string; toMatch: string; highlight: boolean }> = [];
-    
-    // Processar conexões entre rodadas
-    if (roundsArray.length > 1) {
-      for (let roundIndex = 0; roundIndex < roundsArray.length - 1; roundIndex++) {
-        const currentRound = roundsArray[roundIndex];
-        const nextRound = roundsArray[roundIndex + 1];
+      // Function to generate lines for one side with optimized right-angle connections
+    const generateSideLines = (sideMatches: Record<number, Match[]>, positionMap: Map<string, any>, direction: 1 | -1) => {
+      const rounds = Object.keys(sideMatches).map(Number).sort((a, b) => a - b);
+      
+      for (let i = 0; i < rounds.length - 1; i++) {
+        const currentRound = rounds[i];
+        const nextRound = rounds[i + 1];
         
-        currentRound.matches.forEach((match) => {
+        sideMatches[currentRound].forEach(match => {
           if (!match) return;
           
-          // Encontrar a próxima partida para a qual esta alimenta
+          // Find the next match this feeds into
           const nextMatchPosition = Math.ceil((match.position || 0) / 2);
-          const nextMatch = nextRound.matches.find(m => m.position === nextMatchPosition);
+          const nextMatch = sideMatches[nextRound]?.find(m => m.position === nextMatchPosition);
           
           if (!nextMatch) return;
           
-          const fromPos = matchPositionMap.get(match.id);
-          const toPos = matchPositionMap.get(nextMatch.id);
+          const fromPos = positionMap.get(match.id);
+          const toPos = positionMap.get(nextMatch.id);
           
           if (!fromPos || !toPos) return;
+            // Calculate line coordinates for improved right-angled bracket lines
+          let startX, startY, endX, endY, midpointX;
           
-          // Calcular coordenadas para as linhas
-          const startX = fromPos.x + fromPos.width;
-          const startY = fromPos.y + (fromPos.height / 2);
-          const endX = toPos.x;
-          const endY = toPos.y + (toPos.height / 2);
-          const midX = startX + (endX - startX) / 2;
+          if (direction === 1) {
+            // Left side bracket - lines go right
+            startX = fromPos.x + fromPos.width;
+            startY = fromPos.y + (fromPos.height / 2);
+            endX = toPos.x;
+            endY = toPos.y + (toPos.height / 2);
+            // Calculate midpoint with greater distance for clearer visual separation
+            midpointX = startX + (endX - startX) / 2;
+          } else {
+            // Right side bracket - lines go left
+            startX = fromPos.x;
+            startY = fromPos.y + (fromPos.height / 2);
+            endX = toPos.x + toPos.width;
+            endY = toPos.y + (toPos.height / 2);
+            // Calculate midpoint with greater distance for clearer visual separation
+            midpointX = startX - (startX - endX) / 2;
+          }
           
-          // Criar caminho com linhas retas
-          const path = `
-            M ${startX} ${startY}
-            L ${midX} ${startY}
-            L ${midX} ${endY}
-            L ${endX} ${endY}
-          `;
+          // Create a cleaner path with precise right angles
+          const path = `M ${startX} ${startY} L ${midpointX} ${startY} L ${midpointX} ${endY} L ${endX} ${endY}`;
           
-          // Adicionar destaque para caminhos de vencedores
-          const highlight = match.completed && nextMatch.team1 && match.team2 && 
-            ((match.winnerId === 'team1' && match.team1 && nextMatch.team1.includes(match.team1[0])) || 
-            (match.winnerId === 'team2' && match.team2[0] && nextMatch.team1.includes(match.team2[0])));
+          // Determine if this line should be highlighted based on match progression
+          let highlight = false;
           
-          lines.push({ 
-            key: `${match.id}-to-${nextMatch.id}`, 
+          if (match.completed && match.winnerId) {
+            // Get the IDs of the winning team members
+            const winningTeamIds = match.winnerId === 'team1' ? match.team1 : match.team2;
+            
+            // Check if any players from the winning team are in the next match's team1 or team2
+            if (winningTeamIds && winningTeamIds.length > 0) {
+              const nextMatchTeam1 = nextMatch.team1 || [];
+              const nextMatchTeam2 = nextMatch.team2 || [];
+              
+              // Check for any overlap between winning team and next match teams
+              const isInNextMatch = winningTeamIds.some(id => 
+                nextMatchTeam1.includes(id) || nextMatchTeam2.includes(id)
+              );
+              
+              highlight = isInNextMatch;
+            }
+          }
+          
+          lines.push({
+            key: `${match.id}-to-${nextMatch.id}`,
             path,
             fromMatch: match.id,
             toMatch: nextMatch.id,
-            highlight: !!highlight
+            highlight
           });
         });
       }
+    };
+      // Generate lines for both sides
+    generateSideLines(leftSideMatches, combinedPositionMap, 1);  // Left side with direction 1 (right)
+    generateSideLines(rightSideMatches, combinedPositionMap, -1); // Right side with direction -1 (left)
+    
+    // Generate lines to the final match with improved drawing
+    if (finalMatches_flat.length > 0) {
+      // Find the last round from each side
+      const lastLeftRound = Object.keys(leftSideMatches).length > 0 
+        ? Math.max(...Object.keys(leftSideMatches).map(Number))
+        : -1;
+        
+      const lastRightRound = Object.keys(rightSideMatches).length > 0 
+        ? Math.max(...Object.keys(rightSideMatches).map(Number))
+        : -1;
+      
+      // Find all semifinals from the left side
+      const leftSemiFinals = lastLeftRound >= 0 
+        ? leftSideMatches[lastLeftRound] || []
+        : [];
+        
+      // Find all semifinals from the right side
+      const rightSemiFinals = lastRightRound >= 0 
+        ? rightSideMatches[lastRightRound] || []
+        : [];
+      
+      // Connect each semifinal from the left side to the appropriate final match
+      leftSemiFinals.forEach(leftSemiFinal => {
+        // Find the final match this semifinal feeds into
+        const finalMatch = findMatchByNextPosition(finalMatches_flat, leftSemiFinal);
+        
+        if (finalMatch) {
+          const fromPos = combinedPositionMap.get(leftSemiFinal.id);
+          const toPos = combinedPositionMap.get(finalMatch.id);
+          
+          if (fromPos && toPos) {            // Create optimized right angle lines for classic tournament bracket style
+            const startX = fromPos.x + fromPos.width;
+            const startY = fromPos.y + (fromPos.height / 2);
+            const endX = toPos.x;
+            const endY = toPos.y + (toPos.height / 2);
+            
+            // Midpoint for right angle connections
+            const midpointX = startX + (endX - startX) / 2;
+            
+            const path = `M ${startX} ${startY} L ${midpointX} ${startY} L ${midpointX} ${endY} L ${endX} ${endY}`;
+            
+            // Check for highlight condition - if the winner of the semifinal is in the final match
+            let highlight = false;
+            if (leftSemiFinal.completed && leftSemiFinal.winnerId) {
+              const winningTeamIds = leftSemiFinal.winnerId === 'team1' 
+                ? leftSemiFinal.team1 
+                : leftSemiFinal.team2;
+                
+              if (winningTeamIds && winningTeamIds.length > 0) {
+                const finalTeam1 = finalMatch.team1 || [];
+                const finalTeam2 = finalMatch.team2 || [];
+                
+                highlight = winningTeamIds.some(id => 
+                  finalTeam1.includes(id) || finalTeam2.includes(id)
+                );
+              }
+            }
+            
+            lines.push({
+              key: `${leftSemiFinal.id}-to-final-${finalMatch.id}`,
+              path,
+              fromMatch: leftSemiFinal.id,
+              toMatch: finalMatch.id,
+              highlight
+            });
+          }
+        }
+      });
+      
+      // Connect each semifinal from the right side to the appropriate final match
+      rightSemiFinals.forEach(rightSemiFinal => {
+        // Find the final match this semifinal feeds into
+        const finalMatch = findMatchByNextPosition(finalMatches_flat, rightSemiFinal);
+        
+        if (finalMatch) {
+          const fromPos = combinedPositionMap.get(rightSemiFinal.id);
+          const toPos = combinedPositionMap.get(finalMatch.id);
+          
+          if (fromPos && toPos) {            // Create optimized right-angle lines for the right side connections
+            const startX = fromPos.x;
+            const startY = fromPos.y + (fromPos.height / 2);
+            const endX = toPos.x + toPos.width;
+            const endY = toPos.y + (toPos.height / 2);
+            
+            // Midpoint for right angle connections from the right
+            const midpointX = startX - (startX - endX) / 2;
+            
+            // Use tournament-style right angle connections for consistency
+            const path = `M ${startX} ${startY} L ${midpointX} ${startY} L ${midpointX} ${endY} L ${endX} ${endY}`;
+            
+            // Check for highlight condition
+            let highlight = false;
+            if (rightSemiFinal.completed && rightSemiFinal.winnerId) {
+              const winningTeamIds = rightSemiFinal.winnerId === 'team1' 
+                ? rightSemiFinal.team1 
+                : rightSemiFinal.team2;
+                
+              if (winningTeamIds && winningTeamIds.length > 0) {
+                const finalTeam1 = finalMatch.team1 || [];
+                const finalTeam2 = finalMatch.team2 || [];
+                
+                highlight = winningTeamIds.some(id => 
+                  finalTeam1.includes(id) || finalTeam2.includes(id)
+                );
+              }
+            }
+            
+            lines.push({
+              key: `${rightSemiFinal.id}-to-final-${finalMatch.id}`,
+              path,
+              fromMatch: rightSemiFinal.id,
+              toMatch: finalMatch.id,
+              highlight
+            });
+          }
+        }
+      });
     }
     
-    return { 
-      eliminationRoundsArray: roundsArray, 
+    // Helper function to find which final match a semifinal feeds into
+    function findMatchByNextPosition(finalMatches: Match[], semifinalMatch: Match): Match | undefined {
+      // For simple cases, just return the first final match
+      if (finalMatches.length === 1) return finalMatches[0];
+      
+      // Otherwise try to find a match with the correct team members
+      if (semifinalMatch.completed && semifinalMatch.winnerId) {
+        const winningTeamIds = semifinalMatch.winnerId === 'team1' 
+          ? semifinalMatch.team1 
+          : semifinalMatch.team2;
+          
+        if (winningTeamIds && winningTeamIds.length > 0) {
+          return finalMatches.find(finalMatch => {
+            const finalTeam1 = finalMatch.team1 || [];
+            const finalTeam2 = finalMatch.team2 || [];
+            
+            return winningTeamIds.some(id => 
+              finalTeam1.includes(id) || finalTeam2.includes(id)
+            );
+          });
+        }
+      }
+      
+      // If no match found, return first final match as default
+      return finalMatches[0];
+    }
+    
+    // Prepare the array of rounds for the component
+    const roundsArray: { round: number; matches: Match[] }[] = [];
+    
+    // Add left side rounds
+    Object.entries(leftSideMatches).forEach(([round, matches]) => {
+      roundsArray.push({
+        round: parseInt(round),
+        matches: matches.sort((a, b) => (a.position || 0) - (b.position || 0))
+      });
+    });
+    
+    // Add final round
+    Object.entries(finalMatches).forEach(([round, matches]) => {
+      roundsArray.push({
+        round: parseInt(round),
+        matches
+      });
+    });
+    
+    // Add right side rounds
+    Object.entries(rightSideMatches).forEach(([round, matches]) => {
+      roundsArray.push({
+        round: parseInt(round) + 100, // Add offset to distinguish from left side rounds
+        matches: matches.sort((a, b) => (a.position || 0) - (b.position || 0))
+      });
+    });
+    
+    // Sort rounds by round number
+    roundsArray.sort((a, b) => a.round - b.round);
+    
+    return {
+      eliminationRoundsArray: roundsArray,
       bracketLines: lines,
-      matchPositionMap
+      matchPositionMap: combinedPositionMap
     };
-  }, [eliminationMatches]);
+    
+  }, [eliminationMatches, matchWidth, matchHeight, horizontalGap]);
 
   // Modified getRoundName function for proper tournament naming
   const getRoundName = (roundIndex: number, totalRounds: number) => {
@@ -1168,7 +1575,6 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     if (roundIndex === totalRounds - 4) return 'Oitavas de Final';
     return `${Math.pow(2, totalRounds - roundIndex)}ª de Final`;
   };
-
   // Add this function before the return statement in your component
   const getBracketDimensions = () => {
     if (eliminationRoundsArray.length === 0) return { width: '100%', height: '100%' };
@@ -1185,10 +1591,10 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       if (bottomEdge > maxY) maxY = bottomEdge;
     });
     
-    // Add some padding
+    // Add more generous padding to ensure everything is visible
     return {
-      width: `${maxX + 100}px`,
-      height: `${maxY + 100}px`,
+      width: `${maxX + 200}px`,
+      height: `${maxY + 150}px`,
     };
   };
 
@@ -1330,13 +1736,43 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={handleShowRankings}>
                   <List size={16} className="mr-1" />
-                  Ver Rankings dos Grupos
-                </Button>
+                  Ver Rankings dos Grupos                </Button>
                 {isGroupStageComplete && (
-                  <Button variant="outline" size="sm" onClick={handleShowOverallRankings}>
-                    <Award size={16} className="mr-1" />
-                    Ranking Geral
-                  </Button>
+                  <>
+                    <Button variant="outline" size="sm" onClick={handleShowOverallRankings}>
+                      <Award size={16} className="mr-1" />
+                      Ranking Geral
+                    </Button>                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div>                            <Button 
+                              variant={isGroupStageComplete ? "primary" : "outline"}
+                              size="sm"
+                              disabled={!isGroupStageComplete}
+                              onClick={() => {
+                                if (tournament && isGroupStageComplete) {
+                                  generateEliminationBracket(tournament.id);
+                                  addNotification({
+                                    type: 'success',
+                                    message: 'Fase eliminatória gerada com sucesso!'
+                                  });
+                                }
+                              }}
+                              className={isGroupStageComplete ? "hover:bg-green-700" : ""}
+                            >
+                              <Trophy size={16} className="mr-1" />
+                              Gerar Fase Eliminatória
+                            </Button>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {isGroupStageComplete 
+                            ? "Todas as partidas dos grupos foram concluídas. Clique para gerar a fase eliminatória." 
+                            : "Todas as partidas da fase de grupos devem ser concluídas antes de gerar a fase eliminatória."}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </>
                 )}
               </div>
             </div>
@@ -1384,7 +1820,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                               <span className="truncate mr-2">
                                 {getTeamDisplayName(match.team1)}
                               </span>
-                              <span className="font-bold">
+                              <span className="font-bold flex-shrink-0">
                                 {match.score1 !== null ? match.score1 : '-'}
                               </span>
                             </div>
@@ -1395,7 +1831,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                               <span className="truncate mr-2">
                                 {getTeamDisplayName(match.team2)}
                               </span>
-                              <span className="font-bold">
+                              <span className="font-bold flex-shrink-0">
                                 {match.score2 !== null ? match.score2 : '-'}
                               </span>
                             </div>
@@ -1445,52 +1881,65 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                     </>
                   )}
                 </Button>
-                
-                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2">
                   <label className="text-sm font-medium">Zoom:</label>
+                  <button 
+                    className="text-gray-600 hover:text-brand-blue p-1 rounded-md hover:bg-gray-100"
+                    onClick={() => setZoomLevel(Math.max(50, zoomLevel - 10))}
+                    title="Diminuir zoom"
+                  >
+                    <MinusCircle size={16} />
+                  </button>
                   <input
                     type="range"
                     min="50"
                     max="150"
+                    step="10"
                     value={zoomLevel}
                     onChange={(e) => setZoomLevel(Number(e.target.value))}
                     className="w-20"
                   />
-                  <span className="text-sm text-gray-500">{zoomLevel}%</span>
+                  <button 
+                    className="text-gray-600 hover:text-brand-blue p-1 rounded-md hover:bg-gray-100"
+                    onClick={() => setZoomLevel(Math.min(150, zoomLevel + 10))}
+                    title="Aumentar zoom"
+                  >
+                    <PlusCircle size={16} />
+                  </button>
+                  <span className="text-sm text-gray-600 ml-1 min-w-[40px]">{zoomLevel}%</span>
                 </div>
               </div>
             </div>
-            
-            {/* Bracket visualization */}
-            <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-              {/* Headers for rounds */}
-              <div 
+              {/* Bracket visualization */}
+            <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-lg">
+              {/* Headers for rounds */}              <div 
                 id="bracket-headers-container" 
-                className="bg-gray-50 border-b border-gray-200 px-4 py-3 overflow-x-auto"
+                className="bg-gradient-to-r from-gray-50 to-blue-50 border-b border-gray-200 px-4 py-3 overflow-x-auto"
                 style={{ width: getHeaderContainerWidth() }}
               >
-                <div className="flex" style={{ minWidth: getHeaderContainerWidth() }}>
-                  {eliminationRoundsArray.map((roundData, index) => (
+                <div className="flex" style={{ minWidth: getHeaderContainerWidth() }}>                  {eliminationRoundsArray.map((roundData, index) => (
                     <div 
                       key={roundData.round}
                       className="flex-shrink-0 text-center font-medium text-brand-blue"
                       style={{ 
                         width: `${matchWidth}px`,
-                        marginRight: index < eliminationRoundsArray.length - 1 ? `${horizontalGap}px` : '0'
+                        marginRight: index < eliminationRoundsArray.length - 1 ? `${horizontalGap}px` : '0',
+                        marginLeft: index === 0 ? '40px' : '0' // Add left margin to the first header to match bracket position
                       }}
                     >
-                      {getRoundName(index, eliminationRoundsArray.length)}
+                      <div className="p-1 rounded-lg bg-white/70 border border-blue-100 shadow-sm">
+                        {getRoundName(index, eliminationRoundsArray.length)}
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
               
-              {/* Bracket container */}
-              <div 
+              {/* Bracket container */}              <div 
                 ref={bracketContainerRef}
-                className="relative overflow-auto p-6"
+                className="relative overflow-auto p-6 bg-gradient-to-b from-white to-slate-50"
                 style={{ 
-                  minHeight: '400px',
+                  minHeight: '500px',
                   transform: `scale(${zoomLevel / 100})`,
                   transformOrigin: 'top left',
                   width: `${100 / (zoomLevel / 100)}%`,
@@ -1505,15 +1954,34 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                   <svg 
                     className="absolute inset-0 pointer-events-none" 
                     style={getBracketDimensions()}
-                  >
-                    {bracketLines.map((line) => (
-                      <path
+                  >                    <defs>
+                      <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur in="SourceAlpha" stdDeviation="2" />
+                        <feOffset dx="1" dy="1" result="offsetblur" />
+                        <feComponentTransfer>
+                          <feFuncA type="linear" slope="0.4" />
+                        </feComponentTransfer>
+                        <feMerge>
+                          <feMergeNode />
+                          <feMergeNode in="SourceGraphic" />
+                        </feMerge>
+                      </filter>
+                      
+                      {/* Add gradient for highlighted paths */}
+                      <linearGradient id="highlightGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#10b981" stopOpacity="0.8" />
+                        <stop offset="100%" stopColor="#10b981" stopOpacity="1" />
+                      </linearGradient>
+                    </defs>                    {bracketLines.map((line) => (                      <path
                         key={line.key}
                         d={line.path}
-                        stroke={line.highlight ? "#10b981" : "#e5e7eb"}
-                        strokeWidth={line.highlight ? "3" : "2"}
+                        stroke={line.highlight ? "url(#highlightGradient)" : "#d1d5db"}
+                        strokeWidth={line.highlight ? "2.5" : "1.5"}
                         fill="none"
                         className={line.highlight ? "animate-pulse" : ""}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        filter={line.highlight ? "url(#softShadow)" : ""}
                       />
                     ))}
                   </svg>
@@ -1542,6 +2010,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                             top: `${position.y}px`,
                             width: `${position.width}px`,
                             height: `${position.height}px`,
+                            boxShadow: "0 2px 5px rgba(0, 0, 0, 0.08)",
                           }}
                         >
                           <MatchCard
@@ -1591,66 +2060,24 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
               onClose={() => setShowScheduleModal(false)}
             />
           </Modal>
-        )}
-
-        {/* Group rankings modal */}
+        )}        {/* Group rankings modal using the enhanced TournamentRankings component */}
         <Modal
           isOpen={showGroupRankingsModal}
           onClose={() => setShowGroupRankingsModal(false)}
-          title="Ranking da Fase de Grupos"
+          title="Rankings do Torneio"
           size="large"
         >
-          <div className="bg-blue-50 p-3 mb-4 rounded-lg border border-blue-100 text-sm">
-            <h5 className="font-medium mb-2 text-blue-700">Legenda:</h5>
-            <ul className="space-y-1 text-blue-800">
-              <li><span className="font-medium">V</span> - Vitórias: Total de partidas vencidas pela dupla</li>
-              <li><span className="font-medium">SG</span> - Saldo de Games: Diferença entre games ganhos e perdidos</li>
-              <li><span className="font-medium">PG</span> - Games Ganhos: Total de games conquistados pela dupla</li>
-            </ul>
-          </div>
-          
-          <div className="space-y-6 max-h-[70vh] overflow-y-auto p-1">
-            {Object.entries(calculatedRankings).length > 0 ? (
-              Object.entries(calculatedRankings)
-                .sort(([numA], [numB]) => parseInt(numA) - parseInt(numB))
-                .map(([groupNum, rankings]) => (
-
-                  <div key={groupNum} className="border border-gray-200 rounded-lg p-4">
-                    <h4 className="font-semibold text-brand-purple mb-3">Grupo {groupNum}</h4>
-                    <table className="min-w-full divide-y divide-gray-200 text-sm">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">#</th>
-                          <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Dupla</th>
-                          <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">V</th>
-                          <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">SG</th>
-                          <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">PG</th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {rankings.map((entry, index) => {
-                          const teamName = entry.teamId.map((id: string) => participantMap.get(id) || 'N/A').join(' & ');
-                          const isQualifier = entry.rank <= 2;
-                          return (
-                            <tr key={entry.teamId.join('-')} className={`hover:bg-gray-50 ${isQualifier ? 'bg-green-50' : ''}`}>
-                              <td className={`px-3 py-2 whitespace-nowrap font-medium ${isQualifier ? 'text-green-700' : ''}`}>
-                                {entry.rank}
-                                {isQualifier && <Award size={12} className="inline ml-1 text-yellow-500" />}
-                              </td>
-                              <td className="px-3 py-2 whitespace-nowrap">{teamName}</td>
-                              <td className="px-3 py-2 whitespace-nowrap text-center">{entry.stats.wins}</td>
-                              <td className="px-3 py-2 whitespace-nowrap text-center">{entry.stats.gameDifference > 0 ? `+${entry.stats.gameDifference}` : entry.stats.gameDifference}</td>
-                              <td className="px-3 py-2 whitespace-nowrap text-center">{entry.stats.gamesWon}</td>
-                              <td className="px-3 py-2 whitespace-nowrap text-center">{entry.stats.matchesPlayed}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                ))
-              ) : (
-              <p className="text-gray-500 text-center">Nenhum ranking disponível para esta colocação.</p>
+          <div className="max-h-[80vh] overflow-y-auto p-1">
+            {tournament && (
+              <TournamentRankings 
+                tournamentId={tournament.id} 
+                playerNameMap={
+                  Array.from(participantMap.entries()).reduce((map, [id, name]) => {
+                    map[id] = name;
+                    return map;
+                  }, {} as Record<string, string>)
+                }
+              />
             )}
           </div>
           <div className="mt-6 flex justify-end">
@@ -1663,7 +2090,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
           title={placementRankingModalTitle}
           size="large"
         >
-          <div className="bg-blue-50 p-3 mb-4 rounded-lg border border-blue-100 text-sm">
+          <div className="bg-blue-50 p-3 mb-4 rounded-lg border border-blue-200 text-sm">
             <h5 className="font-medium mb-2 text-blue-700">Legenda:</h5>
             <ul className="space-y-1 text-blue-800">
               <li><span className="font-medium">V</span> - Vitórias: Total de partidas vencidas pela dupla</li>

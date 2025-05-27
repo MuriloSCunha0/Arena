@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Match } from '../../types';
 import { Spinner } from '../ui/Spinner';
+import TournamentRankings from '../TournamentRankings';
 
 // A simplified tournament service for the public view
 const getTournamentPublicData = async (tournamentId: string): Promise<any> => {
@@ -182,7 +183,7 @@ const PublicTournamentView: React.FC = () => {
         
         setMatches(enhancedMatches);
         
-        // Separate matches by stage
+      // Separate matches by stage
         setGroupMatches(enhancedMatches.filter(m => m.stage === 'GROUP'));
         setEliminationMatches(enhancedMatches.filter(m => m.stage === 'ELIMINATION'));
       } catch (error) {
@@ -194,6 +195,9 @@ const PublicTournamentView: React.FC = () => {
     
     fetchMatches();
   }, [tournamentId, selectedCategory]);
+  
+  // State to control active view tab
+  const [activeView, setActiveView] = useState<'matches' | 'rankings'>('matches');
   
   if (isLoading && !tournament) {
     return (
@@ -248,8 +252,7 @@ const PublicTournamentView: React.FC = () => {
           </span>
         </div>
       </div>
-      
-      {/* Category Selector */}
+        {/* Category Selector */}
       <div className="mb-6">
         <label htmlFor="categorySelector" className="block text-sm font-medium text-gray-700 mb-1">
           Selecione uma categoria
@@ -268,9 +271,58 @@ const PublicTournamentView: React.FC = () => {
         </select>
       </div>
       
+      {/* View Selector Tabs */}
+      <div className="mb-6">
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex" aria-label="Tabs">
+            <button
+              onClick={() => setActiveView('matches')}
+              className={`w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm ${
+                activeView === 'matches'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Partidas
+            </button>
+            <button
+              onClick={() => setActiveView('rankings')}
+              className={`w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm ${
+                activeView === 'rankings'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Rankings
+            </button>
+          </nav>
+        </div>
+      </div>
+      
       {isLoading ? (
         <div className="flex justify-center items-center h-64">
           <Spinner size="md" />
+        </div>      ) : activeView === 'rankings' ? (
+        <div className="mt-4">
+          {tournamentId && (
+            <TournamentRankings 
+              tournamentId={tournamentId}
+              playerNameMap={matches.reduce((map, match) => {
+                // Create a player name map from our match data
+                if (match.team1Info) {
+                  match.team1Info.playerIds.forEach((id, idx) => {
+                    map[id] = match.team1Info?.playerNames[idx] || id;
+                  });
+                }
+                if (match.team2Info) {
+                  match.team2Info.playerIds.forEach((id, idx) => {
+                    map[id] = match.team2Info?.playerNames[idx] || id;
+                  });
+                }
+                return map;
+              }, {} as Record<string, string>)}
+            />
+          )}
         </div>
       ) : (
         <>
@@ -279,10 +331,25 @@ const PublicTournamentView: React.FC = () => {
             <div className="mb-8">
               <h2 className="text-xl font-bold mb-4 bg-gray-100 p-2 rounded-md">Fase de Grupos</h2>
               
-              {/* Group matches by groupNumber */}
-              {Array.from(new Set(groupMatches.map(m => m.groupNumber))).map(groupNum => (
-                <div key={`group-${groupNum}`} className="mb-6">
-                  <h3 className="text-lg font-semibold mb-2">Grupo {groupNum}</h3>
+              {/* Group matches by groupNumber */}              {Array.from(new Set(groupMatches.map(m => m.groupNumber))).map(groupNum => {
+                // Check if all matches in this group are completed
+                const groupMatchesArray = groupMatches.filter(m => m.groupNumber === groupNum);
+                const isGroupComplete = groupMatchesArray.length > 0 && 
+                  groupMatchesArray.every(m => m.completed);
+                
+                return (
+                  <div key={`group-${groupNum}`} className="mb-6">
+                    <h3 className="text-lg font-semibold mb-2 flex items-center">
+                      <span>Grupo {groupNum}</span>
+                      {isGroupComplete && (
+                        <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                          <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                          </svg>
+                          Completo
+                        </span>
+                      )}
+                    </h3>
                   <div className="overflow-x-auto">
                     <table className="min-w-full border-collapse bg-white border border-gray-300 rounded-md overflow-hidden">
                       <thead className="bg-gray-100">
@@ -314,13 +381,13 @@ const PublicTournamentView: React.FC = () => {
                                   {match.completed ? 'Finalizado' : 'Pendente'}
                                 </span>
                               </td>
-                            </tr>
-                          ))}
+                            </tr>                      ))}
                       </tbody>
                     </table>
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           )}
           

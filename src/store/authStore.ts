@@ -69,10 +69,13 @@ const loadFromStorage = () => {
     }
     
     const user = JSON.parse(userStr);
-    const role = userRole || null;
+    // Properly type cast the userRole
+    const role: UserRole | null = userRole && ['admin', 'organizer', 'participante'].includes(userRole) 
+      ? userRole as UserRole 
+      : null;
     
     console.log('✅ Sessão recuperada do localStorage');
-    return { user, userRole: role as UserRole | null };
+    return { user, userRole: role };
   } catch (error) {
     console.error('❌ Erro ao recuperar sessão do localStorage:', error);
     clearStorage();
@@ -111,9 +114,14 @@ const getPersistedSession = () => {
       return { user: null, userRole: null };
     }
     
+    // Properly type cast the userRole
+    const role: UserRole | null = userRole && ['admin', 'organizer', 'participante'].includes(userRole) 
+      ? userRole as UserRole 
+      : null;
+    
     return {
       user: JSON.parse(userStr),
-      userRole: userRole || null
+      userRole: role
     };
   } catch (error) {
     console.error('Error getting persisted session:', error);

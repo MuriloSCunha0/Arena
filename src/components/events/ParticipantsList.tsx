@@ -49,9 +49,9 @@ export const ParticipantsList: React.FC<ParticipantsListProps> = ({ eventId }) =
   }, [error, addNotification]);
   
   const filteredParticipants = participants.filter(participant => {
-    // Filter by search term
+    // Filter by search term - add null checks for optional properties
     const matchesSearch = participant.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                        participant.email.toLowerCase().includes(searchTerm.toLowerCase());
+                        (participant.email?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false);
     
     // Filter by payment status
     const matchesFilter = filter === 'all' || 
@@ -68,8 +68,8 @@ export const ParticipantsList: React.FC<ParticipantsListProps> = ({ eventId }) =
       headers.join(','),
       ...filteredParticipants.map(p => [
         p.name,
-        p.email,
-        p.phone,
+        p.email || '', // Handle optional email
+        p.phone || '', // Handle optional phone as well
         p.paymentStatus === 'CONFIRMED' ? 'Pago' : 'Pendente',
         new Date(p.registeredAt).toLocaleString('pt-BR')
       ].join(','))
@@ -200,8 +200,8 @@ export const ParticipantsList: React.FC<ParticipantsListProps> = ({ eventId }) =
                       <div className="text-sm font-medium text-brand-blue">{participant.name}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{participant.email}</div>
-                      <div className="text-sm text-gray-500">{participant.phone}</div>
+                      <div className="text-sm text-gray-900">{participant.email || 'Email não informado'}</div>
+                      <div className="text-sm text-gray-500">{participant.phone || 'Telefone não informado'}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">{partner ? partner.name : 'Sem dupla'}</div>

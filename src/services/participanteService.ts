@@ -45,22 +45,41 @@ export const ParticipanteService = {
   // Get participante profile by ID
   async getById(userId: string): Promise<ParticipanteProfile | null> {
     try {
+      // Em vez de buscar na tabela 'users' que pode ter RLS restritivo,
+      // busque na tabela 'participants' que tem os dados necessários
       const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .single();
+        .from('participants')
+        .select(`
+          *,
+          events(title, date)
+        `)
+        .eq('user_id', userId)
+        .maybeSingle(); // Use maybeSingle() para evitar erro 406
 
       if (error) {
-        if (error.code === 'PGRST116') {
-          return null; // Participante não encontrado
-        }
+        console.error('Erro ao buscar perfil do participante:', error);
         throw error;
+      }
+
+      // Se não encontrar na tabela participants, tente na tabela users
+      if (!data) {
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', userId)
+          .maybeSingle();
+
+        if (userError) {
+          console.error('Erro ao buscar usuário:', userError);
+          throw userError;
+        }
+
+        return userData;
       }
 
       return data;
     } catch (error) {
-      console.error('Error fetching participante profile:', error);
+      console.error('Erro ao buscar perfil do participante:', error);
       throw error;
     }
   },

@@ -243,7 +243,8 @@ export const TournamentService = {
           if (updateError) throw updateError;
           tournamentId = updatedTournament.id;
         } catch (updateError) {
-          if (updateError.message?.includes('team_formation')) {
+          if (typeof updateError === 'object' && updateError !== null && 'message' in updateError && 
+              typeof updateError.message === 'string' && updateError.message.includes('team_formation')) {
             // Column doesn't exist, try without it
             const { data: updatedTournament, error: updateError2 } = await supabase
               .from('tournaments')
@@ -280,7 +281,7 @@ export const TournamentService = {
 
           if (insertError) throw insertError;
           tournamentId = newTournament.id;
-        } catch (insertError) {
+        } catch (insertError: any) {
           if (insertError.message?.includes('team_formation')) {
             // Column doesn't exist, try without it
             const { data: newTournament, error: insertError2 } = await supabase

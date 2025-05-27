@@ -111,9 +111,13 @@ export const traduzirErroSupabase = (erro: any): string => {
     
     // Erros gerais
     'PGRST116': 'Registro não encontrado',
+    'PGRST301': 'Não foi possível acessar os dados (verifique permissões)',
     'not_found': 'Recurso não encontrado',
     'invalid_request': 'Solicitação inválida',
-    'unauthorized': 'Não autorizado'
+    'unauthorized': 'Não autorizado',
+    
+    // Novo: Erro 406 específico
+    '406': 'Erro de acesso aos dados. Verifique as permissões de segurança da tabela.'
   };
   
   // Verificar por correspondência parcial nos erros específicos
@@ -137,4 +141,11 @@ export const tratarErroSupabase = (erro: any, operacao: string = ''): Error => {
   console.error(`Erro ao ${operacao}:`, erro);
   const mensagemTraduzida = traduzirErroSupabase(erro);
   return new Error(mensagemTraduzida);
+};
+
+// Função auxiliar para tratamento de erros Supabase específicos para erro 406
+export const tratarErro406 = (erro: any, operacao: string = ''): Error => {
+  console.error(`Erro 406 ao ${operacao}:`, erro);
+  const mensagem = 'Erro de acesso aos dados. Verifique se você tem permissão para acessar este recurso.';
+  return new Error(mensagem);
 };

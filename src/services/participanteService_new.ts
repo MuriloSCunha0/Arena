@@ -45,22 +45,35 @@ export const ParticipanteService = {
   // Get participante profile by ID
   async getById(userId: string): Promise<ParticipanteProfile | null> {
     try {
-      const { data, error } = await supabase
+      // Primeiro tente buscar pelos dados de participante
+      const { data: participantData, error: participantError } = await supabase
+        .from('participants')
+        .select(`
+          *,
+          events(title, date, location)
+        `)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (!participantError && participantData) {
+        return participantData;
+      }
+
+      // Se não encontrar como participante, busque como usuário
+      const { data: userData, error: userError } = await supabase
         .from('users')
         .select('*')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
-      if (error) {
-        if (error.code === 'PGRST116') {
-          return null; // Participante não encontrado
-        }
-        throw error;
+      if (userError) {
+        console.error('Erro ao buscar perfil do participante:', userError);
+        throw userError;
       }
 
-      return data;
+      return userData;
     } catch (error) {
-      console.error('Error fetching participante profile:', error);
+      console.error('Erro ao buscar perfil do participante:', error);
       throw error;
     }
   },

@@ -33,6 +33,8 @@ export interface TeamStatistics {
   proportionalWins?: number;
   proportionalGameDifference?: number;
   proportionalGamesWon?: number;
+  // Add the headToHead property that was missing
+  headToHead?: Map<string, { wins: number; gamesWon?: number; gamesLost?: number }>;
 }
 
 /**
@@ -55,6 +57,15 @@ export interface OverallRanking {
   groupNumber: number;
   groupPosition: number;
   stats: TeamStatistics;
+}
+
+/**
+ * Interface estendida para estatísticas de equipe incluindo confronto direto
+ * Usada internamente para cálculos de ranking geral
+ */
+interface TeamStatisticsExtended extends TeamStatistics {
+  groupNumber: number;
+  headToHead: Map<string, { wins: number; gamesWon?: number; gamesLost?: number }>;
 }
 
 // Helper to create a unique key for a team (array of participant IDs)
@@ -90,149 +101,187 @@ export const calculateGroupRankings = (
   groupMatches: Match[],
   useExtendedCriteria = false
 ): GroupRanking[] => {
-  const teamStatsMap = new Map<string, GroupTeamStats>();
+  // Create a map to store team statistics
+  const teamStats: Map<string, TeamStatisticsExtended> = new Map();
 
-  const ensureTeamStats = (teamId: string[]) => {
-    const key = getTeamKey(teamId);
-    if (!teamStatsMap.has(key)) {
-      teamStatsMap.set(key, initializeTeamStats(teamId));
-    }
-    return teamStatsMap.get(key)!;
-  };
-
-  // First pass: process all matches to gather basic stats
-  for (const match of groupMatches) {
-    if (!match.completed || !match.team1 || !match.team2 || match.winnerId === null || match.score1 === null || match.score2 === null) {
-      continue;
+  // Process each completed match
+  groupMatches.forEach((match) => {
+    if (!match.completed || !match.team1 || !match.team2 || 
+        match.score1 === null || match.score2 === null) {
+      return;
     }
 
-    const team1Stats = ensureTeamStats(match.team1);
-    const team2Stats = ensureTeamStats(match.team2);
+    const team1Key = match.team1.join(',');
+    const team2Key = match.team2.join(',');
 
-    team1Stats.matchesPlayed++;
-    team2Stats.matchesPlayed++;
+    // Initialize team statistics if not already present
+    if (!teamStats.has(team1Key)) {
+      teamStats.set(team1Key, {
+        teamId: match.team1,
+        played: 0,
+        wins: 0,
+        losses: 0,
+        setsWon: 0,
+        setsLost: 0,
+        gamesWon: 0,
+        gamesLost: 0,
+        points: 0,
+        headToHeadWins: {},
+        matchesPlayed: 0,
+        gameDifference: 0,
+        setDifference: 0,
+        groupNumber: match.groupNumber || 0,
+        headToHead: new Map()
+      });
+    }
+    if (!teamStats.has(team2Key)) {
+      teamStats.set(team2Key, {
+        teamId: match.team2,
+        played: 0,
+        wins: 0,
+        losses: 0,
+        setsWon: 0,
+        setsLost: 0,
+        gamesWon: 0,
+        gamesLost: 0,
+        points: 0,
+        headToHeadWins: {},
+        matchesPlayed: 0,
+        gameDifference: 0,
+        setDifference: 0,
+        groupNumber: match.groupNumber || 0,
+        headToHead: new Map()
+      });
+    }
 
-    // Process games statistics
+    const team1Stats = teamStats.get(team1Key)!;
+    const team2Stats = teamStats.get(team2Key)!;
+
+    // Update basic statistics
     team1Stats.gamesWon += match.score1;
     team1Stats.gamesLost += match.score2;
+    team1Stats.matchesPlayed += 1;
+    team1Stats.played += 1;
+
     team2Stats.gamesWon += match.score2;
     team2Stats.gamesLost += match.score1;
+    team2Stats.matchesPlayed += 1;
+    team2Stats.played += 1;
 
-    // Track who won the match
-    if (match.winnerId === 'team1') {
-      team1Stats.wins++;
-      team2Stats.losses++;
-      if (team1Stats.headToHeadWins) {
-        team1Stats.headToHeadWins[getTeamKey(match.team2)] = true;
-      } else {
-        team1Stats.headToHeadWins = { [getTeamKey(match.team2)]: true };
+    // Determine winner and update win/loss records
+    if (match.score1 > match.score2) {
+      team1Stats.wins += 1;
+      team2Stats.losses += 1;
+      
+      // Record head-to-head
+      if (!team1Stats.headToHeadWins[team2Key]) {
+        team1Stats.headToHeadWins[team2Key] = true;
       }
-
-      // Count sets if using extended criteria
-      if (useExtendedCriteria && match.beachTennisScore) {
-        // Count sets from detailed score data
-        match.beachTennisScore.sets.forEach(set => {
-          if (set.team1Games > set.team2Games ||
-              (set.tiebreak && set.tiebreak.team1Points > set.tiebreak.team2Points)) {
-            team1Stats.setsWon++;
-            team2Stats.setsLost++;
-          } else if (set.team2Games > set.team1Games ||
-                    (set.tiebreak && set.tiebreak.team2Points > set.tiebreak.team1Points)) {
-            team2Stats.setsWon++;
-            team1Stats.setsLost++;
-          }
+      
+      if (team1Stats.headToHead) {
+        team1Stats.headToHead.set(team2Key, { 
+          wins: (team1Stats.headToHead.get(team2Key)?.wins || 0) + 1, 
+          gamesWon: match.score1, 
+          gamesLost: match.score2 
         });
-      } else {
-        // Simplified set counting if no detailed data
-        team1Stats.setsWon++;
-        team2Stats.setsLost++;
+      }
+      
+      if (team2Stats.headToHead) {
+        team2Stats.headToHead.set(team1Key, { 
+          wins: team2Stats.headToHead.get(team1Key)?.wins || 0, 
+          gamesWon: match.score2, 
+          gamesLost: match.score1 
+        });
       }
     } else {
-      team2Stats.wins++;
-      team1Stats.losses++;
-      if (team2Stats.headToHeadWins) {
-        team2Stats.headToHeadWins[getTeamKey(match.team1)] = true;
-      } else {
-        team2Stats.headToHeadWins = { [getTeamKey(match.team1)]: true };
+      team2Stats.wins += 1;
+      team1Stats.losses += 1;
+      
+      // Record head-to-head
+      if (!team2Stats.headToHeadWins[team1Key]) {
+        team2Stats.headToHeadWins[team1Key] = true;
       }
-
-      // Count sets if using extended criteria
-      if (useExtendedCriteria && match.beachTennisScore) {
-        // Count sets from detailed score data
-        match.beachTennisScore.sets.forEach(set => {
-          if (set.team2Games > set.team1Games ||
-              (set.tiebreak && set.tiebreak.team2Points > set.tiebreak.team1Points)) {
-            team2Stats.setsWon++;
-            team1Stats.setsLost++;
-          } else if (set.team1Games > set.team2Games ||
-                    (set.tiebreak && set.tiebreak.team1Points > set.tiebreak.team2Points)) {
-            team1Stats.setsWon++;
-            team2Stats.setsLost++;
-          }
+      
+      if (team2Stats.headToHead) {
+        team2Stats.headToHead.set(team1Key, { 
+          wins: (team2Stats.headToHead.get(team1Key)?.wins || 0) + 1, 
+          gamesWon: match.score2, 
+          gamesLost: match.score1 
         });
-      } else {
-        // Simplified set counting if no detailed data
-        team2Stats.setsWon++;
-        team1Stats.setsLost++;
+      }
+      
+      if (team1Stats.headToHead) {
+        team1Stats.headToHead.set(team2Key, { 
+          wins: team1Stats.headToHead.get(team2Key)?.wins || 0, 
+          gamesWon: match.score1, 
+          gamesLost: match.score2 
+        });
       }
     }
-  }
 
-  // Calculate derived statistics
-  const rankedTeams: GroupTeamStats[] = [];
-  teamStatsMap.forEach(stats => {
-    stats.gameDifference = stats.gamesWon - stats.gamesLost;
-    stats.setDifference = stats.setsWon - stats.setsLost;
-    rankedTeams.push(stats);
+    // Calculate game difference
+    team1Stats.gameDifference = team1Stats.gamesWon - team1Stats.gamesLost;
+    team2Stats.gameDifference = team2Stats.gamesWon - team2Stats.gamesLost;
   });
 
-  // Get the number of teams in the group for proportional calculations
-  const teamsInGroup = new Set();
-  groupMatches.forEach(match => {
-    if (match.team1) teamsInGroup.add(match.team1.join('|'));
-    if (match.team2) teamsInGroup.add(match.team2.join('|'));
-  });
-  const teamCount = teamsInGroup.size;
-  
-  // Calculate proportional factor based on group size
-  // Groups with fewer teams will have their scores adjusted upward
-  const proportionalFactor = teamCount >= 3 ? 1 : (3 / teamCount);
-  
-  // Apply proportional adjustment to stats
-  for (const [key, stats] of teamStatsMap.entries()) {
-    // Adjust win count proportionally
-    stats.proportionalWins = stats.wins * proportionalFactor;
-    // Adjust game difference proportionally
-    stats.proportionalGameDifference = stats.gameDifference * proportionalFactor;
-    // Adjust games won proportionally
-    stats.proportionalGamesWon = stats.gamesWon * proportionalFactor;
-  }
-
-  // Sort teams using the proportional stats first
-  const rankings = Object.entries(teamStatsMap).map(([teamId, stats]) => ({
-    teamId: teamId.split('|'),
-    stats,
+  // Convert to array and apply tiebreaker criteria based on Beach Tennis rules
+  const rankings: GroupRanking[] = Array.from(teamStats.values()).map(stats => ({
+    teamId: stats.teamId,
+    stats: stats,
     rank: 0,
-    position: 0, // Add position property that was missing
-    // Get group number from one of the matches but convert null to undefined
-    groupNumber: groupMatches[0]?.groupNumber || undefined
+    position: 0 // Initialize position
   }));
 
-  // Sort based on proportional stats for fairer comparison between different group sizes
+  // Sort teams according to Beach Tennis ranking rules
   rankings.sort((a, b) => {
-    // First by proportional wins
-    if ((a.stats.proportionalWins || 0) !== (b.stats.proportionalWins || 0)) {
-      return (b.stats.proportionalWins || 0) - (a.stats.proportionalWins || 0);
+    // 1. Number of wins (most wins first)
+    if (a.stats.wins !== b.stats.wins) {
+      return b.stats.wins - a.stats.wins;
     }
-    // Then by proportional game difference
-    if ((a.stats.proportionalGameDifference || 0) !== (b.stats.proportionalGameDifference || 0)) {
-      return (b.stats.proportionalGameDifference || 0) - (a.stats.proportionalGameDifference || 0);
+
+    // 2. Game difference (best difference first)
+    if (a.stats.gameDifference !== b.stats.gameDifference) {
+      return b.stats.gameDifference - a.stats.gameDifference;
     }
-    // Then by proportional games won
-    if ((a.stats.proportionalGamesWon || 0) !== (b.stats.proportionalGamesWon || 0)) {
-      return (b.stats.proportionalGamesWon || 0) - (a.stats.proportionalGamesWon || 0);
+
+    // 3. Total games won (most games first)
+    if (a.stats.gamesWon !== b.stats.gamesWon) {
+      return b.stats.gamesWon - a.stats.gamesWon;
     }
-    // Fall back to head-to-head results
+
+    // 4. Head-to-head result if applicable (only if two teams are tied)
+    const aKey = a.teamId.join(',');
+    const bKey = b.teamId.join(',');
+    
+    const aVsBStats = a.stats.headToHead?.get(bKey);
+    const bVsAStats = b.stats.headToHead?.get(aKey);
+    
+    if (aVsBStats && bVsAStats) {
+      // Check head-to-head wins
+      if (aVsBStats.wins !== bVsAStats.wins) {
+        return bVsAStats.wins - aVsBStats.wins;
+      }
+      
+      // If tied on direct wins, compare game difference in head-to-head
+      const aDirectGameDiff = (aVsBStats.gamesWon || 0) - (aVsBStats.gamesLost || 0);
+      const bDirectGameDiff = (bVsAStats.gamesWon || 0) - (bVsAStats.gamesLost || 0);
+      
+      if (aDirectGameDiff !== bDirectGameDiff) {
+        return bDirectGameDiff - aDirectGameDiff;
+      }
+    }
+
+    // 5. Fewest games lost (fewer losses first)
+    if (a.stats.gamesLost !== b.stats.gamesLost) {
+      return a.stats.gamesLost - b.stats.gamesLost;
+    }
+
+    // 6. Most matches played (more matches first, for irregular groups)
+    if (a.stats.matchesPlayed !== b.stats.matchesPlayed) {
+      return b.stats.matchesPlayed - a.stats.matchesPlayed;
+    }
+
+    // 7. As a last resort, alphabetical order by team ID for consistency
     return a.teamId.join(',').localeCompare(b.teamId.join(','));
   });
 
@@ -259,7 +308,7 @@ export const calculateGroupRankings = (
  * @returns Array de rankings ordenados seguindo as regras oficiais
  */
 export function calculateOverallGroupStageRankings(allGroupMatches: Match[]): OverallRanking[] {
-  const teamStats = new Map<string, TeamStats>();
+  const teamStats = new Map<string, TeamStatisticsExtended>();
 
   // Coletar estatísticas de todas as partidas
   allGroupMatches.forEach(match => {
@@ -275,12 +324,18 @@ export function calculateOverallGroupStageRankings(allGroupMatches: Match[]): Ov
     if (!teamStats.has(team1Key)) {
       teamStats.set(team1Key, {
         teamId: match.team1,
+        played: 0,
         wins: 0,
         losses: 0,
+        setsWon: 0,
+        setsLost: 0,
         gamesWon: 0,
         gamesLost: 0,
-        gameDifference: 0,
+        points: 0,
+        headToHeadWins: {},
         matchesPlayed: 0,
+        gameDifference: 0,
+        setDifference: 0,
         groupNumber: match.groupNumber || 0,
         headToHead: new Map()
       });
@@ -288,12 +343,18 @@ export function calculateOverallGroupStageRankings(allGroupMatches: Match[]): Ov
     if (!teamStats.has(team2Key)) {
       teamStats.set(team2Key, {
         teamId: match.team2,
+        played: 0,
         wins: 0,
         losses: 0,
+        setsWon: 0,
+        setsLost: 0,
         gamesWon: 0,
         gamesLost: 0,
-        gameDifference: 0,
+        points: 0,
+        headToHeadWins: {},
         matchesPlayed: 0,
+        gameDifference: 0,
+        setDifference: 0,
         groupNumber: match.groupNumber || 0,
         headToHead: new Map()
       });
@@ -306,24 +367,50 @@ export function calculateOverallGroupStageRankings(allGroupMatches: Match[]): Ov
     team1Stats.gamesWon += match.score1;
     team1Stats.gamesLost += match.score2;
     team1Stats.matchesPlayed += 1;
+    team1Stats.played += 1;
 
     team2Stats.gamesWon += match.score2;
     team2Stats.gamesLost += match.score1;
     team2Stats.matchesPlayed += 1;
+    team2Stats.played += 1;
 
     // Determinar vencedor e atualizar vitórias/derrotas
     if (match.score1 > match.score2) {
       team1Stats.wins += 1;
       team2Stats.losses += 1;
       // Confronto direto
-      team1Stats.headToHead.set(team2Key, { wins: (team1Stats.headToHead.get(team2Key)?.wins || 0) + 1, gamesWon: match.score1, gamesLost: match.score2 });
-      team2Stats.headToHead.set(team1Key, { wins: team2Stats.headToHead.get(team1Key)?.wins || 0, gamesWon: match.score2, gamesLost: match.score1 });
+      if (team1Stats.headToHead) {
+        team1Stats.headToHead.set(team2Key, { 
+          wins: (team1Stats.headToHead.get(team2Key)?.wins || 0) + 1, 
+          gamesWon: match.score1, 
+          gamesLost: match.score2 
+        });
+      }
+      if (team2Stats.headToHead) {
+        team2Stats.headToHead.set(team1Key, { 
+          wins: team2Stats.headToHead.get(team1Key)?.wins || 0, 
+          gamesWon: match.score2, 
+          gamesLost: match.score1 
+        });
+      }
     } else {
       team2Stats.wins += 1;
       team1Stats.losses += 1;
       // Confronto direto
-      team2Stats.headToHead.set(team1Key, { wins: (team2Stats.headToHead.get(team1Key)?.wins || 0) + 1, gamesWon: match.score2, gamesLost: match.score1 });
-      team1Stats.headToHead.set(team2Key, { wins: team1Stats.headToHead.get(team2Key)?.wins || 0, gamesWon: match.score1, gamesLost: match.score2 });
+      if (team2Stats.headToHead) {
+        team2Stats.headToHead.set(team1Key, { 
+          wins: (team2Stats.headToHead.get(team1Key)?.wins || 0) + 1, 
+          gamesWon: match.score2, 
+          gamesLost: match.score1 
+        });
+      }
+      if (team1Stats.headToHead) {
+        team1Stats.headToHead.set(team2Key, { 
+          wins: team1Stats.headToHead.get(team2Key)?.wins || 0, 
+          gamesWon: match.score1, 
+          gamesLost: match.score2 
+        });
+      }
     }
 
     // Calcular saldo de games
@@ -361,8 +448,8 @@ export function calculateOverallGroupStageRankings(allGroupMatches: Match[]): Ov
     const aKey = a.teamId.join(',');
     const bKey = b.teamId.join(',');
     
-    const aVsBStats = a.stats.headToHead.get(bKey);
-    const bVsAStats = b.stats.headToHead.get(aKey);
+    const aVsBStats = a.stats.headToHead?.get(bKey);
+    const bVsAStats = b.stats.headToHead?.get(aKey);
     
     if (aVsBStats && bVsAStats) {
       // Verificar vitórias no confronto direto
@@ -917,8 +1004,8 @@ function organizeTeamsForElimination(teams: OverallRanking[]): OverallRanking[] 
   const maxLength = Math.max(firstPlaceTeams.length, secondPlaceTeams.length);
   
   for (let i = 0; i < maxLength; i++) {
-    if (firstPlaceTeams[i]) organized.push(firstPlaceTeams[i]);
-    if (secondPlaceTeams[i]) organized.push(secondPlaceTeams[i]);
+    if (i < firstPlaceTeams.length) organized.push(firstPlaceTeams[i]);
+    if (i < secondPlaceTeams.length) organized.push(secondPlaceTeams[i]);
   }
   
   return organized;

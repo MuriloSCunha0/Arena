@@ -262,7 +262,7 @@ const AuthenticatedRoutes = () => {
             
           if (!error && userData && isMounted) {
             const appMeta = userData.app_metadata || {};
-            let detectedRole = 'participante';
+            let detectedRole: 'admin' | 'participante' = 'participante'; // Fix: Use proper UserRole type instead of string
             
             // Check various role sources
             if (appMeta.roles && Array.isArray(appMeta.roles)) {

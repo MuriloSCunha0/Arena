@@ -15,6 +15,7 @@ import { formatPhone, formatDate } from '../../utils/formatters';
 import { Button } from '../../components/ui/Button';
 import { useNotificationStore } from '../../components/ui/Notification';
 import { useAuth } from '../../hooks/useAuth';
+import { supabase } from '../../lib/supabase'; // Fixed import path from supabaseClient to supabase
 
 export const ParticipantProfileNew = () => {
   const { id } = useParams<{ id: string }>();
@@ -42,10 +43,35 @@ export const ParticipantProfileNew = () => {
       
       try {
         setLoading(true);
-        const profileData = await ParticipanteService.getProfileWithStats(id);
-        setProfile(profileData);
+        
+        // Buscar dados do participante usando uma abordagem mais robusta
+        const { data: participantData, error: participantError } = await supabase
+          .from('participants')
+          .select(`
+            *,
+            events(title, date, location, status)
+          `)
+          .eq('user_id', id)
+          .maybeSingle();
+
+        if (participantData && !participantError) {
+          setProfile(participantData);
+        } else {
+          // Fallback para tabela users se necessário
+          const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', id)
+            .maybeSingle();
+
+          if (userData && !userError) {
+            setProfile(userData);
+          } else {
+            throw new Error('Participante não encontrado');
+          }
+        }
       } catch (error) {
-        console.error('Error fetching participant profile:', error);
+        console.error('Erro ao buscar perfil do participante:', error);
         addNotification({
           type: 'error',
           message: 'Não foi possível carregar os dados do participante'
