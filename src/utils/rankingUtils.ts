@@ -707,6 +707,7 @@ export function generateEliminationBracket(
   let teamsInRound = Math.floor(qualifiedTeams.length / 2);
   currentRound++;
   
+  
   while (teamsInRound > 1) {
     currentPosition = 1;
     for (let i = 0; i < Math.floor(teamsInRound / 2); i++) {
