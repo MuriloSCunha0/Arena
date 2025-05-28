@@ -776,39 +776,88 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     } else {
       addNotification({ type: 'info', message: 'Esta partida já foi concluída.' });
     }
-  };
-
-  // Fix in the handleSaveMatchResults function where bracket line highlight is determined
+  };  // Função melhorada para automaticamente avançar os times vencedores
   const handleSaveMatchResults = async (matchId: string, score1: number, score2: number) => {
     try {
+      // Salvar resultados no banco de dados
       await updateMatchResults(matchId, score1, score2);
       
-      // Trigger animation for winner
-      setTimeout(() => {
-        const winnerId = score1 > score2 ? 'team1' : 'team2';
-        const match = tournament?.matches.find(m => m.id === matchId);
-        
-        if (match && match.round < eliminationRoundsArray.length) {
-          const nextRound = match.round + 1;
-          const nextPosition = Math.ceil(match.position / 2);
-          
-          const nextMatchId = eliminationMatches.find(
-            m => m.round === nextRound && m.position === nextPosition
-          )?.id;
-          
-          if (nextMatchId && matchCardRefs.current[nextMatchId]) {
-            // Adicionar classe temporariamente para acionar a animação
-            matchCardRefs.current[nextMatchId].classList.add('winner-animation');
-            setTimeout(() => {
-              if (matchCardRefs.current[nextMatchId]) {
-                matchCardRefs.current[nextMatchId].classList.remove('winner-animation');
-              }
-            }, 2000);
-          }
-        }
-      }, 300);
+      // Determinar o time vencedor e os dados necessários para o avanço
+      const winnerId = score1 > score2 ? 'team1' : 'team2';
+      const currentMatch = tournament?.matches.find(m => m.id === matchId);
       
-      addNotification({ type: 'success', message: 'Resultado atualizado!' });
+      if (!currentMatch || currentMatch.stage !== 'ELIMINATION') {
+        addNotification({ type: 'success', message: 'Resultado atualizado!' });
+        return; // Não é uma partida da fase eliminatória
+      }
+      
+      // Dados do time vencedor
+      const winnerTeamId = winnerId === 'team1' ? currentMatch.team1 : currentMatch.team2;
+      
+      // Encontrar a próxima partida
+      const nextRound = currentMatch.round + 1;
+      const nextPosition = Math.ceil((currentMatch.position || 0) / 2);
+      
+      const nextMatch = eliminationMatches.find(
+        m => m.round === nextRound && m.position === nextPosition
+      );
+      
+      if (nextMatch && winnerTeamId) {
+        // Avançar o time vencedor para a próxima partida localmente
+        const updatedTournament = {...tournament!};
+        const updatedMatches = [...updatedTournament.matches];
+        
+        // Encontrar o índice da próxima partida
+        const nextMatchIndex = updatedMatches.findIndex(m => m.id === nextMatch.id);
+        
+        if (nextMatchIndex !== -1) {
+          // Determinar o slot (team1 ou team2) baseado na posição
+          if (currentMatch.position % 2 === 1) {
+            // Posição ímpar vai para team1
+            updatedMatches[nextMatchIndex] = {
+              ...updatedMatches[nextMatchIndex],
+              team1: winnerTeamId
+            };
+          } else {
+            // Posição par vai para team2
+            updatedMatches[nextMatchIndex] = {
+              ...updatedMatches[nextMatchIndex],
+              team2: winnerTeamId
+            };
+          }
+          
+          // Atualizar o estado do torneio local sem chamar a API
+          useTournamentStore.setState({
+            tournament: {
+              ...updatedTournament,
+              matches: updatedMatches
+            }
+          });
+            // Adicionar efeito visual para destacar o avanço
+          setTimeout(() => {            
+            if (nextMatch?.id && matchCardRefs.current?.[nextMatch.id]) {
+              // Adicionar classe para animar o avanço do vencedor
+              matchCardRefs.current[nextMatch.id]?.classList.add('winner-advance-animation');
+              
+              // Remover a animação após 2 segundos
+              setTimeout(() => {
+                if (matchCardRefs.current?.[nextMatch.id]) {
+                  matchCardRefs.current[nextMatch.id]?.classList.remove('winner-advance-animation');
+                }
+              }, 2000);
+            }
+          }, 300);
+          
+          addNotification({ 
+            type: 'success', 
+            message: `Resultado atualizado! ${winnerTeamId ? 'Time vencedor avançou automaticamente.' : ''}` 
+          });
+        } else {
+          addNotification({ type: 'success', message: 'Resultado atualizado!' });
+        }
+      } else {
+        addNotification({ type: 'success', message: 'Resultado atualizado!' });
+      }
     } catch (err) {
       console.error('Error saving match results:', err);
       const errorMessage = err instanceof Error ? err.message : 'Erro ao atualizar resultado.';

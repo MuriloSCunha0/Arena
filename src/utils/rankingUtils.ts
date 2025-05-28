@@ -1013,17 +1013,73 @@ function organizeTeamsForElimination(teams: OverallRanking[]): OverallRanking[] 
 
 /**
  * Gera eliminação adaptativa para números variados de times
+ * Os BYEs são atribuídos aos times com melhor colocação (primeiros colocados primeiro)
+ * usando critérios rigorosos de desempate
  */
 function generateAdaptiveElimination(teams: OverallRanking[], startingId: number): Match[] {
   const matches: Match[] = [];
   const totalTeams = teams.length;
   
-  // Encontrar a próxima potência de 2 menor que o total de times
-  const nextPowerOf2 = Math.pow(2, Math.floor(Math.log2(totalTeams)));
-  const byes = nextPowerOf2 - (totalTeams - nextPowerOf2);
+  // Encontrar a próxima potência de 2 maior ou igual ao total de times
+  const nextPowerOf2 = Math.pow(2, Math.ceil(Math.log2(totalTeams)));
+  const byesCount = nextPowerOf2 - totalTeams;
+  
+  // Ordenar times utilizando critérios rigorosos de desempate para garantir
+  // que os melhores times dos primeiros colocados recebam os BYEs
+  const sortedTeams = [...teams].sort((a, b) => {
+    // Primeiro por posição no grupo (1º, 2º, 3º...)
+    if (a.groupPosition !== b.groupPosition) {
+      return a.groupPosition - b.groupPosition;
+    }
+    
+    // Depois por vitórias
+    if (a.stats.wins !== b.stats.wins) {
+      return b.stats.wins - a.stats.wins;
+    }
+    
+    // Depois por saldo de games
+    if (a.stats.gameDifference !== b.stats.gameDifference) {
+      return b.stats.gameDifference - a.stats.gameDifference;
+    }
+    
+    // Depois por games ganhos
+    if (a.stats.gamesWon !== b.stats.gamesWon) {
+      return b.stats.gamesWon - a.stats.gamesWon;
+    }
+    
+    // Depois por games perdidos (menor é melhor)
+    if (a.stats.gamesLost !== b.stats.gamesLost) {
+      return a.stats.gamesLost - b.stats.gamesLost;
+    }
+    
+    // Depois por partidas jogadas (mais é melhor)
+    if (a.stats.matchesPlayed !== b.stats.matchesPlayed) {
+      return b.stats.matchesPlayed - a.stats.matchesPlayed;
+    }
+    
+    // Último critério para desempate: número do grupo (menor é melhor)
+    if (a.groupNumber !== b.groupNumber) {
+      return a.groupNumber - b.groupNumber;
+    }
+    
+    return 0;
+  });
+  
+  // Os times que receberão BYEs (melhor campanha/ranking)
+  const byeTeams = sortedTeams.slice(0, byesCount);
   
   // Times que jogam a primeira rodada
-  const playoffTeams = teams.slice(byes);
+  const playoffTeams = sortedTeams.slice(byesCount);
+  
+  // Log para depuração e verificação dos resultados
+  console.log(`Total de times: ${totalTeams}, BYEs: ${byesCount}`);
+  console.log('Times com BYE:', byeTeams.map(team => ({
+    teamId: team.teamId,
+    groupPosition: team.groupPosition,
+    groupNumber: team.groupNumber,
+    wins: team.stats.wins,
+    gameDiff: team.stats.gameDifference
+  })));
   
   // Gerar partidas da primeira rodada (playoffs)
   for (let i = 0; i < playoffTeams.length; i += 2) {
