@@ -1,5 +1,5 @@
 import { supabase } from '../../lib/supabase';
-import { Match, Tournament, Court, TeamFormationType, TournamentSettings } from '../../types';
+import { Match, Tournament, Court, TeamFormationType, TournamentSettings, tournament_status } from '../../types';
 import { 
   calculateGroupRankings, 
   GroupRanking, 
@@ -177,7 +177,7 @@ export const TournamentService = {
   },
 
   // Add the missing updateStatus method
-  updateStatus: async (tournamentId: string, status: string): Promise<void> => {
+  updateStatus: async (tournamentId: string, status: tournament_status): Promise<void> => {
     try {
       const { error } = await supabase
         .from('tournaments')
@@ -600,10 +600,9 @@ export const TournamentService = {
       } catch (matchError) {
         console.warn('Could not insert elimination matches:', matchError);
       }
-      
-      // Update tournament status
+        // Update tournament status
       try {
-        await TournamentService.updateStatus(tournamentId, 'KNOCKOUTS'); // Changed: 'ELIMINATION' back to 'KNOCKOUTS' due to type error
+        await TournamentService.updateStatus(tournamentId, 'STARTED'); // Changed to 'STARTED' which is a valid tournament_status value
       } catch (statusError) {
         console.warn('Could not update tournament status:', statusError);
       }
@@ -612,7 +611,7 @@ export const TournamentService = {
       const updatedTournament: Tournament = {
         ...currentTournament,
         matches: [...currentTournament.matches, ...eliminationMatches],
-        status: 'KNOCKOUTS' // Changed: 'ELIMINATION' back to 'KNOCKOUTS' due to type error
+        status: 'STARTED' // Changed to 'STARTED' which is a valid tournament_status value
       };
       
       console.log(`Elimination bracket generated with ${eliminationMatches.length} matches`);

@@ -205,14 +205,27 @@ function App() {
           <NotificationContainer />
           <BlockDetector />
           <Routes>
-            {/* Public Routes */}
-            <Route path="/login" element={
+            {/* Public Routes */}            <Route path="/login" element={
               user === null ? <Login /> : <Navigate to="/" replace />
             } />
             <Route path="/register" element={
               user === null ? <Register /> : <Navigate to="/" replace />
+            } />            <Route path="/inscricao/:eventId" element={<EventRegistration />} />
+              {/* TV display routes - always accessible without login */}
+            <Route path="/tournament/bracket/tv" element={
+              <Suspense fallback={<LoadingFallback />}>
+                {React.createElement(
+                  lazy(() => import('./pages/tournament/TournamentBracketTV'))
+                )}
+              </Suspense>
             } />
-            <Route path="/inscricao/:eventId" element={<EventRegistration />} />
+            <Route path="/event/tv" element={
+              <Suspense fallback={<LoadingFallback />}>
+                {React.createElement(
+                  lazy(() => import('./pages/tournament/EventTVBroadcast'))
+                )}
+              </Suspense>
+            } />
             
             {/* Protected Routes */}
             <Route path="/*" element={

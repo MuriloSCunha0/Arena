@@ -413,21 +413,103 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
   const [loadingEventDetails, setLoadingEventDetails] = useState(true);
   const [viewMode, setViewMode] = useState<'all' | 'by-court'>('all');
   const [selectedCourtId, setSelectedCourtId] = useState<string | null>(null);
-  const [showGroupRankingsModal, setShowGroupRankingsModal] = useState(false);
-  const [calculatedRankings, setCalculatedRankings] = useState<Record<number, GroupRanking[]>>({});
+  const [showGroupRankingsModal, setShowGroupRankingsModal] = useState(false);  const [calculatedRankings, setCalculatedRankings] = useState<Record<number, GroupRanking[]>>({});
   const [zoomLevel, setZoomLevel] = useState(100);
+  const [autoZoomLevel, setAutoZoomLevel] = useState<number | null>(null);
   const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
-  const [resetInProgress, setResetInProgress] = useState(false);
-  const [overallGroupRankings, setOverallGroupRankings] = useState<OverallRanking[]>([]);
-  const [showOverallRankingsModal, setShowOverallRankingsModal] = useState(false);  const [isFullScreen, setIsFullScreen] = useState(false); // Add state for full-screen mode
-    // Configurações otimizadas do chaveamento
+  const [resetInProgress, setResetInProgress] = useState(false);  const [overallGroupRankings, setOverallGroupRankings] = useState<OverallRanking[]>([]);
+  const [showOverallRankingsModal, setShowOverallRankingsModal] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(false); // Add state for full-screen mode
+  
+  // Configurações otimizadas do chaveamento
   const matchWidth = 240;       // Largura de cada cartão de partida
   const matchHeight = 100;      // Altura de cada cartão de partida
   const horizontalGap = 280;    // Espaço horizontal entre as rodadas (aumentado para evitar sobreposição)
   const verticalPadding = 80;   // Espaço vertical para centralizar o chaveamento
   const globalCenterY = 500;    // Centro vertical para alinhamento do chaveamento
 
-  // Add toggleFullScreen function implementation
+  // Function to calculate optimal zoom level for fullscreen
+  const calculateOptimalZoom = (): number => {
+    if (!bracketContainerRef.current) return 100;
+    
+    const container = bracketContainerRef.current;
+    const screenWidth = window.screen.width;
+    const screenHeight = window.screen.height;
+    
+    // Get the natural dimensions of the bracket
+    const bracketWidth = container.scrollWidth;
+    const bracketHeight = container.scrollHeight;
+    
+    // Calculate zoom to fit both width and height with some padding
+    const widthZoom = (screenWidth * 0.95) / bracketWidth * 100;
+    const heightZoom = (screenHeight * 0.90) / bracketHeight * 100;
+    
+    // Use the smaller zoom to ensure everything fits
+    const optimalZoom = Math.min(widthZoom, heightZoom);
+    
+    // Ensure zoom is within reasonable bounds
+    return Math.max(50, Math.min(150, Math.round(optimalZoom)));
+  };  // Function to open tournament bracket in a new tab for displaying on a TV
+  const openInNewTab = () => {
+    try {
+      if (!tournament || !tournament.id) {
+        addNotification({ type: 'warning', message: 'Não há torneio para exibir' });
+        return;
+      }
+
+      // Save current tournament state to sessionStorage for the new tab
+      const bracketData = {
+        tournamentId: tournament.id,
+        eventId: tournament.eventId,
+        timestamp: Date.now() // Use this to check for updates
+      };
+      sessionStorage.setItem('tvBracketData', JSON.stringify(bracketData));
+      
+      // Generate URL with tournament and event IDs
+      const url = `/tournament/bracket/tv?tournamentId=${tournament.id}&eventId=${tournament.eventId}`;
+      
+      // Open in a new tab
+      window.open(url, '_blank', 'noopener,noreferrer');
+      addNotification({ 
+        type: 'success', 
+        message: 'Chaveamento aberto em nova aba para exibição em tela cheia' 
+      });
+    } catch (error) {
+      console.error('Error opening tournament in new tab:', error);
+      addNotification({ 
+        type: 'error', 
+        message: 'Não foi possível abrir o chaveamento em nova aba'
+      });
+    }
+  };
+
+  // Function to open complete event broadcast in a new tab
+  const openEventBroadcast = () => {
+    try {
+      if (!eventId) {
+        addNotification({ type: 'warning', message: 'Não há evento para transmitir' });
+        return;
+      }
+
+      // Generate URL with event ID
+      const url = `/event/tv?eventId=${eventId}`;
+      
+      // Open in a new tab
+      window.open(url, '_blank', 'noopener,noreferrer');
+      addNotification({ 
+        type: 'success', 
+        message: 'Transmissão do evento aberta em nova aba' 
+      });
+    } catch (error) {
+      console.error('Error opening event broadcast:', error);
+      addNotification({ 
+        type: 'error', 
+        message: 'Não foi possível abrir a transmissão do evento'
+      });
+    }
+  };
+  
+  // Legacy fullscreen function (keeping in case we need it)
   const toggleFullScreen = () => {
     if (!document.fullscreenElement) {
       // Enter full-screen mode
@@ -435,6 +517,12 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
         bracketContainerRef.current.parentElement.requestFullscreen()
           .then(() => {
             setIsFullScreen(true);
+            // Calculate and apply optimal zoom for fullscreen
+            setTimeout(() => {
+              const optimalZoom = calculateOptimalZoom();
+              setAutoZoomLevel(zoomLevel); // Save current zoom to restore later
+              setZoomLevel(optimalZoom);
+            }, 100); // Small delay to ensure fullscreen is applied
           })
           .catch(err => {
             console.error(`Error attempting to enable full-screen mode: ${err.message}`);
@@ -447,6 +535,11 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
         document.exitFullscreen()
           .then(() => {
             setIsFullScreen(false);
+            // Restore previous zoom level
+            if (autoZoomLevel !== null) {
+              setZoomLevel(autoZoomLevel);
+              setAutoZoomLevel(null);
+            }
           })
           .catch(err => {
             console.error(`Error attempting to exit full-screen mode: ${err.message}`);
@@ -454,11 +547,17 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       }
     }
   };
-
   // Add event listener for fullscreen changes
   useEffect(() => {
     const handleFullScreenChange = () => {
-      setIsFullScreen(!!document.fullscreenElement);
+      const isFullscreen = !!document.fullscreenElement;
+      setIsFullScreen(isFullscreen);
+      
+      // If exiting fullscreen and we have a saved zoom level, restore it
+      if (!isFullscreen && autoZoomLevel !== null) {
+        setZoomLevel(autoZoomLevel);
+        setAutoZoomLevel(null);
+      }
     };
 
     document.addEventListener('fullscreenchange', handleFullScreenChange);
@@ -466,7 +565,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     return () => {
       document.removeEventListener('fullscreenchange', handleFullScreenChange);
     };
-  }, []);
+  }, [autoZoomLevel]);
 
   // State for placement-specific rankings modal
   const [placementRankingModalTitle, setPlacementRankingModalTitle] = useState<string>('');
@@ -1752,8 +1851,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
               <span>Participantes: <span className="font-medium">{eventParticipants.length}</span></span>
             </div>
           </div>
-          
-          <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2">
             {/* Controls and buttons */}
             {tournament.status === 'CREATED' && (
               <Button 
@@ -1772,6 +1870,15 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
             >
               <RefreshCw size={16} className="mr-2" />
               Reiniciar
+            </Button>
+
+            <Button 
+              variant="outline"
+              onClick={openEventBroadcast}
+              className="flex items-center"
+            >
+              <Maximize2 size={16} className="mr-2" />
+              Transmissão TV
             </Button>
           </div>
         </div>
@@ -1911,24 +2018,13 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <h3 className="text-xl font-semibold text-brand-blue">Chaveamento Eliminatório</h3>
-              <div className="flex items-center gap-4">
-                <Button
+              <div className="flex items-center gap-4">                <Button
                   variant="outline"
                   size="sm"
-                  onClick={toggleFullScreen}
+                  onClick={openInNewTab}
                   className="flex items-center"
-                >
-                  {isFullScreen ? (
-                    <>
-                      <Minimize2 size={16} className="mr-1" />
-                      Sair da Tela Cheia
-                    </>
-                  ) : (
-                    <>
-                      <Maximize2 size={16} className="mr-1" />
-                      Tela Cheia
-                    </>
-                  )}
+                >                  <Maximize2 size={16} className="mr-1" />
+                  Exibir na TV
                 </Button>
                   <div className="flex items-center gap-2">
                   <label className="text-sm font-medium">Zoom:</label>

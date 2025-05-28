@@ -1,8 +1,8 @@
 import { supabase } from '../lib/supabase';
 import { Tournament, Match, TeamFormationType } from '../types';
-import { calculateGroupRankings, GroupRanking } from '../utils/rankingUtils'; // Import ranking utility
-import { createTwoSidedBracket, BracketSidesMetadata } from '../utils/bracketSidesUtil'; // Import two-sided bracket utilities
-import { distributeTeamsIntoGroups } from '../utils/groupFormationUtils'; // Import group formation utility
+import { calculateGroupRankings, GroupRanking } from '../utils/rankingUtils'; 
+import { createTwoSidedBracket, BracketSidesMetadata } from '../utils/bracketSidesUtil'; 
+import { distributeTeamsIntoGroups } from '../utils/groupFormationUtils'; 
 import { BracketPosition } from '../utils/bracketUtils';
 // Import the tournament store
 import { useTournamentStore } from '../store/tournamentStore';
@@ -447,13 +447,11 @@ export const TournamentService = {
             group_number: match.groupNumber,
           })));
         if (insertError) throw insertError;
-      }
-
-      // Update tournament status
+      }      // Update tournament status
       const { error: updateError } = await supabase
         .from('tournaments')
         .update({
-          status: 'ELIMINATION',
+          status: 'STARTED',
           updated_at: new Date().toISOString()
         })
         .eq('id', tournamentId);
