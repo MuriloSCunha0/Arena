@@ -413,20 +413,43 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
   const [loadingEventDetails, setLoadingEventDetails] = useState(true);
   const [viewMode, setViewMode] = useState<'all' | 'by-court'>('all');
   const [selectedCourtId, setSelectedCourtId] = useState<string | null>(null);
-  const [showGroupRankingsModal, setShowGroupRankingsModal] = useState(false);
-  const [calculatedRankings, setCalculatedRankings] = useState<Record<number, GroupRanking[]>>({});
+  const [showGroupRankingsModal, setShowGroupRankingsModal] = useState(false);  const [calculatedRankings, setCalculatedRankings] = useState<Record<number, GroupRanking[]>>({});
   const [zoomLevel, setZoomLevel] = useState(100);
+  const [autoZoomLevel, setAutoZoomLevel] = useState<number | null>(null);
   const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
-  const [resetInProgress, setResetInProgress] = useState(false);
-  const [overallGroupRankings, setOverallGroupRankings] = useState<OverallRanking[]>([]);
-  const [showOverallRankingsModal, setShowOverallRankingsModal] = useState(false);  const [isFullScreen, setIsFullScreen] = useState(false); // Add state for full-screen mode
-    // Configurações otimizadas do chaveamento
+  const [resetInProgress, setResetInProgress] = useState(false);  const [overallGroupRankings, setOverallGroupRankings] = useState<OverallRanking[]>([]);
+  const [showOverallRankingsModal, setShowOverallRankingsModal] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(false); // Add state for full-screen mode
+  
+  // Configurações otimizadas do chaveamento
   const matchWidth = 240;       // Largura de cada cartão de partida
   const matchHeight = 100;      // Altura de cada cartão de partida
   const horizontalGap = 280;    // Espaço horizontal entre as rodadas (aumentado para evitar sobreposição)
   const verticalPadding = 80;   // Espaço vertical para centralizar o chaveamento
   const globalCenterY = 500;    // Centro vertical para alinhamento do chaveamento
 
+  // Function to calculate optimal zoom level for fullscreen
+  const calculateOptimalZoom = (): number => {
+    if (!bracketContainerRef.current) return 100;
+    
+    const container = bracketContainerRef.current;
+    const screenWidth = window.screen.width;
+    const screenHeight = window.screen.height;
+    
+    // Get the natural dimensions of the bracket
+    const bracketWidth = container.scrollWidth;
+    const bracketHeight = container.scrollHeight;
+    
+    // Calculate zoom to fit both width and height with some padding
+    const widthZoom = (screenWidth * 0.95) / bracketWidth * 100;
+    const heightZoom = (screenHeight * 0.90) / bracketHeight * 100;
+    
+    // Use the smaller zoom to ensure everything fits
+    const optimalZoom = Math.min(widthZoom, heightZoom);
+    
+    // Ensure zoom is within reasonable bounds
+    return Math.max(50, Math.min(150, Math.round(optimalZoom)));
+  };
   // Add toggleFullScreen function implementation
   const toggleFullScreen = () => {
     if (!document.fullscreenElement) {
@@ -435,6 +458,12 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
         bracketContainerRef.current.parentElement.requestFullscreen()
           .then(() => {
             setIsFullScreen(true);
+            // Calculate and apply optimal zoom for fullscreen
+            setTimeout(() => {
+              const optimalZoom = calculateOptimalZoom();
+              setAutoZoomLevel(zoomLevel); // Save current zoom to restore later
+              setZoomLevel(optimalZoom);
+            }, 100); // Small delay to ensure fullscreen is applied
           })
           .catch(err => {
             console.error(`Error attempting to enable full-screen mode: ${err.message}`);
@@ -447,6 +476,11 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
         document.exitFullscreen()
           .then(() => {
             setIsFullScreen(false);
+            // Restore previous zoom level
+            if (autoZoomLevel !== null) {
+              setZoomLevel(autoZoomLevel);
+              setAutoZoomLevel(null);
+            }
           })
           .catch(err => {
             console.error(`Error attempting to exit full-screen mode: ${err.message}`);
@@ -454,11 +488,17 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       }
     }
   };
-
   // Add event listener for fullscreen changes
   useEffect(() => {
     const handleFullScreenChange = () => {
-      setIsFullScreen(!!document.fullscreenElement);
+      const isFullscreen = !!document.fullscreenElement;
+      setIsFullScreen(isFullscreen);
+      
+      // If exiting fullscreen and we have a saved zoom level, restore it
+      if (!isFullscreen && autoZoomLevel !== null) {
+        setZoomLevel(autoZoomLevel);
+        setAutoZoomLevel(null);
+      }
     };
 
     document.addEventListener('fullscreenchange', handleFullScreenChange);
@@ -466,7 +506,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     return () => {
       document.removeEventListener('fullscreenchange', handleFullScreenChange);
     };
-  }, []);
+  }, [autoZoomLevel]);
 
   // State for placement-specific rankings modal
   const [placementRankingModalTitle, setPlacementRankingModalTitle] = useState<string>('');

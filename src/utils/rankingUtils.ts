@@ -657,65 +657,95 @@ export function generateEliminationBracket(
   groupRankings: Record<number, GroupRanking[]>,
   qualifiersPerGroup: number = 2
 ): Match[] {
-  // Obter todos os qualificados organizados por colocação
-  const firstPlaceTeams = calculateRankingsForPlacement(groupRankings, 1);
-  const secondPlaceTeams = calculateRankingsForPlacement(groupRankings, 2);
-  
-  const allQualifiers = [...firstPlaceTeams, ...secondPlaceTeams];
-  const totalQualifiers = allQualifiers.length;
-  
-  // Verificar se temos um número válido para eliminatórias
-  if (totalQualifiers < 4) {
-    throw new Error('São necessários pelo menos 4 qualificados para a fase eliminatória');
+  const matches: Match[] = [];
+  const qualifiedTeams: string[][] = [];
+
+  // Extract qualified teams from each group
+  Object.values(groupRankings).forEach(rankings => {
+    for (let i = 0; i < Math.min(qualifiersPerGroup, rankings.length); i++) {
+      qualifiedTeams.push(rankings[i].teamId); // Changed from .team to .teamId
+    }
+  });
+
+  if (qualifiedTeams.length < 2) {
+    throw new Error('Pelo menos 2 times qualificados são necessários para a fase eliminatória');
   }
+
+  // Generate bracket structure
+  const totalTeams = qualifiedTeams.length;
+  const rounds = Math.ceil(Math.log2(totalTeams));
   
-  // Determinar o formato da eliminatória baseado no número de qualificados
-  const eliminationMatches: Match[] = [];
-  let matchIdCounter = 1;
+  // Create first round matches
+  let currentRound = 1;
+  let currentPosition = 1;
   
-  if (totalQualifiers === 4) {
-    // Semifinais diretas (4 times)
-    eliminationMatches.push(...generateSemifinals(firstPlaceTeams, secondPlaceTeams, matchIdCounter));
-    matchIdCounter += 2;
-    
-    // Final
-    eliminationMatches.push(generateFinalMatch(matchIdCounter));
-    
-  } else if (totalQualifiers === 6) {
-    // 6 times: 2 primeiros direto para semifinal, 4 segundos jogam quartas
-    const topTwoFirst = firstPlaceTeams.slice(0, 2);
-    const remainingTeams = [...firstPlaceTeams.slice(2), ...secondPlaceTeams];
-    
-    // Quartas de final (4 times restantes)
-    eliminationMatches.push(...generateQuarterFinals(remainingTeams, matchIdCounter));
-    matchIdCounter += 2;
-    
-    // Semifinais (2 vencedores das quartas + 2 primeiros colocados)
-    eliminationMatches.push(...generateSemifinalsWithByes(topTwoFirst, matchIdCounter));
-    matchIdCounter += 2;
-    
-    // Final
-    eliminationMatches.push(generateFinalMatch(matchIdCounter));
-    
-  } else if (totalQualifiers === 8) {
-    // 8 times: quartas de final completas
-    eliminationMatches.push(...generateFullQuarterFinals(allQualifiers, matchIdCounter));
-    matchIdCounter += 4;
-    
-    // Semifinais
-    eliminationMatches.push(...generateSemifinalsFromQuarters(matchIdCounter));
-    matchIdCounter += 2;
-    
-    // Final
-    eliminationMatches.push(generateFinalMatch(matchIdCounter));
-    
-  } else {
-    // Para outros números, usar algoritmo adaptativo
-    eliminationMatches.push(...generateAdaptiveElimination(allQualifiers, matchIdCounter));
+  for (let i = 0; i < qualifiedTeams.length; i += 2) {
+    if (i + 1 < qualifiedTeams.length) {
+      matches.push({
+        id: generateUUID(), // Use proper UUID here too
+        tournamentId: '', // Will be set by caller
+        eventId: '', // Will be set by caller
+        round: currentRound,
+        position: currentPosition++,
+        team1: qualifiedTeams[i],
+        team2: qualifiedTeams[i + 1],
+        score1: null,
+        score2: null,
+        winnerId: null,
+        completed: false,
+        courtId: null,
+        scheduledTime: null,
+        stage: 'ELIMINATION',
+        groupNumber: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
   }
+
+  // Generate subsequent rounds (empty matches to be filled by winners)
+  let teamsInRound = Math.floor(qualifiedTeams.length / 2);
+  currentRound++;
   
-  return eliminationMatches;
+  while (teamsInRound > 1) {
+    currentPosition = 1;
+    for (let i = 0; i < Math.floor(teamsInRound / 2); i++) {
+      matches.push({
+        id: generateUUID(), // Use proper UUID here too
+        tournamentId: '',
+        eventId: '',
+        round: currentRound,
+        position: currentPosition++,
+        team1: null,
+        team2: null,
+        score1: null,
+        score2: null,
+        winnerId: null,
+        completed: false,
+        courtId: null,
+        scheduledTime: null,
+        stage: 'ELIMINATION',
+        groupNumber: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    
+    teamsInRound = Math.floor(teamsInRound / 2);
+    currentRound++;
+  }
+
+  return matches;
 }
+
+// Add the UUID generation function at the top of the file if not already present
+const generateUUID = (): string => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
 
 /**
  * Gera semifinais diretas para 4 times

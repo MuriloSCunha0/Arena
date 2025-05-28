@@ -10,6 +10,15 @@ import {
 import { handleSupabaseError } from '../../utils/supabase-error-handler';
 import { distributeTeamsIntoGroups, createTournamentStructure } from '../../utils/groupFormationUtils';
 
+// Add UUID generation function
+const generateUUID = (): string => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
+
 const transformMatch = (data: any): Match => ({
   id: data.id,
   eventId: data.event_id,
@@ -195,90 +204,88 @@ export const TournamentService = {
       throw error;
     }
   },
-
   // Add the missing updateMatch method
   updateMatch: async (matchId: string, updates: Partial<Match>): Promise<Match> => {
     try {
-      // Prepare the update data for Supabase format with proper typing
-      const updateData: Record<string, any> = {
-        score1: updates.score1,
-        score2: updates.score2,
-        winner_id: updates.winnerId,
-        completed: updates.completed,
-        updated_at: new Date().toISOString(),
-        // Add other fields that might be updated
-        court_id: updates.courtId,
-        scheduled_time: updates.scheduledTime,
-        stage: updates.stage,
-        group_number: updates.groupNumber
+      // Fetch the current match to preserve data
+      const { data: currentMatch, error: fetchError } = await supabase
+        .from('tournament_matches')
+        .select('*')
+        .eq('id', matchId)
+        .single();
+        
+      if (fetchError) {
+        console.error('Error fetching match data:', fetchError);
+        throw new Error('Erro ao buscar dados da partida');
+      }
+      
+      if (!currentMatch) {
+        throw new Error('Partida não encontrada');
+      }
+      
+      // Prepare the update object for the database
+      // Be careful with the structure and keep the original team arrays
+      const updateData = {
+        ...(updates.score1 !== undefined && { score1: updates.score1 }),
+        ...(updates.score2 !== undefined && { score2: updates.score2 }),
+        ...(updates.winnerId !== undefined && { winner_id: updates.winnerId }),
+        ...(updates.completed !== undefined && { completed: updates.completed }),
+        ...(updates.courtId !== undefined && { court_id: updates.courtId }),
+        ...(updates.scheduledTime !== undefined && { scheduled_time: updates.scheduledTime }),
+        // Keep the group number as is - important for our issue
+        ...(updates.groupNumber !== undefined && { group_number: updates.groupNumber })
       };
-
-      // Remove undefined values using proper typing
-      Object.keys(updateData).forEach((key: string) => {
-        if (updateData[key] === undefined) {
-          delete updateData[key];
-        }
-      });
-
-      // Try to update in the tournament_matches table first
+      
       try {
-        const { data: updatedMatch, error: updateError } = await supabase
+        // Update the match in the database
+        const { data: updatedMatch, error } = await supabase
           .from('tournament_matches')
           .update(updateData)
           .eq('id', matchId)
           .select()
           .single();
-
-        if (updateError) {
-          if (updateError.code === '42P01') {
-            // Table doesn't exist, handle differently
-            throw new Error('tournament_matches table not found');
-          } else {
-            throw updateError;
-          }
+        
+        if (error) {
+          console.error('Could not update in tournament_matches table:', error);
+          throw new Error('Erro ao atualizar resultado da partida');
         }
-
-        return transformMatch(updatedMatch);
+        
+        // Convert from snake_case to camelCase
+        return {
+          ...updatedMatch,
+          tournamentId: updatedMatch.tournament_id,
+          eventId: updatedMatch.event_id,
+          winnerId: updatedMatch.winner_id,
+          courtId: updatedMatch.court_id,
+          scheduledTime: updatedMatch.scheduled_time,
+          groupNumber: updatedMatch.group_number,
+          // Preserve the team arrays as they are
+          team1: updatedMatch.team1,
+          team2: updatedMatch.team2
+        } as Match;
+        
       } catch (matchTableError) {
-        console.warn('Could not update in tournament_matches table:', matchTableError);
-        
-        // Fallback: try to update the tournament data directly if matches are stored there
-        // This is a more complex operation since we need to update nested data
-        
-        // For now, return a mock updated match object
-        // In a real implementation, you might need to fetch the tournament,
-        // update the matches array, and save it back
-        const mockUpdatedMatch: Match = {
-          id: matchId,
-          eventId: updates.eventId || '',
-          tournamentId: updates.tournamentId || '',
-          round: updates.round || 0,
-          position: updates.position || 0,
-          team1: updates.team1 || null,
-          team2: updates.team2 || null,
-          score1: updates.score1 || null,
-          score2: updates.score2 || null,
-          winnerId: updates.winnerId || null,
-          completed: updates.completed || false,
-          courtId: updates.courtId || null,
-          scheduledTime: updates.scheduledTime || null,
-          stage: updates.stage || 'GROUP',
-          groupNumber: updates.groupNumber || null,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-
-        return mockUpdatedMatch;
+        console.error('Error updating match in tournament_matches table:', matchTableError);
+        throw new Error('Erro ao atualizar resultado da partida');
       }
     } catch (error) {
       console.error('Error updating match:', error);
-      throw handleSupabaseError(error, 'updating match');
+      throw error instanceof Error ? error : new Error('Erro desconhecido ao atualizar partida');
     }
-  },
-
-  // Add a specific method for updating match results
+  },  // Add a specific method for updating match results
   updateMatchResults: async (matchId: string, score1: number, score2: number): Promise<Match> => {
     try {
+      // First, get the current match data to preserve important fields like groupNumber
+      const { data: currentMatch, error } = await supabase
+        .from('tournament_matches')
+        .select('*')
+        .eq('id', matchId)
+        .single();
+        
+      if (error && error.code !== '42P01') {
+        throw error;
+      }
+      
       // Determine winner based on scores
       const winnerId = score1 > score2 ? 'team1' : 'team2';
       
@@ -286,7 +293,12 @@ export const TournamentService = {
         score1,
         score2,
         winnerId,
-        completed: true
+        completed: true,
+        // Ensure we keep the team arrays
+        team1: currentMatch?.team1,
+        team2: currentMatch?.team2,
+        // Preserve the original group number if we have it
+        groupNumber: currentMatch?.group_number
       };
 
       return await TournamentService.updateMatch(matchId, updates);
@@ -380,7 +392,7 @@ export const TournamentService = {
             for (let j = 0; j < groupTeams.length; j++) {
                 for (let k = j + 1; k < groupTeams.length; k++) {
                     groupMatches.push({
-                        id: `match_${groupNum}_${j}_${k}_${Date.now()}_${Math.random()}`,
+                        id: generateUUID(), // Use proper UUID instead of custom string
                         tournamentId: '', // Will be set after tournament creation
                         eventId: eventId,
                         round: 0,
@@ -409,11 +421,11 @@ export const TournamentService = {
                 const { data: formatEnumData, error: enumError } = await supabase
                     .from('pg_enum')
                     .select('enumlabel')
-                    .eq('enumtypid', 'tournament_format') // Changed: Removed ::regtype
+                    .eq('enumtypid', 'tournament_format')
                     .in('enumlabel', ['GROUPS_KNOCKOUT', 'SINGLE_ELIMINATION', 'DOUBLE_ELIMINATION', 'ROUND_ROBIN']);
 
                 // Use a valid format value based on available enum options or default to SINGLE_ELIMINATION
-                const validFormat = (formatEnumData && formatEnumData.length > 0) // Changed: More explicit check
+                const validFormat = (formatEnumData && formatEnumData.length > 0)
                     ? formatEnumData[0].enumlabel 
                     : 'SINGLE_ELIMINATION';
 
@@ -480,7 +492,7 @@ export const TournamentService = {
         if (groupMatches.length > 0) {
           try {
             const matchesToInsert = groupMatches.map(match => ({
-              id: match.id,
+              id: match.id, // Now this will be a proper UUID
               event_id: match.eventId,
               tournament_id: match.tournamentId,
               round: match.round,
@@ -530,7 +542,7 @@ export const TournamentService = {
             groupSize: defaultGroupSize, 
             qualifiersPerGroup: 2
           },
-          teamFormation: teamFormation, // Keep this as a property on Tournament object
+          teamFormation: teamFormation,
           isNewTournament: isNewTournament
         };
 
@@ -600,10 +612,9 @@ export const TournamentService = {
       } catch (matchError) {
         console.warn('Could not insert elimination matches:', matchError);
       }
-      
-      // Update tournament status
+        // Update tournament status
       try {
-        await TournamentService.updateStatus(tournamentId, 'KNOCKOUTS'); // Changed: 'ELIMINATION' back to 'KNOCKOUTS' due to type error
+        await TournamentService.updateStatus(tournamentId, 'STARTED'); // Changed: Use 'STARTED' as a valid tournament_status value
       } catch (statusError) {
         console.warn('Could not update tournament status:', statusError);
       }
@@ -612,7 +623,7 @@ export const TournamentService = {
       const updatedTournament: Tournament = {
         ...currentTournament,
         matches: [...currentTournament.matches, ...eliminationMatches],
-        status: 'KNOCKOUTS' // Changed: 'ELIMINATION' back to 'KNOCKOUTS' due to type error
+        status: 'STARTED' // Changed: Use 'STARTED' as a valid tournament_status value
       };
       
       console.log(`Elimination bracket generated with ${eliminationMatches.length} matches`);
