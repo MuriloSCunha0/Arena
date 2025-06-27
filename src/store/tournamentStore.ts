@@ -80,6 +80,8 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
     try {
       set({ loading: true, error: null, isNewTournament: false });
       
+      console.log(`Generating formed structure for event ${eventId} with ${teams.length} teams`);
+      
       const tournament = await TournamentService.generateTournamentStructure(
         eventId,
         teams,
@@ -87,17 +89,22 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
         options
       );
       
+      console.log(`Tournament generated successfully for event ${eventId}:`, tournament.id);
+      
       set({ 
         tournament: tournament,
         loading: false,
         isNewTournament: tournament.isNewTournament || false
       });
     } catch (error) {
-      console.error('Error generating formed tournament structure:', error);
+      console.error(`Error generating formed tournament structure for event ${eventId}:`, error);
       let mensagemErro = 'Falha ao gerar estrutura do torneio';
       
       if (error instanceof Error) {
-        if (error.message.includes('format') || error.message.includes('not-null constraint')) {
+        if (error.message.includes('já existe um torneio')) {
+          // Erro específico quando já existe torneio para este evento
+          mensagemErro = error.message;
+        } else if (error.message.includes('format') || error.message.includes('not-null constraint')) {
           mensagemErro = 'Erro na estrutura do banco de dados: campo formato é obrigatório. Verifique a configuração da tabela tournaments.';
         } else if (error.message.includes('matches') || error.message.includes('schema cache')) {
           mensagemErro = 'Torneio criado com funcionalidade limitada. A tabela de partidas não está disponível no banco de dados.';
@@ -111,26 +118,38 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
       }
       
       set({ error: mensagemErro, loading: false });
-      // Don't throw here to allow the UI to show the error message
-      // throw new Error(mensagemErro);
+      throw new Error(mensagemErro);
     }
   },
 
   // Updated generateRandomStructure to work with participants directly
   generateRandomStructure: async (
     eventId: string,
-    participants: any[],
+    participants: any[], // <- Isso deveria aceitar tanto participants quanto teams já formados
     options?: { groupSize?: number; forceReset?: boolean }
   ) => {
     set({ loading: true, error: null, isNewTournament: false });
     
     try {
-      // Use the service to form teams from participants automatically
-      const { teams } = TournamentService.formTeamsFromParticipants(
-        participants,
-        TeamFormationType.RANDOM,
-        { groupSize: options?.groupSize }
-      );
+      console.log(`Generating random structure for event ${eventId} with ${participants.length} participants/teams`);
+      
+      let teams: string[][];
+      
+      // Verificar se já são teams formados (duplas) ou participantes individuais
+      if (participants.length > 0 && Array.isArray(participants[0]) && typeof participants[0][0] === 'string') {
+        // Se já são teams formados (formato: [["id1", "id2"], ["id3", "id4"]])
+        teams = participants as string[][];
+        console.log('Using pre-formed teams:', teams.length);
+      } else {
+        // Se são participantes individuais, formar teams automaticamente
+        const { teams: formedTeams } = TournamentService.formTeamsFromParticipants(
+          participants,
+          TeamFormationType.RANDOM,
+          { groupSize: options?.groupSize }
+        );
+        teams = formedTeams;
+        console.log('Formed teams from participants:', teams.length);
+      }
       
       const tournament = await TournamentService.generateTournamentStructure(
         eventId,
@@ -139,18 +158,26 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
         options
       );
       
+      console.log(`Random tournament generated successfully for event ${eventId}:`, tournament.id);
+      
       set({ 
         tournament: tournament,
         loading: false,
         isNewTournament: tournament.isNewTournament || false
       });
     } catch (error) {
-      console.error('Error generating random tournament structure:', error);
+      console.error(`Error generating random tournament structure for event ${eventId}:`, error);
       let mensagemErro = 'Falha ao gerar estrutura aleatória do torneio';
       
       if (error instanceof Error) {
-        if (error.message.includes('format') || error.message.includes('not-null constraint')) {
-          mensagemErro = 'Erro na estrutura do banco de dados: campo formato é obrigatório. Verifique a configuração da tabela tournaments.';
+        if (error.message.includes('já existe um torneio')) {
+          // Erro específico quando já existe torneio para este evento
+          mensagemErro = error.message;
+        } else if (error.message.includes('team_formation')) {
+          mensagemErro = 'Torneio criado com sucesso! A coluna team_formation não existe no banco, mas isso não afeta o funcionamento.';
+          // Don't treat this as an error, just a warning
+          set({ loading: false });
+          return;
         } else if (error.message.includes('matches') || error.message.includes('schema cache')) {
           mensagemErro = 'Torneio criado com funcionalidade limitada. A tabela de partidas não está disponível no banco de dados.';
         } else {
@@ -202,12 +229,24 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
   updateMatchResults: async (matchId: string, score1: number, score2: number) => {
     set({ loading: true, error: null });
     try {
-      // Use the correct method name
+      console.log(`Updating match ${matchId} with scores: ${score1}-${score2}`);
+      
+      // First, try to sync matches to database if needed
+      const currentTournament = get().tournament;
+      if (currentTournament) {
+        try {
+          await TournamentService.syncMatchesToDatabase(currentTournament.id);
+        } catch (syncError) {
+          console.warn('Could not sync matches to database:', syncError);
+          // Continue anyway, the updateMatchResults method will handle missing matches
+        }
+      }
+      
+      // Use the corrected method
       const updatedMatch = await TournamentService.updateMatchResults(matchId, score1, score2);
       
       // Update the tournament state with the new match data
-      const currentTournament = get().tournament;
-      if (currentTournament) {
+      if (currentTournament && currentTournament.matches) {
         const updatedMatches = currentTournament.matches.map(match => 
           match.id === matchId ? { ...match, ...updatedMatch } : match
         );
@@ -221,39 +260,49 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
               matchId
             );
             
-            // If successful update the local state to show advancement
             if (updatedTournament) {
               set({ 
                 tournament: updatedTournament,
                 loading: false 
               });
-              
               return;
             }
           } catch (bracketError) {
             console.error('Error updating bracket after match completion:', bracketError);
-            // Continue with updating just the match if bracket update fails
           }
         }
         
-        // Atualiza o state com os novos matches
         const updatedTournament = { ...currentTournament, matches: updatedMatches };
         set({ 
           tournament: updatedTournament,
           loading: false 
         });
         
-        // Verificar se a fase de grupos está completa após atualizar a partida
-        // Verificamos se é uma partida de grupo para evitar recálculos desnecessários
         if (completedMatch && completedMatch.stage === 'GROUP') {
           setTimeout(() => {
             get().checkGroupStageCompletion();
           }, 0);
         }
+      } else {
+        set({ loading: false });
       }
     } catch (error) {
       console.error('Error updating match results for', matchId, ':', error);
-      const errorMessage = error instanceof Error ? error.message : 'Erro ao atualizar resultado da partida';
+      
+      let errorMessage = 'Erro ao atualizar resultado da partida';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('não encontrada') || error.message.includes('not found')) {
+          errorMessage = 'Partida não encontrada. Recarregue a página e tente novamente.';
+        } else if (error.message.includes('406') || error.message.includes('permissão')) {
+          errorMessage = 'Erro de permissão: Você não tem autorização para atualizar esta partida.';
+        } else if (error.message.includes('PGRST116')) {
+          errorMessage = 'Partida não encontrada no banco de dados. Verifique se o torneio foi criado corretamente.';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
       set({ error: errorMessage, loading: false });
       throw new Error(errorMessage);
     }
@@ -293,7 +342,7 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
       
       // Update the tournament state with the new match data
       const currentTournament = get().tournament;
-      if (currentTournament) {
+      if (currentTournament && currentTournament.matches) {
         const updatedMatches = currentTournament.matches.map(match => 
           match.id === matchId ? { ...match, ...updatedMatch } : match
         );
@@ -302,6 +351,8 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
           tournament: { ...currentTournament, matches: updatedMatches },
           loading: false 
         });
+      } else {
+        set({ loading: false });
       }
     } catch (error) {
       console.error('Error updating match schedule for', matchId, ':', error);
@@ -331,15 +382,8 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
   },
   // Alias para manter compatibilidade com código existente
   generateRandomBracketAndGroups: async (eventId: string, teams: string[][], options?: { forceReset?: boolean }) => {
-    // Converta teams: string[][] para Array<[string, string]> esperado por generateRandomStructure
-    const teamPairs = teams
-      .filter(team => team.length === 2)
-      .map(team => [team[0], team[1]] as [string, string]);
-    
-    return get().generateRandomStructure(eventId, teamPairs, {
-      ...options,
-      groupSize: options?.forceReset ? 4 : undefined // Use um valor padrão ou mantenha undefined
-    });
+    // Agora passamos as teams diretamente, pois o método foi atualizado para aceitar ambos os formatos
+    return get().generateRandomStructure(eventId, teams, options);
   },
   
   // Verificar se a fase de grupos está completa

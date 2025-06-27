@@ -1,4 +1,5 @@
 import { supabase } from '../../lib/supabase';
+import { tratarErroSupabase } from '../../lib/supabase';
 // Import CreateParticipantDTO
 import { Participant, CreateParticipantDTO } from '../../types';
 
@@ -133,55 +134,51 @@ export const ParticipantsService = {
     return transformParticipant(data);
   },
 
-  // Criar um novo participante - Update signature to use CreateParticipantDTO
-  async create(participantData: CreateParticipantDTO): Promise<Participant> {
-    const supabaseData: any = {
-      ...toSupabaseParticipantCreate(participantData),
-      registered_at: new Date().toISOString(),
-    };
-
-    // Set payment_date only if status is CONFIRMED
-    if (participantData.paymentStatus === 'CONFIRMED') {
-      supabaseData.payment_date = new Date().toISOString();
-      // Ensure paymentId is set if confirming payment (might be generated in form or service)
-      if (!supabaseData.payment_id) {          supabaseData.payment_id = `manual_${Date.now()}`; // Example manual ID
-          console.warn("Status de pagamento confirmado sem paymentId, ID manual gerado:", supabaseData.payment_id);
+  // Criar um novo participante
+  async create(participant: CreateParticipantDTO): Promise<Participant> {
+    try {
+      console.log('Creating participant:', participant);
+      
+      // Verificar se o evento existe e não está cheio
+      const { data: event, error: eventError } = await supabase
+        .from('events')
+        .select('id, max_participants, current_participants')
+        .eq('id', participant.eventId)
+        .single();
+      
+      if (eventError) {
+        throw new Error(`Erro ao verificar evento: ${eventError.message}`);
       }
-    } else {
-        // Ensure payment_date and payment_id are null if PENDING
-        supabaseData.payment_date = null;
-        supabaseData.payment_id = null;
+      
+      if (!event) {
+        throw new Error('Evento não encontrado');
+      }
+      
+      // Verificar se há vagas disponíveis
+      const currentCount = event.current_participants || 0;
+      const maxCount = event.max_participants || 0;
+      
+      if (maxCount > 0 && currentCount >= maxCount) {
+        throw new Error('O evento já atingiu o número máximo de participantes');
+      }
+      
+      const supabaseData = toSupabaseParticipantCreate(participant);
+      
+      const { data, error } = await supabase
+        .from('participants')
+        .insert(supabaseData)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Erro ao criar participante no Supabase:', error);
+        throw new Error(`Failed to create participant: ${error.message}`);
+      }
+
+      return transformParticipant(data);
+    } catch (error) {
+      throw tratarErroSupabase(error, 'criar participante');
     }
-
-
-    const { data, error } = await supabase
-      .from('participants')
-      .insert(supabaseData)
-      .select()
-      .single();
-
-    if (error) {
-      console.error("Erro ao criar participante no Supabase:", error);
-        throw error;
-    }
-
-    // Handle partner linking if necessary (check event type, etc.)
-    // This logic might be better placed in the store or component depending on requirements
-    // Example:
-    // if (participantData.partnerId) {
-    //   try {
-    //     await supabase
-    //       .from('participants')
-    //       .update({ partner_id: data.id })
-    //       .eq('id', participantData.partnerId);
-    //   } catch (linkError) {
-    //     console.error("Error linking partner:", linkError);
-    //     // Decide how to handle linking errors (e.g., notify user)
-    //   }
-    // }
-
-
-    return transformParticipant(data);
   },
 
   // Atualizar um participante existente - Use the update transformer

@@ -1,5 +1,15 @@
 import { supabase } from '../../lib/supabase';
-import { Match, Tournament, Court, TeamFormationType, TournamentSettings } from '../../types';
+import { 
+  Match, 
+  Tournament, 
+  Court, 
+  TeamFormationType, 
+  TournamentSettings, 
+  TOURNAMENT_TYPES,
+  TournamentFormat,
+  TournamentData,
+  Team
+} from '../../types';
 import { 
   calculateGroupRankings, 
   GroupRanking, 
@@ -9,6 +19,7 @@ import {
 } from '../../utils/rankingUtils';
 import { handleSupabaseError } from '../../utils/supabase-error-handler';
 import { distributeTeamsIntoGroups, createTournamentStructure } from '../../utils/groupFormationUtils';
+import { useTournamentStore } from '../../store/tournamentStore';
 
 // Add UUID generation function
 const generateUUID = (): string => {
@@ -22,7 +33,7 @@ const generateUUID = (): string => {
 const transformMatch = (data: any): Match => ({
   id: data.id,
   eventId: data.event_id,
-  tournamentId: data.tournament_id, // Added tournamentId
+  tournamentId: data.tournament_id,
   round: data.round,
   position: data.position,
   team1: data.team1,
@@ -32,28 +43,45 @@ const transformMatch = (data: any): Match => ({
   winnerId: data.winner_id,
   completed: data.completed,
   scheduledTime: data.scheduled_time,
-  courtId: data.court_id, // Added courtId
-  stage: data.stage, // Added stage
-  groupNumber: data.group_number, // Added groupNumber
-  createdAt: data.created_at, // Added createdAt
-  updatedAt: data.updated_at, // Added updatedAt
+  courtId: data.court_id,
+  stage: data.stage,
+  groupNumber: data.group_number,
+  createdAt: data.created_at,
+  updatedAt: data.updated_at,
 });
 
-const transformTournament = (data: any, matches: Match[]): Tournament => ({
+// Fix: Update transformTournament to accept only data parameter
+const transformTournament = (data: any, matches?: Match[]): Tournament => ({
   id: data.id,
   eventId: data.event_id,
-  matches: matches,
+  format: data.format as TournamentFormat || TournamentFormat.GROUP_STAGE_ELIMINATION,
+  settings: data.settings || {},
   status: data.status,
-  settings: data.settings, // Added settings
-  type: data.type, // Added type
-  format: data.format, // Add format field
-  teamFormation: data.team_formation, // Added teamFormation
-  isNewTournament: data.isNewTournament, // Added flag
+  totalRounds: data.total_rounds,
+  currentRound: data.current_round || 0,
+  groupsCount: data.groups_count || 0,
+  groupsData: data.groups_data || {},
+  bracketsData: data.brackets_data || {},
+  thirdPlaceMatch: data.third_place_match ?? true,
+  autoAdvance: data.auto_advance ?? false,
+  startedAt: data.started_at,
+  completedAt: data.completed_at,
+  createdAt: data.created_at,
+  updatedAt: data.updated_at,
+  
+  // Novos campos JSONB
+  matchesData: data.matches_data || [],
+  teamsData: data.teams_data || [],
+  standingsData: data.standings_data || {},
+  eliminationBracket: data.elimination_bracket || {},
+  
+  // Para compatibilidade - use matches parameter if provided
+  matches: matches || data.matches_data || [],
 });
 
 const toSupabaseMatch = (match: Partial<Match>) => ({
   event_id: match.eventId,
-  tournament_id: match.tournamentId, // Added tournament_id
+  tournament_id: match.tournamentId,
   round: match.round,
   position: match.position,
   team1: match.team1,
@@ -63,18 +91,87 @@ const toSupabaseMatch = (match: Partial<Match>) => ({
   winner_id: match.winnerId,
   completed: match.completed,
   scheduled_time: match.scheduledTime,
-  court_id: match.courtId, // Added court_id
-  stage: match.stage, // Added stage
-  group_number: match.groupNumber, // Added group_number
+  court_id: match.courtId,
+  stage: match.stage,
+  group_number: match.groupNumber,
 });
 
 const toSupabaseTournament = (tournament: Partial<Tournament>) => ({
   event_id: tournament.eventId,
+  format: tournament.format,
+  settings: tournament.settings,
   status: tournament.status,
-  settings: tournament.settings, // Added settings
-  type: tournament.type, // Added type
-  format: tournament.format, // Add format field
-  team_formation: tournament.teamFormation, // Added team_formation
+  total_rounds: tournament.totalRounds,
+  current_round: tournament.currentRound,
+  groups_count: tournament.groupsCount,
+  groups_data: tournament.groupsData,
+  brackets_data: tournament.bracketsData,
+  third_place_match: tournament.thirdPlaceMatch,
+  auto_advance: tournament.autoAdvance,
+  started_at: tournament.startedAt,
+  completed_at: tournament.completedAt,
+  
+  // Novos campos JSONB
+  matches_data: tournament.matchesData,
+  teams_data: tournament.teamsData,
+  standings_data: tournament.standingsData,
+  elimination_bracket: tournament.eliminationBracket,
+});
+
+// Usar tipo padrão se não especificado
+const getDefaultTournamentType = (): string => {
+  return TOURNAMENT_TYPES.GROUPS_KNOCKOUT;
+};
+
+// Fix: Create interface for TournamentV2 that includes tournamentData
+interface TournamentV2 extends Tournament {
+  tournamentData?: TournamentData;
+  matchesCount?: number;
+  completedMatchesCount?: number;
+}
+
+const transformTournamentV2 = (data: any): TournamentV2 => ({
+  id: data.id,
+  eventId: data.event_id,
+  format: data.format as TournamentFormat || TournamentFormat.GROUP_STAGE_ELIMINATION,
+  teamFormation: data.team_formation,
+  status: data.status,
+  tournamentData: data.tournament_data,
+  startedAt: data.started_at,
+  completedAt: data.completed_at,
+  createdAt: data.created_at,
+  updatedAt: data.updated_at,
+  
+  // Campos obrigatórios da interface Tournament
+  currentRound: data.current_round || 0,
+  groupsCount: data.groups_count || 0,
+  thirdPlaceMatch: data.third_place_match ?? true,
+  autoAdvance: data.auto_advance ?? false,
+  
+  // Campos calculados
+  totalRounds: data.total_rounds,
+  matchesCount: data.matches_count,
+  completedMatchesCount: data.completed_matches_count,
+  
+  // Novos campos JSONB
+  matchesData: data.tournament_data?.matches || [],
+  teamsData: data.tournament_data?.teams || [],
+  standingsData: {},
+  eliminationBracket: {},
+  
+  // Para compatibilidade
+  matches: data.tournament_data?.matches || [],
+  settings: data.tournament_data?.settings || {}
+});
+
+const toSupabaseTournamentV2 = (tournament: Partial<TournamentV2>) => ({
+  event_id: tournament.eventId,
+  format: tournament.format,
+  team_formation: tournament.teamFormation,
+  status: tournament.status,
+  tournament_data: tournament.tournamentData,
+  started_at: tournament.startedAt,
+  completed_at: tournament.completedAt
 });
 
 export const TournamentService = {
@@ -151,7 +248,7 @@ export const TournamentService = {
             groupNumber: match.groupNumber,
             createdAt: match.createdAt || new Date().toISOString(),
             updatedAt: match.updatedAt || new Date().toISOString(),
-          };
+          } as Match;
         }
       });
 
@@ -204,6 +301,7 @@ export const TournamentService = {
       throw error;
     }
   },
+
   // Add the missing updateMatch method
   updateMatch: async (matchId: string, updates: Partial<Match>): Promise<Match> => {
     try {
@@ -272,41 +370,180 @@ export const TournamentService = {
       console.error('Error updating match:', error);
       throw error instanceof Error ? error : new Error('Erro desconhecido ao atualizar partida');
     }
-  },  // Add a specific method for updating match results
+  },
+
+  // Add a specific method for updating match results
   updateMatchResults: async (matchId: string, score1: number, score2: number): Promise<Match> => {
     try {
-      // First, get the current match data to preserve important fields like groupNumber
-      const { data: currentMatch, error } = await supabase
-        .from('tournament_matches')
-        .select('*')
-        .eq('id', matchId)
-        .single();
-        
-      if (error && error.code !== '42P01') {
-        throw error;
-      }
+      console.log(`Updating match results for ${matchId}: ${score1}-${score2}`);
       
       // Determine winner based on scores
       const winnerId = score1 > score2 ? 'team1' : 'team2';
       
-      const updates: Partial<Match> = {
-        score1,
-        score2,
-        winnerId,
-        completed: true,
-        // Ensure we keep the team arrays
-        team1: currentMatch?.team1,
-        team2: currentMatch?.team2,
-        // Preserve the original group number if we have it
-        groupNumber: currentMatch?.group_number
-      };
-
-      return await TournamentService.updateMatch(matchId, updates);
-    } catch (error) {
-      console.error('Error updating match results:', error);
+      // First, check if the match exists in the database
+      const { data: existingMatch, error: checkError } = await supabase
+        .from('tournament_matches')
+        .select('*')
+        .eq('id', matchId)
+        .maybeSingle();
+      
+      if (checkError) {
+        console.error('Error checking if match exists:', checkError);
+        throw new Error(`Erro ao verificar partida: ${checkError.message}`);
+      }
+      
+      if (!existingMatch) {
+        console.warn(`Match ${matchId} not found in database. This might be a match that exists only in memory.`);
+        
+        // Get current tournament from store
+        const currentTournament = useTournamentStore.getState().tournament;
+        
+        if (currentTournament) {
+          const matchInMemory = currentTournament.matches?.find(m => m.id === matchId);
+          
+          if (matchInMemory) {
+            console.log('Found match in memory, attempting to insert it into database first...');
+            
+            try {
+              // Insert the match into the database first
+              const { data: insertedMatch, error: insertError } = await supabase
+                .from('tournament_matches')
+                .insert({
+                  id: matchInMemory.id,
+                  tournament_id: matchInMemory.tournamentId,
+                  event_id: matchInMemory.eventId,
+                  round: matchInMemory.round,
+                  position: matchInMemory.position,
+                  team1: matchInMemory.team1,
+                  team2: matchInMemory.team2,
+                  score1: score1, // Use the new scores
+                  score2: score2,
+                  winner_id: winnerId,
+                  completed: true,
+                  court_id: matchInMemory.courtId,
+                  scheduled_time: matchInMemory.scheduledTime,
+                  stage: matchInMemory.stage,
+                  group_number: matchInMemory.groupNumber,
+                  created_at: matchInMemory.createdAt || new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                })
+                .select()
+                .single();
+            
+            if (insertError) {
+              console.error('Error inserting match:', insertError);
+              throw new Error(`Erro ao inserir partida: ${insertError.message}`);
+            }
+            
+            console.log('Match inserted successfully:', insertedMatch);
+            
+            // Transform and return the inserted match
+            return {
+              id: insertedMatch.id,
+              eventId: insertedMatch.event_id,
+              tournamentId: insertedMatch.tournament_id,
+              round: insertedMatch.round,
+              position: insertedMatch.position,
+              team1: insertedMatch.team1,
+              team2: insertedMatch.team2,
+              score1: insertedMatch.score1,
+              score2: insertedMatch.score2,
+              winnerId: insertedMatch.winner_id,
+              completed: insertedMatch.completed,
+              scheduledTime: insertedMatch.scheduled_time,
+              courtId: insertedMatch.court_id,
+              stage: insertedMatch.stage,
+              groupNumber: insertedMatch.group_number,
+              createdAt: insertedMatch.created_at,
+              updatedAt: insertedMatch.updated_at
+            } as Match;
+            
+          } catch (insertError) {
+            console.error('Failed to insert match into database:', insertError);
+            // Fall back to updating in memory only
+            throw new Error('Partida não encontrada no banco de dados e não foi possível criá-la.');
+          }
+        } else {
+          throw new Error('Partida não encontrada nem no banco de dados nem na memória.');
+        }
+      } else {
+        throw new Error('Não foi possível acessar os dados do torneio.');
+      }
+    }
+    
+    // If we reach here, the match exists in the database, proceed with update
+    const updateData = {
+      score1: score1,
+      score2: score2,
+      winner_id: winnerId,
+      completed: true,
+      updated_at: new Date().toISOString()
+    };
+    
+    console.log('Update data:', updateData);
+    
+    // Update the match
+    const { data: updatedMatch, error: updateError } = await supabase
+      .from('tournament_matches')
+      .update(updateData)
+      .eq('id', matchId)
+      .select('*')
+      .single();
+    
+    if (updateError) {
+      console.error('Error updating match:', updateError);
+      
+      // Handle specific error cases
+      if (updateError.code === '406') {
+        throw new Error('Erro de permissão: Você não tem autorização para atualizar esta partida.');
+      }
+      
+      if (updateError.code === 'PGRST116') {
+        throw new Error('Partida não encontrada durante a atualização.');
+      }
+      
+      throw new Error(`Erro ao atualizar partida: ${updateError.message}`);
+    }
+    
+    if (!updatedMatch) {
+      throw new Error('Nenhum dado retornado após atualização');
+    }
+    
+    console.log('Match updated successfully:', updatedMatch);
+    
+    // Transform the response to match our interface
+    const transformedMatch: Match = {
+      id: updatedMatch.id,
+      eventId: updatedMatch.event_id,
+      tournamentId: updatedMatch.tournament_id,
+      round: updatedMatch.round,
+      position: updatedMatch.position,
+      team1: updatedMatch.team1,
+      team2: updatedMatch.team2,
+      score1: updatedMatch.score1,
+      score2: updatedMatch.score2,
+      winnerId: updatedMatch.winner_id,
+      completed: updatedMatch.completed,
+      scheduledTime: updatedMatch.scheduled_time,
+      courtId: updatedMatch.court_id,
+      stage: updatedMatch.stage,
+      groupNumber: updatedMatch.group_number,
+      createdAt: updatedMatch.created_at,
+      updatedAt: updatedMatch.updated_at
+    };
+    
+    return transformedMatch;
+    
+  } catch (error) {
+    console.error('Error in updateMatchResults:', error);
+    
+    if (error instanceof Error) {
       throw error;
     }
-  },
+    
+    throw new Error('Erro desconhecido ao atualizar resultado da partida');
+  }
+},
 
   // Add method for updating match schedule
   updateMatchSchedule: async (matchId: string, courtId: string | null, scheduledTime: string | null): Promise<Match> => {
@@ -329,172 +566,158 @@ export const TournamentService = {
     teamFormation: TeamFormationType,
     options: { groupSize?: number; forceReset?: boolean } = {}
   ): Promise<Tournament> => {
-    console.log(`Generating structure for event ${eventId}, formation: ${teamFormation}, options:`, options);
+    console.log(`Generating structure for event ${eventId}, formation: ${teamFormation}`);
+    
     try {
-        // Check for existing tournament
-        const { data: existingTournamentData, error: fetchError } = await supabase
-            .from('tournaments')
-            .select('id')
-            .eq('event_id', eventId)
-            .maybeSingle();
+      const defaultGroupSize = options?.groupSize || 3;
+      const { forceReset = false } = options;
+      
+      // Verificar se já existe um torneio PARA ESTE EVENTO ESPECÍFICO
+      let existingTournament: Tournament | null = null;
+      try {
+        existingTournament = await TournamentService.getByEventId(eventId);
+      } catch (e) {
+        console.warn('Could not fetch existing tournament:', e);
+      }
 
-        if (fetchError && fetchError.code !== 'PGRST116') {
-            throw handleSupabaseError(fetchError, 'checking existing tournament');
+      let tournamentId: string;
+
+      if (existingTournament) {
+        // Se existe um torneio para ESTE evento e não foi solicitado reset, retornar erro
+        if (!forceReset) {
+          throw new Error(`Um torneio já existe para este evento (${eventId}). Use a opção "Recriar" para substituir o torneio existente.`);
         }
 
-        let tournamentId: string | undefined = existingTournamentData?.id;
-        let isNewTournament = false;
-
-        if (tournamentId && !options?.forceReset) {
-            throw new Error('Já existe um torneio criado para este evento. Use a opção de reset para recriar.');
-        }
-
-        if (tournamentId && options?.forceReset) {
-            console.log(`Forcing reset for tournament ${tournamentId}`);
-            
-            // Try to delete matches if table exists, but don't fail if it doesn't
-            try {
-              const { error: deleteMatchesError } = await supabase
-                  .from('tournament_matches')
-                  .delete()
-                  .eq('tournament_id', tournamentId);
-              
-              if (deleteMatchesError && deleteMatchesError.code !== '42P01') {
-                console.warn('Could not delete existing matches:', deleteMatchesError);
-              }
-            } catch (deleteError) {
-              console.warn('Could not delete existing matches (table may not exist)');
-            }
-            
-            // Delete tournament
-            const { error: deleteTournamentError } = await supabase
-                .from('tournaments')
-                .delete()
-                .eq('id', tournamentId);
-            if (deleteTournamentError) throw handleSupabaseError(deleteTournamentError, 'deleting existing tournament');
-            tournamentId = undefined;
-        }
+        console.log(`Force reset requested for event ${eventId}, recreating tournament`);
         
-        if (teams.length < 2) throw new Error("Pelo menos 2 times são necessários.");
-        
-        // Use the new group formation utility
-        const defaultGroupSize = options?.groupSize || 3;
-        const shuffledTeams = [...teams].sort(() => Math.random() - 0.5);
-
-        // Use the updated distributeTeamsIntoGroups function
-        const groupTeamsList = distributeTeamsIntoGroups(shuffledTeams, defaultGroupSize);
-
-        // Generate matches for all groups
-        const groupMatches: Match[] = [];
-        groupTeamsList.forEach((groupTeams, i) => {
-            const groupNum = i + 1;
-            
-            for (let j = 0; j < groupTeams.length; j++) {
-                for (let k = j + 1; k < groupTeams.length; k++) {
-                    groupMatches.push({
-                        id: generateUUID(), // Use proper UUID instead of custom string
-                        tournamentId: '', // Will be set after tournament creation
-                        eventId: eventId,
-                        round: 0,
-                        position: 0,
-                        team1: groupTeams[j],
-                        team2: groupTeams[k],
-                        score1: null,
-                        score2: null,
-                        winnerId: null,
-                        completed: false,
-                        courtId: null,
-                        scheduledTime: null,
-                        stage: 'GROUP',
-                        groupNumber: groupNum,
-                        createdAt: new Date().toISOString(),
-                        updatedAt: new Date().toISOString(),
-                    });
-                }
-            }
-        });
-
-        // Create tournament with only the fields that exist in the database
-        if (!tournamentId) {
-            // Try to fetch the valid format values from enum schema first
-            try {
-                const { data: formatEnumData, error: enumError } = await supabase
-                    .from('pg_enum')
-                    .select('enumlabel')
-                    .eq('enumtypid', 'tournament_format')
-                    .in('enumlabel', ['GROUPS_KNOCKOUT', 'SINGLE_ELIMINATION', 'DOUBLE_ELIMINATION', 'ROUND_ROBIN']);
-
-                // Use a valid format value based on available enum options or default to SINGLE_ELIMINATION
-                const validFormat = (formatEnumData && formatEnumData.length > 0)
-                    ? formatEnumData[0].enumlabel 
-                    : 'SINGLE_ELIMINATION';
-
-                const { data: newTournamentData, error: createError } = await supabase
-                    .from('tournaments')
-                    .insert({
-                        event_id: eventId,
-                        status: 'CREATED',
-                        format: validFormat // Use a valid format value
-                    })
-                    .select('id')
-                    .single();
-                
-                if (createError) throw handleSupabaseError(createError, 'creating tournament');
-                tournamentId = newTournamentData.id;
-                isNewTournament = true;
-                console.log(`Created tournament: ${tournamentId} with format ${validFormat}`);
-                
-            } catch (enumError) {
-                // If we can't fetch the enum values, try with a common format value
-                console.warn('Could not fetch format enum values, using default:', enumError);
-                
-                // Try common tournament format values one by one until one works
-                const potentialFormats = ['SINGLE_ELIMINATION', 'GROUPS_KNOCKOUT', 'ROUND_ROBIN', 'DOUBLE_ELIMINATION'];
-                
-                let created = false;
-                for (const format of potentialFormats) {
-                    try {
-                        const { data: newTournamentData, error: createError } = await supabase
-                            .from('tournaments')
-                            .insert({
-                                event_id: eventId,
-                                status: 'CREATED',
-                                format: format
-                            })
-                            .select('id')
-                            .single();
-                        
-                        if (!createError) {
-                            tournamentId = newTournamentData.id;
-                            isNewTournament = true;
-                            console.log(`Created tournament with format ${format}`);
-                            created = true;
-                            break;
-                        }
-                    } catch (formatError) {
-                        console.warn(`Failed to create tournament with format ${format}:`, formatError);
-                    }
-                }
-                
-                if (!created) {
-                    throw new Error('Could not create tournament with any of the standard format values');
-                }
-            }
+        // Deletar partidas existentes apenas deste torneio
+        try {
+          const { error: deleteMatchesError } = await supabase
+            .from('tournament_matches')
+            .delete()
+            .eq('tournament_id', existingTournament.id);
+          
+          if (deleteMatchesError && deleteMatchesError.code !== '42P01') {
+            console.warn('Could not delete existing matches:', deleteMatchesError);
+          } else {
+            console.log(`Deleted existing matches for tournament ${existingTournament.id}`);
+          }
+        } catch (deleteError) {
+          console.warn('Could not delete existing matches (table may not exist):', deleteError);
         }
 
-        // Update match tournament IDs
-        groupMatches.forEach(match => {
-          match.tournamentId = tournamentId!;
-        });
+        // Atualizar o torneio existente ao invés de criar um novo
+        const updateData: any = { 
+          status: 'CREATED', 
+          updated_at: new Date().toISOString(),
+          settings: { 
+            groupSize: defaultGroupSize,
+            qualifiersPerGroup: 2
+          },
+          format: TournamentFormat.GROUP_STAGE_ELIMINATION,
+          current_round: 0,
+          groups_count: 0,
+          matches_data: [],
+          teams_data: [],
+          standings_data: {},
+          elimination_bracket: {}
+        };
 
-        // Try to insert matches into separate table if it exists
-        let matchesStored = false;
-        if (groupMatches.length > 0) {
-          try {
-            const matchesToInsert = groupMatches.map(match => ({
-              id: match.id, // Now this will be a proper UUID
-              event_id: match.eventId,
+        const { data: updatedTournament, error: updateError } = await supabase
+          .from('tournaments')
+          .update(updateData)
+          .eq('id', existingTournament.id)
+          .select()
+          .single();
+        
+        if (updateError) throw updateError;
+        tournamentId = updatedTournament.id;
+        console.log(`Reset tournament ${tournamentId} for event ${eventId}`);
+
+      } else {
+        // Criar novo torneio para este evento
+        console.log(`Creating new tournament for event ${eventId}`);
+        
+        const insertData: any = {
+          event_id: eventId,
+          status: 'CREATED',
+          format: TournamentFormat.GROUP_STAGE_ELIMINATION,
+          settings: { 
+            groupSize: defaultGroupSize,
+            qualifiersPerGroup: 2
+          },
+          current_round: 0,
+          groups_count: 0,
+          matches_data: [],
+          teams_data: [],
+          standings_data: {},
+          elimination_bracket: {}
+        };
+
+        const { data: newTournament, error: insertError } = await supabase
+          .from('tournaments')
+          .insert(insertData)
+          .select()
+          .single();
+        
+        if (insertError) throw insertError;
+        tournamentId = newTournament.id;
+        console.log(`Created new tournament ${tournamentId} for event ${eventId}`);
+      }
+      
+      // Formar equipes
+      const teamsData: Team[] = teams.map((participants, index) => ({
+        id: `team_${index + 1}`,
+        participants,
+        seed: index + 1,
+      }));
+
+      // Distribuir em grupos
+      const shuffledTeams = [...teamsData].sort(() => Math.random() - 0.5);
+      const groups = distributeTeamsIntoGroups(
+        shuffledTeams.map(t => t.participants), 
+        defaultGroupSize
+      );
+
+      // Gerar partidas
+      const matchesData: Match[] = [];
+      groups.forEach((group, groupIndex) => {
+        const groupNumber = groupIndex + 1;
+        
+        for (let i = 0; i < group.length; i++) {
+          for (let j = i + 1; j < group.length; j++) {
+            matchesData.push({
+              id: generateUUID(),
+              tournamentId: tournamentId,
+              eventId: eventId,
+              round: 0,
+              position: matchesData.length,
+              team1: group[i],
+              team2: group[j],
+              score1: null,
+              score2: null,
+              winnerId: null,
+              completed: false,
+              courtId: null,
+              scheduledTime: null,
+              stage: 'GROUP',
+              groupNumber: groupNumber,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        }
+      });
+
+      // Tentar inserir partidas na tabela tournament_matches
+      if (matchesData.length > 0) {
+        try {
+          const { error: insertMatchesError } = await supabase
+            .from('tournament_matches')
+            .insert(matchesData.map(match => ({
+              id: match.id,
               tournament_id: match.tournamentId,
+              event_id: match.eventId,
               round: match.round,
               position: match.position,
               team1: match.team1,
@@ -503,55 +726,50 @@ export const TournamentService = {
               score2: match.score2,
               winner_id: match.winnerId,
               completed: match.completed,
-              scheduled_time: match.scheduledTime,
               court_id: match.courtId,
+              scheduled_time: match.scheduledTime,
               stage: match.stage,
               group_number: match.groupNumber,
               created_at: match.createdAt,
               updated_at: match.updatedAt
-            }));
-
-            const { data: insertedMatches, error: insertError } = await supabase
-                .from('tournament_matches')
-                .insert(matchesToInsert)
-                .select();
-
-            if (insertError) {
-              if (insertError.code === '42P01') {
-                console.warn('tournament_matches table does not exist');
-              } else {
-                console.error('Error inserting matches:', insertError);
-                throw insertError;
-              }
-            } else {
-              console.log(`Inserted ${insertedMatches?.length ?? 0} group matches into separate table.`);
-              matchesStored = true;
-            }
-          } catch (matchError) {
-            console.warn('Could not insert matches into separate table:', matchError);
+            })));
+            
+          if (insertMatchesError && insertMatchesError.code === '42P01') {
+            console.warn('tournament_matches table does not exist, storing matches in tournament data');
+          } else if (insertMatchesError) {
+            console.warn('Could not insert matches into tournament_matches:', insertMatchesError);
+          } else {
+            console.log(`Inserted ${matchesData.length} matches into tournament_matches table`);
           }
+        } catch (matchError) {
+          console.warn('Could not insert matches:', matchError);
         }
+      }
 
-        // Create final tournament object
-        const finalTournament: Tournament = {
-          id: tournamentId!,
-          eventId: eventId,
-          status: 'CREATED',
-          matches: groupMatches,
-          settings: { 
-            groupSize: defaultGroupSize, 
-            qualifiersPerGroup: 2
-          },
-          teamFormation: teamFormation,
-          isNewTournament: isNewTournament
-        };
+      // Atualizar torneio com dados finais
+      const { data: finalTournament, error: finalUpdateError } = await supabase
+        .from('tournaments')
+        .update({ 
+          groups_count: groups.length,
+          matches_data: matchesData,
+          teams_data: teamsData,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', tournamentId)
+        .select()
+        .single();
 
-        console.log(`Tournament structure generated successfully with ${groupMatches.length} matches`);
-        return finalTournament;
+      if (finalUpdateError) throw finalUpdateError;
 
+      const tournament = transformTournament(finalTournament, matchesData);
+      tournament.isNewTournament = !existingTournament; // Só é novo se não existia antes
+      
+      console.log(`Tournament structure generated successfully for event ${eventId}`);
+      return tournament;
+      
     } catch (error) {
-        console.error('Error in generateTournamentStructure:', error);
-        throw error;
+      console.error('Error generating tournament structure:', error);
+      throw error;
     }
   },
 
@@ -759,7 +977,7 @@ export const TournamentService = {
     }
   },
 
-  // Update the advanced method to handle bilateral brackets (This is the one to keep)
+  // Update the advanced method to handle bilateral brackets
   advanceWinner: async (match: Match): Promise<void> => {
     // Don't advance if not elimination stage, no winner, or no teams
     if (match.stage !== 'ELIMINATION' || !match.winnerId || !match.team1 || !match.team2) {
@@ -861,4 +1079,136 @@ export const TournamentService = {
       throw error;
     }
   },
+
+  // Add this method to synchronize matches
+  syncMatchesToDatabase: async (tournamentId: string): Promise<void> => {
+    try {
+      console.log(`Syncing matches to database for tournament ${tournamentId}`);
+      
+      // Get current tournament from store
+      const currentTournament = useTournamentStore.getState().tournament;
+      
+      if (!currentTournament || !currentTournament.matches) {
+        console.warn('No tournament or matches found in memory to sync');
+        return;
+      }
+      
+      // Get existing matches from database
+      const { data: existingMatches, error: fetchError } = await supabase
+        .from('tournament_matches')
+        .select('id')
+        .eq('tournament_id', tournamentId);
+      
+      if (fetchError) {
+        console.error('Error fetching existing matches:', fetchError);
+        return;
+      }
+      
+      const existingMatchIds = new Set(existingMatches?.map(m => m.id) || []);
+      
+      // Find matches that exist in memory but not in database
+      const matchesToInsert = currentTournament.matches.filter(match => 
+        !existingMatchIds.has(match.id)
+      );
+      
+      if (matchesToInsert.length > 0) {
+        console.log(`Inserting ${matchesToInsert.length} missing matches into database`);
+        
+        const { error: insertError } = await supabase
+          .from('tournament_matches')
+          .insert(matchesToInsert.map(match => ({
+            id: match.id,
+            tournament_id: match.tournamentId,
+            event_id: match.eventId,
+            round: match.round,
+            position: match.position,
+            team1: match.team1,
+            team2: match.team2,
+            score1: match.score1,
+            score2: match.score2,
+            winner_id: match.winnerId,
+            completed: match.completed,
+            court_id: match.courtId,
+            scheduled_time: match.scheduledTime,
+            stage: match.stage,
+            group_number: match.groupNumber,
+            created_at: match.createdAt || new Date().toISOString(),
+            updated_at: match.updatedAt || new Date().toISOString()
+          })));
+        
+        if (insertError) {
+          console.error('Error inserting missing matches:', insertError);
+        } else {
+          console.log('Successfully synced matches to database');
+        }
+      } else {
+        console.log('All matches are already synchronized with database');
+      }
+      
+    } catch (error) {
+      console.error('Error syncing matches to database:', error);
+    }
+  },
+};
+
+export const TournamentServiceV2 = {
+  async getByEventId(eventId: string): Promise<TournamentV2 | null> {
+    const { data, error } = await supabase
+      .from('tournaments_v2')
+      .select('*')
+      .eq('event_id', eventId)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    return transformTournamentV2(data);
+  },
+
+  async create(tournament: Partial<TournamentV2>): Promise<TournamentV2> {
+    const tournamentData: TournamentData = {
+      settings: {
+        groupSize: 4,
+        qualifiersPerGroup: 2,
+        thirdPlaceMatch: true,
+        autoAdvance: false,
+        ...tournament.tournamentData?.settings
+      },
+      groups: [],
+      matches: [],
+      brackets: [],
+      statistics: {},
+      metadata: {},
+      ...tournament.tournamentData
+    };
+
+    const { data, error } = await supabase
+      .from('tournaments_v2')
+      .insert({
+        ...toSupabaseTournamentV2(tournament),
+        tournament_data: tournamentData
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return transformTournamentV2(data);
+  },
+
+  async addMatch(tournamentId: string, match: Match): Promise<boolean> {
+    const { error } = await supabase.rpc('add_match_to_tournament', {
+      tournament_id: tournamentId,
+      match_data: match
+    });
+
+    return !error;
+  },
+
+  async updateMatch(tournamentId: string, matchId: string, matchData: Partial<Match>): Promise<boolean> {
+    const { error } = await supabase.rpc('update_match_in_tournament', {
+      tournament_id: tournamentId,
+      match_id: matchId,
+      new_match_data: matchData
+    });
+
+    return !error;
+  }
 };

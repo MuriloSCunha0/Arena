@@ -153,26 +153,64 @@ export interface Match {
   editable?: boolean; // Flag to control if match result can be edited even after completion
 }
 
+export interface TournamentData {
+  settings: {
+    groupSize: number;
+    qualifiersPerGroup: number;
+    thirdPlaceMatch: boolean;
+    autoAdvance: boolean;
+    [key: string]: any;
+  };
+  groups: Group[];
+  matches: Match[];
+  brackets: any[];
+  totalRounds?: number;
+  currentRound?: number;
+  groupsCount?: number;
+  statistics: Record<string, any>;
+  metadata: Record<string, any>;
+}
+
+export enum TournamentFormat {
+  SINGLE_ELIMINATION = 'SINGLE_ELIMINATION',
+  DOUBLE_ELIMINATION = 'DOUBLE_ELIMINATION',
+  ROUND_ROBIN = 'ROUND_ROBIN',
+  SWISS = 'SWISS',
+  GROUP_STAGE_ELIMINATION = 'GROUP_STAGE_ELIMINATION'
+}
+
 export interface Tournament {
   id: string;
   eventId: string;
-  status: tournament_status;
-  matches: Match[];
-  settings?: TournamentSettings;
-  type?: string;
-  format?: string; // Add format field
-  teamFormation?: TeamFormationType;
-  groups?: Group[];
-  hasEliminationStage?: boolean;
-  allGroupMatchesComplete?: boolean;
-  isNewTournament?: boolean;
-  bracketSides?: {
-    left: string[][];  // Array of team IDs in the left bracket
-    right: string[][]; // Array of team IDs in the right bracket
+  format: TournamentFormat;
+  settings: {
+    groupSize?: number;
+    qualifiersPerGroup?: number;
+    [key: string]: any;
   };
-  // Add created/updated timestamps for compatibility
-  createdAt?: string;
-  updatedAt?: string;
+  status: 'CREATED' | 'STARTED' | 'FINISHED' | 'CANCELLED';
+  totalRounds?: number;
+  currentRound: number;
+  groupsCount: number;
+  groupsData?: Record<string, any>;
+  bracketsData?: Record<string, any>;
+  thirdPlaceMatch: boolean;
+  autoAdvance: boolean;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  
+  // Novos campos JSONB
+  matchesData: Match[];
+  teamsData: Team[];
+  standingsData: Record<string, any>;
+  eliminationBracket: Record<string, any>;
+  
+  // Campos para compatibilidade
+  matches: Match[];
+  teamFormation?: TeamFormationType;
+  isNewTournament?: boolean;
 }
 
 export interface Group {
@@ -347,17 +385,16 @@ export interface NotificationType {
 
 export interface Team {
   id: string;
-  player1: string;
-  player2?: string;
+  participants: string[]; // Array de IDs dos participantes
   name?: string;
+  seed?: number;
   groupNumber?: number;
-  groupRank?: number;
-  points: number;
-  gamesWon: number;
-  gamesLost: number;
-  wins: number;
-  losses: number;
-  rating?: number;
+  stats?: {
+    wins: number;
+    losses: number;
+    pointsFor: number;
+    pointsAgainst: number;
+  };
 }
 
 export interface TeamWithNames extends Team {
@@ -393,3 +430,13 @@ export interface EventDetail {
   organizers?: any;
   pix_key?: string;
 }
+
+// Definir os tipos de torneio como constantes em vez de depender do banco
+export const TOURNAMENT_TYPES = {
+  GROUPS_KNOCKOUT: 'GROUPS_KNOCKOUT',
+  SINGLE_ELIMINATION: 'SINGLE_ELIMINATION', 
+  DOUBLE_ELIMINATION: 'DOUBLE_ELIMINATION',
+  ROUND_ROBIN: 'ROUND_ROBIN'
+} as const;
+
+export type TournamentType = typeof TOURNAMENT_TYPES[keyof typeof TOURNAMENT_TYPES];

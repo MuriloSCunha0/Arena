@@ -40,6 +40,7 @@ import {
 import TournamentRankings from '../TournamentRankings'; // Import the new component
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip';
 import { TournamentService } from '../../services/supabase/tournament'; // Add this import
+import { TournamentDrawController } from './TournamentDrawController';
 
 interface TournamentBracketProps {
   eventId: string;
@@ -367,15 +368,19 @@ interface FetchedEventData {
   type: EventType;
 }
 
-// Função auxiliar para obter detalhes da equipe
+// Função auxiliar melhorada para obter detalhes da equipe
 const getTeamDetails = (teamIds: string[] | null, eventParticipants: Participant[]) => {
   if (!teamIds || !teamIds.length) return null;
   
   const players = teamIds.map(id => {
     const participant = eventParticipants.find(p => p.id === id);
+    if (!participant) {
+      console.warn(`Participante não encontrado para ID: ${id}`);
+      console.log('Participantes disponíveis:', eventParticipants.map(p => ({ id: p.id, name: p.name })));
+    }
     return {
-      name: participant?.name || 'Desconhecido',
-      ranking: participant?.ranking || 0
+      name: participant?.name || `Participante ${id.substring(0, 8)}`, // Mostrar parte do ID em vez de ID completo
+      ranking: 0 // Valor padrão para ranking
     };
   });
   
@@ -608,14 +613,28 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     try {
       setGeneratingStructure(true);
       
-      // Use the service method that respects event team formation
-      const { teams } = TournamentService.formTeamsFromParticipants(
+      // Usar o método melhorado que retorna metadados
+      const { teams, metadata } = TournamentService.formTeamsFromParticipants(
         eventParticipants,
         TeamFormationType.FORMED,
         { groupSize: 3 }
       );
 
       await generateFormedStructure(eventId, teams, { forceReset });
+
+      // Mostrar informações sobre a formação das duplas
+      const messages = [];
+      if (metadata.formedPairs > 0) {
+        messages.push(`${metadata.formedPairs} duplas já formadas`);
+      }
+      if (metadata.autoPairs > 0) {
+        messages.push(`${metadata.autoPairs} duplas geradas automaticamente`);
+      }
+      if (metadata.singlePlayers > 0) {
+        messages.push(`${metadata.singlePlayers} jogador(es) individual(is)`);
+      }
+
+      const detailMessage = messages.length > 0 ? ` (${messages.join(', ')})` : '';
 
       // Check if there was an error in the store
       const currentError = useTournamentStore.getState().error;
@@ -624,7 +643,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       } else {
         addNotification({ 
           type: 'success', 
-          message: 'Estrutura do torneio com duplas formadas gerada com sucesso!' 
+          message: `Estrutura do torneio gerada com sucesso!${detailMessage}` 
         });
         setSkipTeamIds([]);
       }
@@ -665,16 +684,11 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     try {
       setGeneratingStructure(true);
       
-      // Use the service method to form teams from participants
-      const { teams } = TournamentService.formTeamsFromParticipants(
-        eventParticipants,
-        TeamFormationType.RANDOM,
-        { groupSize: 3 }
-      );
-
-      // Use generateRandomStructure with the formed teams - remove groupSize option
-      await generateRandomStructure(eventId, teams, { 
-        forceReset
+      // Passar participantes diretamente para o generateRandomStructure
+      // O método foi atualizado para lidar com participantes individuais
+      await generateRandomStructure(eventId, eventParticipants, { 
+        forceReset,
+        groupSize: 3 // ou 4, dependendo da sua preferência
       });
 
       addNotification({ 
@@ -1019,6 +1033,29 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     setPlacementRankingModalTitle(title);
     setShowPlacementRankingModal(true);
   };
+
+  // Add debugging effect
+  useEffect(() => {
+    if (tournament && eventParticipants.length > 0) {
+      console.log('=== DEBUG TORNEIO ===');
+      console.log('Tournament:', tournament);
+      console.log('Event Participants:', eventParticipants);
+      console.log('Current Event:', currentEvent);
+      console.log('Matches:', tournament.matches);
+      
+      // Verificar se os IDs das equipes correspondem aos IDs dos participantes
+      tournament.matches?.forEach(match => {
+        if (match.team1) {
+          console.log(`Match ${match.id} - Team1:`, match.team1, 'Participantes encontrados:', 
+            match.team1.map(id => eventParticipants.find(p => p.id === id)?.name || 'NÃO ENCONTRADO'));
+        }
+        if (match.team2) {
+          console.log(`Match ${match.id} - Team2:`, match.team2, 'Participantes encontrados:', 
+            match.team2.map(id => eventParticipants.find(p => p.id === id)?.name || 'NÃO ENCONTRADO'));
+        }
+      });
+    }
+  }, [tournament, eventParticipants, currentEvent]);
 
   const isDataLoading = loadingTournament || loadingParticipants || loadingCourts || loadingEventDetails;
 
@@ -1723,8 +1760,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       <div className="flex justify-center items-center py-12">
         <Loader2 size={32} className="animate-spin text-brand-green" />
         <span className="ml-2 text-gray-500">Carregando dados do chaveamento...</span>
-      </div>
-    );
+      </div> );
   }
 
   if (tournament && tournament.matches.length > 0) {
@@ -1735,7 +1771,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
           <div>
             <h2 className="text-2xl font-bold text-brand-blue mb-2 flex items-center">
               <Trophy size={24} className="mr-2" />
-              Torneio - {currentEvent?.title}
+              Torneio -  {currentEvent?.title}
             </h2>
             <div className="flex flex-wrap gap-4 text-sm text-gray-600">
               <span>Status: <span className="font-medium">{tournament.status}</span></span>
@@ -2253,15 +2289,28 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
           )}
           
           {(!currentEvent || currentEvent.team_formation === 'RANDOM') && (
-            <Button
-              onClick={handleGenerateRandomStructure}
-              loading={generatingStructure}
-              disabled={eventParticipants.length < 2}
-              variant={currentEvent?.team_formation === 'RANDOM' ? 'primary' : 'outline'}
-            >
-              <Shuffle size={16} className="mr-2" />
-              Sorteio Aleatório
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={handleGenerateRandomStructure}
+                loading={generatingStructure}
+                disabled={eventParticipants.length < 2}
+                variant={currentEvent?.team_formation === 'RANDOM' ? 'primary' : 'outline'}
+              >
+                <Shuffle size={16} className="mr-2" />
+                Sorteio Aleatório
+              </Button>
+              
+              {/* Botão para animação da roleta */}
+              <TournamentDrawController
+                eventId={eventId}
+                eventParticipants={eventParticipants}
+                courts={courts}
+                onTournamentGenerated={() => {
+                  fetchTournament(eventId);
+                  addNotification({ type: 'success', message: 'Torneio gerado com animação!' });
+                }}
+              />
+            </div>
           )}
         </div>
         
@@ -2304,15 +2353,28 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
           )}
           
           {(!currentEvent || currentEvent.team_formation === 'RANDOM') && (
-            <Button
-              onClick={handleGenerateRandomStructure}
-              loading={generatingStructure}
-              disabled={eventParticipants.length < 2}
-              variant={currentEvent?.team_formation === 'RANDOM' ? 'primary' : 'outline'}
-            >
-              <Shuffle size={16} className="mr-2" />
-              Sorteio Aleatório
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={handleGenerateRandomStructure}
+                loading={generatingStructure}
+                disabled={eventParticipants.length < 2}
+                variant={currentEvent?.team_formation === 'RANDOM' ? 'primary' : 'outline'}
+              >
+                <Shuffle size={16} className="mr-2" />
+                Sorteio Aleatório
+              </Button>
+              
+              {/* Botão para animação da roleta */}
+              <TournamentDrawController
+                eventId={eventId}
+                eventParticipants={eventParticipants}
+                courts={courts}
+                onTournamentGenerated={() => {
+                  fetchTournament(eventId);
+                  addNotification({ type: 'success', message: 'Torneio gerado com animação!' });
+                }}
+              />
+            </div>
           )}
         </div>
         

@@ -10,8 +10,8 @@ const transformEvent = (data: any): Event => ({
   location: data.location,
   date: data.date,
   time: data.time,
-  price: data.price || data.entry_fee, // Mapear para compatibilidade
-  entry_fee: data.entry_fee, // Garantir que entry_fee esteja disponível
+  price: data.entry_fee || data.price || 0, // Priorizar entry_fee, depois price, depois 0
+  entry_fee: data.entry_fee, // Manter entry_fee para compatibilidade
   maxParticipants: data.max_participants,
   prize: data.prize,
   rules: data.rules,
@@ -20,11 +20,10 @@ const transformEvent = (data: any): Event => ({
   categories: data.categories || [],
   createdAt: data.created_at,
   updatedAt: data.updated_at,
-  organizerId: data.organizer_id, // Added
-  organizerCommissionRate: data.organizer_commission_rate, // Added
-  courtIds: data.court_ids || [], // Added, assuming 'court_ids' is the column name (adjust if different)
-  // Organizer data might be joined separately, handle in getByIdWithOrganizer
-  organizer: data.organizers ? { // Assuming 'organizers' is the alias used in join
+  organizerId: data.organizer_id,
+  organizerCommissionRate: data.organizer_commission_rate,
+  courtIds: data.court_ids || [],
+  organizer: data.organizers ? {
       id: data.organizers.id,
       name: data.organizers.name,
       phone: data.organizers.phone,
@@ -34,8 +33,8 @@ const transformEvent = (data: any): Event => ({
       active: data.organizers.active,
       createdAt: data.organizers.created_at,
       updatedAt: data.organizers.updated_at,
-  } : undefined, // Return undefined instead of null
-  status: data.status, // Assuming status might come from a related tournament or event table itself
+  } : undefined,
+  status: data.status,
 });
 
 // Função para converter nosso tipo Event para o formato do Supabase
@@ -46,17 +45,16 @@ const toSupabaseEvent = (event: Partial<Event>) => ({
   location: event.location,
   date: event.date,
   time: event.time,
-  price: event.price,
+  entry_fee: event.price, // Usar entry_fee em vez de price
   max_participants: event.maxParticipants,
   prize: event.prize,
   rules: event.rules,
   banner_image_url: event.bannerImageUrl,
   team_formation: event.teamFormation,
   categories: event.categories || [],
-  organizer_id: event.organizerId, // Added
-  organizer_commission_rate: event.organizerCommissionRate, // Added
-  court_ids: event.courtIds || [], // Added, assuming 'court_ids' is the column name
-  // Don't include 'organizer' object when sending to Supabase
+  organizer_id: event.organizerId,
+  organizer_commission_rate: event.organizerCommissionRate,
+  court_ids: event.courtIds || [],
 });
 
 export const EventsService = {
@@ -116,6 +114,7 @@ export const EventsService = {
       }
 
       return transformEvent(data);    } catch (error) {
+        console.log(error);
       throw tratarErroSupabase(error, 'criar evento');
     }
   },
@@ -124,7 +123,8 @@ export const EventsService = {
   async update(id: string, event: Partial<Event>): Promise<Event> {
     try {
       const supabaseData = toSupabaseEvent(event);
-      console.log(`Updating event ${id} with data:`, supabaseData); // Log data being sent
+      console.log(`Updating event ${id} with data:`, supabaseData);
+      
       const { data, error } = await supabase
         .from('events')
         .update(supabaseData)
@@ -134,10 +134,17 @@ export const EventsService = {
 
       if (error) {
         console.error(`Supabase error updating event ${id}:`, error);
+        
+        // Verificar se é erro de coluna não encontrada
+        if (error.message?.includes("'price' column")) {
+          throw new Error(`Erro de schema: A coluna 'price' não existe na tabela events. Use 'entry_fee' em vez disso.`);
+        }
+        
         throw new Error(`Failed to update event: ${error.message}`);
       }
 
-      return transformEvent(data);    } catch (error) {
+      return transformEvent(data);
+    } catch (error) {
       throw tratarErroSupabase(error, `atualizar evento ${id}`);
     }
   },

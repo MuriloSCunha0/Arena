@@ -1,10 +1,9 @@
 import { supabase } from '../lib/supabase';
-import { Tournament, Match, TeamFormationType } from '../types';
-import { calculateGroupRankings, GroupRanking } from '../utils/rankingUtils'; // Import ranking utility
-import { createTwoSidedBracket, BracketSidesMetadata } from '../utils/bracketSidesUtil'; // Import two-sided bracket utilities
-import { distributeTeamsIntoGroups } from '../utils/groupFormationUtils'; // Import group formation utility
+import { Tournament, Match, TeamFormationType, TournamentFormat } from '../types';
+import { calculateGroupRankings, GroupRanking } from '../utils/rankingUtils';
+import { createTwoSidedBracket, BracketSidesMetadata } from '../utils/bracketSidesUtil';
+import { distributeTeamsIntoGroups } from '../utils/groupFormationUtils';
 import { BracketPosition } from '../utils/bracketUtils';
-// Import the tournament store
 import { useTournamentStore } from '../store/tournamentStore';
 
 // Interface for potential tournament settings
@@ -31,6 +30,37 @@ const handleSupabaseError = (error: any, context: string) => {
   
   throw new Error(message);
 };
+
+// Add the transformTournament function
+const transformTournament = (data: any): Tournament => ({
+  id: data.id,
+  eventId: data.event_id,
+  format: data.format as TournamentFormat || TournamentFormat.GROUP_STAGE_ELIMINATION,
+  settings: data.settings || {},
+  status: data.status,
+  totalRounds: data.total_rounds,
+  currentRound: data.current_round || 0,
+  groupsCount: data.groups_count || 0,
+  groupsData: data.groups_data || {},
+  bracketsData: data.brackets_data || {},
+  thirdPlaceMatch: data.third_place_match ?? true,
+  autoAdvance: data.auto_advance ?? false,
+  startedAt: data.started_at,
+  completedAt: data.completed_at,
+  createdAt: data.created_at,
+  updatedAt: data.updated_at,
+  
+  // Novos campos JSONB
+  matchesData: data.matches_data || [],
+  teamsData: data.teams_data || [],
+  standingsData: data.standings_data || {},
+  eliminationBracket: data.elimination_bracket || {},
+  
+  // Para compatibilidade
+  matches: data.matches_data || [],
+  teamFormation: data.team_formation || TeamFormationType.FORMED,
+  isNewTournament: data.isNewTournament || false,
+});
 
 // Helper function to generate round robin matches for a group
 const generateGroupMatches = (
@@ -65,8 +95,54 @@ const generateGroupMatches = (
   return matches;
 };
 
+// Helper function to form automatic pairs from participants
+const formAutomaticPairs = (participants: any[]): string[][] => {
+  const teams: string[][] = [];
+  
+  // Primeiro, formar duplas com base em parceiros pré-definidos
+  const pairedParticipants = new Set<string>();
+  
+  participants.forEach(participant => {
+    if (pairedParticipants.has(participant.id)) return;
+    
+    // Se o participante tem um parceiro definido
+    if (participant.partnerId) {
+      const partner = participants.find(p => p.id === participant.partnerId);
+      if (partner && !pairedParticipants.has(partner.id)) {
+        teams.push([participant.id, partner.id]);
+        pairedParticipants.add(participant.id);
+        pairedParticipants.add(partner.id);
+        console.log(`Dupla formada: ${participant.name} + ${partner.name}`);
+      }
+    }
+  });
+  
+  // Para participantes restantes sem parceiro, formar duplas automaticamente
+  const remainingParticipants = participants.filter(p => !pairedParticipants.has(p.id));
+  console.log(`${remainingParticipants.length} participantes sem dupla definida, formando duplas automaticamente...`);
+  
+  // Embaralhar para formar duplas aleatórias
+  const shuffled = [...remainingParticipants].sort(() => Math.random() - 0.5);
+  
+  for (let i = 0; i < shuffled.length - 1; i += 2) {
+    teams.push([shuffled[i].id, shuffled[i + 1].id]);
+    console.log(`Dupla automática formada: ${shuffled[i].name} + ${shuffled[i + 1].name}`);
+  }
+  
+  // Se sobrar um participante ímpar, formar uma dupla "BYE" ou permitir individual
+  if (shuffled.length % 2 === 1) {
+    const lastParticipant = shuffled[shuffled.length - 1];
+    teams.push([lastParticipant.id]);
+    console.log(`Participante individual (BYE): ${lastParticipant.name}`);
+  }
+  
+  console.log(`Total de ${teams.length} duplas/times formados`);
+  return teams;
+};
+
 export const TournamentService = {
-  getByEventId: async (eventId: string): Promise<Tournament | null> => {
+  // Método atualizado para trabalhar com JSONB
+  async getByEventId(eventId: string): Promise<Tournament | null> {
     try {
       // First check if tournaments table exists and get tournament
       const { data: tournament, error } = await supabase
@@ -131,22 +207,40 @@ export const TournamentService = {
           updatedAt: match.updated_at,
         }));
 
-      return {
-        id: tournament.id,
-        eventId: tournament.event_id,
-        status: tournament.status,
-        matches: validatedMatches,
-        settings: tournament.settings || { groupSize: 3, qualifiersPerGroup: 2 },
-        type: tournament.type || 'TOURNAMENT',
-        teamFormation: tournament.team_formation || TeamFormationType.FORMED,
-        isNewTournament: false,
-        createdAt: tournament.created_at,
-        updatedAt: tournament.updated_at
-      };
+      // Use transformTournament to create proper Tournament object
+      const transformedTournament = transformTournament(tournament);
+      transformedTournament.matches = validatedMatches;
+      transformedTournament.isNewTournament = false;
+
+      return transformedTournament;
     } catch (error) {
       console.error('Error in getByEventId:', error);
       return null;
     }
+  },
+
+  async updateMatchInTournament(tournamentId: string, matchId: string, updates: Partial<Match>): Promise<void> {
+    // Buscar torneio atual
+    const { data: tournament, error: fetchError } = await supabase
+      .from('tournaments')
+      .select('matches_data')
+      .eq('id', tournamentId)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    // Atualizar partida no array JSON
+    const updatedMatches = tournament.matches_data.map((match: any) => 
+      match.id === matchId ? { ...match, ...updates } : match
+    );
+
+    // Salvar de volta
+    const { error: updateError } = await supabase
+      .from('tournaments')
+      .update({ matches_data: updatedMatches })
+      .eq('id', tournamentId);
+
+    if (updateError) throw updateError;
   },
 
   // Adicionar lógica para diferenciar duplas formadas e aleatórias
@@ -228,74 +322,40 @@ export const TournamentService = {
           settings: { 
             groupSize: defaultGroupSize,
             qualifiersPerGroup: 2
-          }
+          },
+          format: TournamentFormat.GROUP_STAGE_ELIMINATION // Use enum instead of string
         };
 
-        // Only add team_formation if column exists
-        try {
-          const { data: updatedTournament, error: updateError } = await supabase
-            .from('tournaments')
-            .update({ ...updateData, team_formation: teamFormationType })
-            .eq('id', existingTournament.id)
-            .select()
-            .single();
-          
-          if (updateError) throw updateError;
-          tournamentId = updatedTournament.id;
-        } catch (updateError) {
-          if (typeof updateError === 'object' && updateError !== null && 'message' in updateError && 
-              typeof updateError.message === 'string' && updateError.message.includes('team_formation')) {
-            // Column doesn't exist, try without it
-            const { data: updatedTournament, error: updateError2 } = await supabase
-              .from('tournaments')
-              .update(updateData)
-              .eq('id', existingTournament.id)
-              .select()
-              .single();
-            
-            if (updateError2) throw updateError2;
-            tournamentId = updatedTournament.id;
-          } else {
-            throw updateError;
-          }
-        }
+        const { data: updatedTournament, error: updateError } = await supabase
+          .from('tournaments')
+          .update(updateData)
+          .eq('id', existingTournament.id)
+          .select()
+          .single();
+        
+        if (updateError) throw updateError;
+        tournamentId = updatedTournament.id;
 
       } else {
         // Create new tournament
         const insertData: any = {
           event_id: eventId,
           status: 'CREATED',
+          format: TournamentFormat.GROUP_STAGE_ELIMINATION, // Use enum instead of string
           settings: { 
             groupSize: defaultGroupSize,
             qualifiersPerGroup: 2
           }
         };
 
-        // Try to include team_formation if column exists
-        try {
-          const { data: newTournament, error: insertError } = await supabase
-            .from('tournaments')
-            .insert({ ...insertData, team_formation: teamFormationType })
-            .select()
-            .single();
-
-          if (insertError) throw insertError;
-          tournamentId = newTournament.id;
-        } catch (insertError: any) {
-          if (insertError.message?.includes('team_formation')) {
-            // Column doesn't exist, try without it
-            const { data: newTournament, error: insertError2 } = await supabase
-              .from('tournaments')
-              .insert(insertData)
-              .select()
-              .single();
-            
-            if (insertError2) throw insertError2;
-            tournamentId = newTournament.id;
-          } else {
-            throw insertError;
-          }
-        }
+        const { data: newTournament, error: insertError } = await supabase
+          .from('tournaments')
+          .insert(insertData)
+          .select()
+          .single();
+        
+        if (insertError) throw insertError;
+        tournamentId = newTournament.id;
       }
       
       // Generate groups and matches
@@ -345,11 +405,24 @@ export const TournamentService = {
       // Return the created tournament
       const finalTournament = await TournamentService.getByEventId(eventId);
       if (!finalTournament) {
-        // Fallback: create a basic tournament object
+        // Fallback: create a complete tournament object
         return {
           id: tournamentId,
           eventId: eventId,
+          format: TournamentFormat.GROUP_STAGE_ELIMINATION,
           status: 'CREATED',
+          currentRound: 0,
+          groupsCount: groups.length,
+          groupsData: {},
+          bracketsData: {},
+          thirdPlaceMatch: true,
+          autoAdvance: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          matchesData: [],
+          teamsData: [],
+          standingsData: {},
+          eliminationBracket: {},
           matches: [],
           settings: { groupSize: defaultGroupSize, qualifiersPerGroup: 2 },
           teamFormation: teamFormationType,
@@ -379,11 +452,26 @@ export const TournamentService = {
       if (tournamentError) throw tournamentError;
       if (!tournamentData) throw new Error("Tournament not found");
 
-      // For now, return a basic structure since we need to handle missing columns
+      // Return a complete tournament structure
       const basicTournament: Tournament = {
         id: tournamentId,
         eventId: tournamentData.event_id,
+        format: tournamentData.format || TournamentFormat.GROUP_STAGE_ELIMINATION,
         status: 'STARTED',
+        currentRound: 0,
+        groupsCount: tournamentData.groups_count || 0,
+        groupsData: tournamentData.groups_data || {},
+        bracketsData: tournamentData.brackets_data || {},
+        thirdPlaceMatch: tournamentData.third_place_match ?? true,
+        autoAdvance: tournamentData.auto_advance ?? false,
+        startedAt: tournamentData.started_at,
+        completedAt: tournamentData.completed_at,
+        createdAt: tournamentData.created_at,
+        updatedAt: tournamentData.updated_at,
+        matchesData: [],
+        teamsData: [],
+        standingsData: {},
+        eliminationBracket: {},
         matches: [],
         settings: tournamentData.settings || { groupSize: 3, qualifiersPerGroup: 2 },
         teamFormation: tournamentData.team_formation || TeamFormationType.FORMED,
@@ -469,7 +557,9 @@ export const TournamentService = {
       handleSupabaseError(error, 'generateTwoSidedEliminationBracket');
       throw error;
     }
-  },  updateMatch: async (matchId: string, score1: number, score2: number): Promise<Match> => {
+  },
+
+  updateMatch: async (matchId: string, score1: number, score2: number): Promise<Match> => {
     try {
       console.log(`Updating match ${matchId} with scores: ${score1}-${score2}`);
 
@@ -515,7 +605,7 @@ export const TournamentService = {
       
       // Atualizar também os dados em memória usando o store adequadamente
       const tournamentStore = useTournamentStore.getState();
-      if (tournamentStore.tournament) {
+      if (tournamentStore.tournament && tournamentStore.tournament.matches) {
         const updatedMatches = tournamentStore.tournament.matches.map(m => 
           m.id === matchId ? {...m, score1, score2, winnerId, completed: true} : m
         );
@@ -523,7 +613,7 @@ export const TournamentService = {
         // Usar setState com tipagem adequada
         useTournamentStore.setState((state) => ({
           ...state,
-          tournament: {...state.tournament!, matches: updatedMatches}
+          tournament: state.tournament ? {...state.tournament, matches: updatedMatches} : null
         }));
       }
 
@@ -538,6 +628,7 @@ export const TournamentService = {
       throw error;
     }
   },
+
   advanceWinner: async (match: any): Promise<void> => {
     // Não avança o vencedor se não for fase eliminatória, não tiver vencedor ou não tiver times
     if (match.stage !== 'ELIMINATION' || !match.winner_id || !match.team1 || !match.team2) {
@@ -617,7 +708,7 @@ export const TournamentService = {
         .single();
 
       if (error) throw error;
-      return updatedTournament;
+      return transformTournament(updatedTournament);
     } catch (error) {
       handleSupabaseError(error, 'updateStatus');
       throw error;
@@ -656,6 +747,57 @@ export const TournamentService = {
     } catch (error) {
       handleSupabaseError(error, 'updateMatchSchedule');
       throw error;
+    }
+  },
+
+  // Método para formar equipes a partir de participantes
+  formTeamsFromParticipants: (
+    participants: any[],
+    teamFormationType: TeamFormationType,
+    options: { groupSize?: number } = {}
+  ): { teams: string[][]; metadata: { formedPairs: number; autoPairs: number; singlePlayers: number } } => {
+    console.log('Forming teams from participants:', participants.length, 'participants, Type:', teamFormationType);
+    
+    if (teamFormationType === TeamFormationType.FORMED) {
+      // Para duplas formadas, usar formação automática que respeita parcerias + auto-forma as restantes
+      const teams = formAutomaticPairs(participants);
+      
+      // Calcular estatísticas
+      const formedPairs = participants.filter(p => p.partnerId).length / 2;
+      const autoPairs = teams.filter(t => t.length === 2).length - formedPairs;
+      const singlePlayers = teams.filter(t => t.length === 1).length;
+      
+      return { 
+        teams, 
+        metadata: { 
+          formedPairs: Math.floor(formedPairs), 
+          autoPairs: Math.floor(autoPairs), 
+          singlePlayers 
+        } 
+      };
+    } else {
+      // Para duplas aleatórias, embaralhar completamente
+      const shuffled = [...participants].sort(() => Math.random() - 0.5);
+      const teams: string[][] = [];
+      
+      for (let i = 0; i < shuffled.length - 1; i += 2) {
+        teams.push([shuffled[i].id, shuffled[i + 1].id]);
+      }
+      
+      // Se sobrar um participante ímpar, criar um time individual
+      if (shuffled.length % 2 === 1) {
+        teams.push([shuffled[shuffled.length - 1].id]);
+      }
+      
+      console.log('Formed random teams:', teams.length);
+      return { 
+        teams, 
+        metadata: { 
+          formedPairs: 0, 
+          autoPairs: teams.filter(t => t.length === 2).length, 
+          singlePlayers: teams.filter(t => t.length === 1).length 
+        } 
+      };
     }
   },
 

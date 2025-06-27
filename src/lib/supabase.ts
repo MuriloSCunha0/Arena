@@ -7,11 +7,16 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 // Crie o cliente Supabase com persistência de sessão
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    persistSession: true,
-    storage: localStorage, // Use localStorage para persistir a sessão
     autoRefreshToken: true,
-    detectSessionInUrl: true,
-    flowType: 'implicit'
+    persistSession: true,
+    detectSessionInUrl: true
+  },
+  global: {
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation'
+    }
   }
 });
 
@@ -86,6 +91,24 @@ export const traduzirErroSupabase = (erro: any): string => {
   // Verificar o código de erro
   const codigo = erro.code;
   const mensagem = erro.message || '';
+  
+  // Verificar erros específicos de schema
+  if (mensagem.includes("'price' column")) {
+    return 'Erro de configuração: A coluna de preço não está configurada corretamente no banco de dados.';
+  }
+  
+  if (mensagem.includes("schema cache")) {
+    return 'Erro de cache do banco de dados. Tente novamente em alguns instantes.';
+  }
+  
+  // Verificar erros específicos de constraint
+  if (mensagem.includes('events_current_participants_valid')) {
+    return 'O evento atingiu o limite máximo de participantes ou há uma inconsistência no contador de participantes.';
+  }
+  
+  if (mensagem.includes('participants_cpf_format')) {
+    return 'O CPF informado está em formato inválido. Use o formato: 000.000.000-00';
+  }
   
   // Mapeamento de erros comuns
   const mensagensErro: Record<string, string> = {
