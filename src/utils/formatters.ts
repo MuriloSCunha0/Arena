@@ -74,15 +74,17 @@ export const formatPhone = (phone: string | null): string => {
 };
 
 /**
- * Format payment method to display format based on database enum
+ * Formata um enum de payment_method do banco de dados
  */
 export const formatPaymentMethod = (method: string | null): string => {
   if (!method) return '';
   
   const methods: Record<string, string> = {
     'PIX': 'PIX',
-    'CARD': 'Cartão',
+    'CREDIT_CARD': 'Cartão de Crédito',
+    'DEBIT_CARD': 'Cartão de Débito',
     'CASH': 'Dinheiro',
+    'BANK_TRANSFER': 'Transferência Bancária',
     'OTHER': 'Outro'
   };
   
@@ -90,7 +92,7 @@ export const formatPaymentMethod = (method: string | null): string => {
 };
 
 /**
- * Format payment status to display format based on database enum
+ * Formata um enum de payment_status do banco de dados
  */
 export const formatPaymentStatus = (status: string | null): string => {
   if (!status) return '';
@@ -98,7 +100,9 @@ export const formatPaymentStatus = (status: string | null): string => {
   const statuses: Record<string, string> = {
     'PENDING': 'Pendente',
     'CONFIRMED': 'Confirmado',
-    'CANCELLED': 'Cancelado'
+    'CANCELLED': 'Cancelado',
+    'REFUNDED': 'Reembolsado',
+    'EXPIRED': 'Expirado'
   };
   
   return statuses[status] || status;
@@ -214,7 +218,11 @@ export const formatEventStatus = (status: string | null): string => {
   if (!status) return '';
   
   const statuses: Record<string, string> = {
-    'SCHEDULED': 'Agendado',
+    'DRAFT': 'Rascunho',
+    'PUBLISHED': 'Publicado',
+    'OPEN': 'Aberto',
+    'CLOSED': 'Fechado',
+    'IN_PROGRESS': 'Em Andamento',
     'ONGOING': 'Em Andamento',
     'COMPLETED': 'Concluído',
     'CANCELLED': 'Cancelado'

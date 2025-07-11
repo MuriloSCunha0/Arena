@@ -19,6 +19,7 @@ interface Event {
   date: string;
   location: string;
   price: number;
+  entry_fee?: number; // ✅ Adicionado para aderência ao DDL
   banner_image_url?: string;
   description?: string;
 }
@@ -104,7 +105,7 @@ export const EventosDisponiveis = () => {
                   </div>
                   <div className="flex items-center">
                     <DollarSign size={16} className="mr-2 text-brand-green" />
-                    {event.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    {(event.entry_fee || event.price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                   </div>
                 </div>
                 

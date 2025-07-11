@@ -15,17 +15,10 @@ import {
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { formattedDate, formattedCurrency } from '../../utils/formatters';
-import { Tournament, Event } from '../../types'; // Assuming Tournament might extend Event or share properties
-
-// Define a type for tournament status with specific string literals
-type EventStatus = 'SCHEDULED' | 'ONGOING' | 'COMPLETED' | 'CANCELLED';
+import { Event, EventStatus } from '../../types'; // ✅ Usar EventStatus do sistema
 
 interface TournamentCardProps {
-  // Use the Event type from src/types/index.ts if it represents the card data
-  tournament: Event & { // Combine with Event or use a specific Card type
-    // Add any specific properties needed for the card if not in Event
-    status?: EventStatus; // Make status optional if not always present
-  };
+  tournament: Event;
   showActions?: boolean;
 }
 
@@ -52,24 +45,36 @@ export const TournamentCard: React.FC<TournamentCardProps> = ({
   
   // Type-safe status mappings using EventStatus
   const statusColorMap: Record<EventStatus, string> = {
-    SCHEDULED: 'bg-blue-100 text-blue-800',
-    ONGOING: 'bg-green-100 text-green-800',
-    COMPLETED: 'bg-purple-100 text-purple-800',
+    DRAFT: 'bg-gray-100 text-gray-800',
+    PUBLISHED: 'bg-blue-100 text-blue-800',
+    OPEN: 'bg-green-100 text-green-800',
+    CLOSED: 'bg-yellow-100 text-yellow-800',
+    IN_PROGRESS: 'bg-purple-100 text-purple-800',
+    COMPLETED: 'bg-indigo-100 text-indigo-800',
     CANCELLED: 'bg-red-100 text-red-800',
+    ONGOING: 'bg-emerald-100 text-emerald-800',
   };
 
   const statusIconMap: Record<EventStatus, JSX.Element> = {
-    SCHEDULED: <PauseCircle size={14} className="mr-1" />,
-    ONGOING: <PlayCircle size={14} className="mr-1" />,
+    DRAFT: <PauseCircle size={14} className="mr-1" />,
+    PUBLISHED: <PlayCircle size={14} className="mr-1" />,
+    OPEN: <PlayCircle size={14} className="mr-1" />,
+    CLOSED: <PauseCircle size={14} className="mr-1" />,
+    IN_PROGRESS: <PlayCircle size={14} className="mr-1" />,
     COMPLETED: <Award size={14} className="mr-1" />,
-    CANCELLED: <XCircle size={14} className="mr-1" />, // Assuming XCircle for cancelled
+    CANCELLED: <XCircle size={14} className="mr-1" />,
+    ONGOING: <PlayCircle size={14} className="mr-1" />,
   };
 
   const statusTextMap: Record<EventStatus, string> = {
-    SCHEDULED: 'Agendado',
-    ONGOING: 'Em andamento',
+    DRAFT: 'Rascunho',
+    PUBLISHED: 'Publicado',
+    OPEN: 'Aberto',
+    CLOSED: 'Fechado',
+    IN_PROGRESS: 'Em andamento',
     COMPLETED: 'Concluído',
     CANCELLED: 'Cancelado',
+    ONGOING: 'Em andamento',
   };
 
   // Safe access with fallbacks

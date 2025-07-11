@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { User, AlertCircle, Check, ArrowLeft, Users, QrCode } from 'lucide-react';
+import { Check, ArrowLeft, Users, QrCode } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { useNotificationStore } from '../../components/ui/Notification';
 import { useAuth } from '../../hooks/useAuth';
 import { useParticipant } from '../../hooks/useParticipant';
+import { useErrorHandler } from '../../hooks/useErrorHandler';
+import { useEventsStore } from '../../store/eventsStore';
 import { formatCurrency, formatCPF, formatPhone, formatDate } from '../../utils/formatters';
 import { validateCPF } from '../../utils/validation';
 import { supabase } from '../../lib/supabase';
-import { EventDetail } from '../../types';
 import { UserSearchInput } from '../../components/UserSearchInput';
 import { PaymentMethodSelector } from '../../components/PaymentMethodSelector';
 import { PaymentService } from '../../services/supabase/paymentService';
@@ -18,10 +19,17 @@ export const EventRegistration: React.FC = () => {
   const { user, isAuth, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
   const addNotification = useNotificationStore(state => state.addNotification);
-  const { registerForEvent, checkEventRegistration, invitePartner, loading: participantLoading } = useParticipant();
+  const { registerForEvent, checkEventRegistration, invitePartner } = useParticipant();
+  const { handleError } = useErrorHandler();
+  
+  // Connect to EventsStore instead of local state
+  const { 
+    currentEvent: event, 
+    loading: eventLoading,
+    getByIdWithOrganizer,
+    clearError 
+  } = useEventsStore();
 
-  const [event, setEvent] = useState<EventDetail | null>(null);
-  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [isAlreadyRegistered, setIsAlreadyRegistered] = useState(false);
   const [partnerId, setPartnerId] = useState<string | null>(null);
@@ -38,33 +46,19 @@ export const EventRegistration: React.FC = () => {
   const [showSuccessScreen, setShowSuccessScreen] = useState(false);
   const [paymentInfo, setPaymentInfo] = useState<any>(null);
 
-  // Carregar dados do evento
+  // Carregar dados do evento usando store
   useEffect(() => {
-    const fetchEvent = async () => {
-      if (!eventId) return;
-      
-      try {
-        const { data, error } = await supabase
-          .from('events')
-          .select('*, organizers(*)')
-          .eq('id', eventId)
-          .single();
-          
-        if (error) throw error;
-        setEvent(data as EventDetail);
-      } catch (error) {
-        console.error('Error fetching event:', error);
-        addNotification({
-          type: 'error',
-          message: 'Não foi possível carregar os dados do evento'
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
+    if (!eventId) return;
     
-    fetchEvent();
-  }, [eventId, addNotification]);
+    // Clear any previous errors and fetch event with organizer
+    clearError();
+    getByIdWithOrganizer(eventId).catch(error => {
+      handleError(error, { 
+        component: 'EventRegistration', 
+        action: 'fetchEvent' 
+      }, 'Não foi possível carregar os dados do evento');
+    });
+  }, [eventId, getByIdWithOrganizer, clearError, handleError]);
 
   // Verificar se usuário já está inscrito
   useEffect(() => {
@@ -117,7 +111,7 @@ export const EventRegistration: React.FC = () => {
 
   // Redirecionar para login se não estiver autenticado
   useEffect(() => {
-    if (!authLoading && !isAuth() && !loading) {
+    if (!authLoading && !isAuth()) {
       // Salvar a URL atual para redirecionar de volta após login
       sessionStorage.setItem('redirectAfterLogin', window.location.pathname);
       
@@ -128,7 +122,7 @@ export const EventRegistration: React.FC = () => {
       
       navigate('/login', { replace: true });
     }
-  }, [authLoading, isAuth, loading, navigate, addNotification]);
+  }, [authLoading, isAuth, navigate, addNotification]);
 
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -168,7 +162,7 @@ export const EventRegistration: React.FC = () => {
     }
     
     // Validar parceiro se for torneio de duplas formadas
-    if (event?.team_formation === 'FORMED' && !partnerId) {
+    if (event?.teamFormation === 'FORMED' && !partnerId) {
       newErrors.partner = 'Selecione um parceiro para o torneio';
     }
     
@@ -189,7 +183,7 @@ export const EventRegistration: React.FC = () => {
       const participant = await registerForEvent(user.id, eventId, formData);
       
       // 2. Se for evento de duplas formadas e tiver parceiro selecionado
-      if (event?.team_formation === 'FORMED' && partnerId) {
+      if (event?.teamFormation === 'FORMED' && partnerId) {
         await invitePartner(user.id, eventId, partnerId);
         addNotification({
           type: 'success',
@@ -210,13 +204,13 @@ export const EventRegistration: React.FC = () => {
         });
         
         setShowSuccessScreen(true);
-      } else if (formData.paymentMethod === 'CARD') {
+      } else if (formData.paymentMethod === 'CREDIT_CARD' || formData.paymentMethod === 'DEBIT_CARD') {
         // Em produção: Integrar com gateway de pagamento
         // Registrar intenção de pagamento no banco
         await supabase
           .from('participants')
           .update({
-            payment_method: 'CARD',
+            payment_method: formData.paymentMethod,
           })
           .eq('id', participant.id);
         
@@ -259,7 +253,7 @@ export const EventRegistration: React.FC = () => {
     }
   };
 
-  if (loading || authLoading) {
+  if (eventLoading || authLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="spinner-border text-primary" role="status">
@@ -306,7 +300,7 @@ export const EventRegistration: React.FC = () => {
               Sua inscrição para {event?.title} foi registrada com sucesso.
             </p>
             
-            {event?.team_formation === 'FORMED' && partnerId && (
+            {event?.teamFormation === 'FORMED' && partnerId && (
               <div className="mt-4 p-4 bg-blue-50 rounded-md">
                 <p className="text-blue-700">
                   Seu parceiro receberá um convite para confirmar a participação.
@@ -405,10 +399,10 @@ export const EventRegistration: React.FC = () => {
             <p className="font-medium text-brand-blue">💰 {formatCurrency(event?.price || 0)}</p>
           </div>
           
-          {event?.team_formation && (
+          {event?.teamFormation && (
             <div className="mt-3 p-2 rounded bg-blue-50 text-blue-700 text-sm flex items-center">
               <Users size={16} className="mr-2" />
-              {event.team_formation === 'FORMED' ? 'Duplas formadas' : 'Duplas aleatórias'}
+              {event.teamFormation === 'FORMED' ? 'Duplas formadas' : 'Duplas aleatórias'}
             </div>
           )}
         </div>
@@ -520,7 +514,7 @@ export const EventRegistration: React.FC = () => {
             </div>
             
             {/* Seleção de parceiro para eventos de dupla formada */}
-            {event?.team_formation === 'FORMED' && (
+            {event?.teamFormation === 'FORMED' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Selecione seu parceiro *
@@ -574,7 +568,7 @@ export const EventRegistration: React.FC = () => {
                 <span className="font-medium">{formatCurrency(event?.price || 0)}</span>
               </div>
               
-              {event?.team_formation === 'FORMED' && (
+              {event?.teamFormation === 'FORMED' && (
                 <div className="mt-2 flex justify-between items-center">
                   <span>Parceiro (convite enviado)</span>
                   <span className="font-medium">{partnerData ? partnerData.full_name : 'Aguardando seleção'}</span>

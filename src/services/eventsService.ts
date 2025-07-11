@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { Event } from '../types';
+import { Event, TournamentFormat } from '../types';
 
 export const EventsService = {
   // ...existing methods...

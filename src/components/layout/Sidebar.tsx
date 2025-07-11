@@ -11,7 +11,7 @@ import {
   BarChart3,
   MapPin // Novo ícone para quadras
 } from 'lucide-react';
-import { useAuthStore } from '../../store/authStore';
+import { useAuth } from '../../hooks/useAuth';
 
 const NavItem = ({ 
   to, 
@@ -49,11 +49,11 @@ const NavItem = ({
 };
 
 export const Sidebar = () => {
-  const { signOut } = useAuthStore();
+  const { logout } = useAuth();
 
   const handleSignOut = async () => {
     try {
-      await signOut();
+      await logout();
     } catch (error) {
       console.error('Error signing out:', error);
     }

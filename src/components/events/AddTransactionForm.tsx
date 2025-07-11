@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { CircleDollarSign, FileText, Calendar, CreditCard, Loader2 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { useFinancialsStore } from '../../store';
-import { FinancialTransaction, Event } from '../../types';
+import { FinancialTransaction, Event, TransactionType, PaymentMethod, PaymentStatus } from '../../types';
 
 interface AddTransactionFormProps {
   eventId?: string;
@@ -21,11 +21,11 @@ export const AddTransactionForm: React.FC<AddTransactionFormProps> = ({
   
   const [formData, setFormData] = useState<Partial<FinancialTransaction>>({
     eventId: eventId || (events.length > 0 ? events[0].id : ''),
-    type: 'INCOME',
+    type: TransactionType.INCOME,
     description: '',
     amount: 0,
-    paymentMethod: 'PIX',
-    status: 'CONFIRMED',
+    paymentMethod: PaymentMethod.PIX,
+    status: PaymentStatus.CONFIRMED,
     transactionDate: new Date().toISOString(),
   });
   
@@ -80,8 +80,8 @@ export const AddTransactionForm: React.FC<AddTransactionFormProps> = ({
             <input
               type="radio"
               name="type"
-              value="INCOME"
-              checked={formData.type === 'INCOME'}
+              value={TransactionType.INCOME}
+              checked={formData.type === TransactionType.INCOME}
               onChange={handleChange}
               className="h-4 w-4 text-brand-green border-gray-300 focus:ring-brand-green"
             />
@@ -91,8 +91,8 @@ export const AddTransactionForm: React.FC<AddTransactionFormProps> = ({
             <input
               type="radio"
               name="type"
-              value="EXPENSE"
-              checked={formData.type === 'EXPENSE'}
+              value={TransactionType.EXPENSE}
+              checked={formData.type === TransactionType.EXPENSE}
               onChange={handleChange}
               className="h-4 w-4 text-brand-green border-gray-300 focus:ring-brand-green"
             />
@@ -168,10 +168,12 @@ export const AddTransactionForm: React.FC<AddTransactionFormProps> = ({
             className="pl-10 pr-4 py-2 w-full border border-brand-gray rounded-lg appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-brand-green"
             required
           >
-            <option value="PIX">PIX</option>
-            <option value="CARD">Cartão</option>
-            <option value="CASH">Dinheiro</option>
-            <option value="OTHER">Outro</option>
+            <option value={PaymentMethod.PIX}>PIX</option>
+            <option value={PaymentMethod.CREDIT_CARD}>Cartão de Crédito</option>
+            <option value={PaymentMethod.DEBIT_CARD}>Cartão de Débito</option>
+            <option value={PaymentMethod.CASH}>Dinheiro</option>
+            <option value={PaymentMethod.BANK_TRANSFER}>Transferência Bancária</option>
+            <option value={PaymentMethod.OTHER}>Outro</option>
           </select>
         </div>
       </div>
@@ -185,8 +187,8 @@ export const AddTransactionForm: React.FC<AddTransactionFormProps> = ({
             <input
               type="radio"
               name="status"
-              value="CONFIRMED"
-              checked={formData.status === 'CONFIRMED'}
+              value={PaymentStatus.CONFIRMED}
+              checked={formData.status === PaymentStatus.CONFIRMED}
               onChange={handleChange}
               className="h-4 w-4 text-brand-green border-gray-300 focus:ring-brand-green"
             />
@@ -196,8 +198,8 @@ export const AddTransactionForm: React.FC<AddTransactionFormProps> = ({
             <input
               type="radio"
               name="status"
-              value="PENDING"
-              checked={formData.status === 'PENDING'}
+              value={PaymentStatus.PENDING}
+              checked={formData.status === PaymentStatus.PENDING}
               onChange={handleChange}
               className="h-4 w-4 text-brand-green border-gray-300 focus:ring-brand-green"
             />

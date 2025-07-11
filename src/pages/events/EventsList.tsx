@@ -223,7 +223,7 @@ export const EventsList = () => {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center text-sm text-gray-500">
                           <Ticket size={14} className="mr-1" />
-                          <span>R$ {event.price}</span>
+                          <span>R$ {event.entry_fee || event.price || 0}</span>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">

@@ -1,4 +1,4 @@
-import React, { Fragment, useRef } from 'react';
+import React, { Fragment } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { X } from 'lucide-react';
 
@@ -19,8 +19,6 @@ export const Modal: React.FC<ModalProps> = ({
   size = 'medium',
   transparent = false,
 }) => {
-  const cancelButtonRef = useRef(null);
-
   // Determine width class based on size prop
   const getWidthClass = () => {
     switch (size) {
@@ -42,7 +40,6 @@ export const Modal: React.FC<ModalProps> = ({
       <Dialog
         as="div"
         className="fixed z-50 inset-0 overflow-y-auto"
-        initialFocus={cancelButtonRef}
         onClose={onClose}
       >
         <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">

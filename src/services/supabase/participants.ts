@@ -200,22 +200,115 @@ export const ParticipantsService = {
     paymentStatus: 'PENDING' | 'CONFIRMED', 
     paymentId?: string
   ): Promise<Participant> {
-    const updateData: any = { payment_status: paymentStatus };
-    
-    if (paymentStatus === 'CONFIRMED') {
-      updateData.payment_id = paymentId;
-      updateData.payment_date = new Date().toISOString();
+    try {
+      // Primeiro, tentar verificar se o participante existe
+      const { data: existingParticipant, error: fetchError } = await supabase
+        .from('participants')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (fetchError) {
+        console.error('Erro ao buscar participante:', fetchError);
+        throw new Error(`Participante não encontrado: ${fetchError.message}`);
+      }
+
+      console.log('Participante encontrado:', existingParticipant);
+
+      const updateData: any = { payment_status: paymentStatus };
+      
+      if (paymentStatus === 'CONFIRMED') {
+        updateData.payment_id = paymentId;
+        updateData.payment_date = new Date().toISOString();
+      }
+
+      console.log('Tentando atualizar com dados:', updateData);
+
+      const { data, error } = await supabase
+        .from('participants')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Erro ao atualizar participante:', error);
+        throw new Error(`Erro ao atualizar: ${error.message} (Code: ${error.code})`);
+      }
+
+      console.log('Participante atualizado com sucesso:', data);
+      return transformParticipant(data);
+    } catch (error) {
+      console.error('Erro completo no updatePaymentStatus:', error);
+      throw error;
     }
+  },
 
-    const { data, error } = await supabase
-      .from('participants')
-      .update(updateData)
-      .eq('id', id)
-      .select()
-      .single();
+  // Método alternativo usando RPC para contornar problemas de cache
+  async updatePaymentStatusRPC(
+    id: string,
+    paymentStatus: 'PENDING' | 'CONFIRMED',
+    paymentId?: string
+  ): Promise<Participant> {
+    try {
+      // Usar função RPC do banco para contornar cache
+      const { error } = await supabase.rpc('update_participant_payment', {
+        participant_id: id,
+        new_status: paymentStatus,
+        payment_id_param: paymentId || null,
+        payment_date_param: paymentStatus === 'CONFIRMED' ? new Date().toISOString() : null
+      });
 
-    if (error) throw error;
-    return transformParticipant(data);
+      if (error) {
+        console.error('Erro RPC:', error);
+        throw error;
+      }
+
+      // Se RPC não estiver disponível, usar método manual
+      return this.updatePaymentStatusManual(id, paymentStatus, paymentId);
+    } catch (error) {
+      console.error('RPC falhou, tentando método manual:', error);
+      return this.updatePaymentStatusManual(id, paymentStatus, paymentId);
+    }
+  },
+
+  // Método manual usando SQL direto
+  async updatePaymentStatusManual(
+    id: string,
+    paymentStatus: 'PENDING' | 'CONFIRMED',
+    paymentId?: string
+  ): Promise<Participant> {
+    try {
+      const paymentDate = paymentStatus === 'CONFIRMED' ? new Date().toISOString() : null;
+      
+      // Usar query SQL direto para contornar problemas de cache
+      const query = `
+        UPDATE participants 
+        SET 
+          payment_status = $1,
+          payment_id = $2,
+          payment_date = $3,
+          updated_at = NOW()
+        WHERE id = $4
+        RETURNING *
+      `;
+
+      const { data, error } = await supabase.rpc('execute_sql', {
+        sql_query: query,
+        params: [paymentStatus, paymentId || null, paymentDate, id]
+      });
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        throw new Error('Nenhum participante foi atualizado');
+      }
+
+      return transformParticipant(data[0]);
+    } catch (error) {
+      console.error('Método manual falhou:', error);
+      throw error;
+    }
   },
 
   // Excluir um participante

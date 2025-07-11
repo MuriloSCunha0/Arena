@@ -2,7 +2,9 @@ import { BeachTennisScore } from './tournament';
 
 export enum EventType {
   TOURNAMENT = 'TOURNAMENT',
-  POOL = 'POOL'
+  POOL = 'POOL',
+  FRIENDLY = 'FRIENDLY',
+  CHAMPIONSHIP = 'CHAMPIONSHIP'
 }
 
 export enum TeamFormationType {
@@ -10,7 +12,7 @@ export enum TeamFormationType {
   RANDOM = 'RANDOM',
 }
 
-export type EventStatus = 'SCHEDULED' | 'ONGOING' | 'COMPLETED' | 'CANCELLED';
+export type EventStatus = 'DRAFT' | 'PUBLISHED' | 'OPEN' | 'CLOSED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'ONGOING';
 
 export interface Event {
   id: string;
@@ -20,13 +22,23 @@ export interface Event {
   location: string;
   date: string;
   time: string;
+  endDate?: string;
+  endTime?: string;
   price: number;
   maxParticipants: number;
+  minParticipants?: number;
+  currentParticipants?: number;
   prize: string;
+  prizePool?: number;
+  prizeDistribution?: Record<string, any>;
   rules: string;
   bannerImageUrl: string;
+  images?: string[];
   teamFormation: TeamFormationType;
   categories: string[];
+  ageRestrictions?: Record<string, any>;
+  skillLevel?: string;
+  additionalInfo?: Record<string, any>;
   createdAt: string;
   updatedAt: string;
   courts?: Court[]; 
@@ -36,7 +48,7 @@ export interface Event {
   organizer?: Organizer;
   status?: EventStatus;
   settings?: TournamentSettings;
-  entry_fee?: number; // Adicione esta propriedade
+  entry_fee?: number; // Manter para compatibilidade
 }
 
 export interface Participant {
@@ -55,13 +67,29 @@ export interface Participant {
   partnerPaymentStatus?: 'PENDING' | 'CONFIRMED' | null;
   paymentId?: string;
   paymentDate?: string;
-  registeredAt: string;
+  paymentAmount?: number;
   pixPaymentCode?: string;
   pixQrcodeUrl?: string;
   paymentTransactionId?: string;
+  registeredAt: string;
   birthDate?: string | null;
   partnerName?: string | null;
   ranking?: number;
+  seedNumber?: number;
+  category?: string;
+  skillLevel?: string;
+  finalPosition?: number;
+  eliminatedInRound?: string;
+  pointsScored?: number;
+  pointsAgainst?: number;
+  matchesPlayed?: number;
+  matchesWon?: number;
+  matchesLost?: number;
+  setsWon?: number;
+  setsLost?: number;
+  registrationNotes?: string;
+  medicalNotes?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface PartnerInvite {
@@ -71,7 +99,8 @@ export interface PartnerInvite {
   receiverId: string;
   eventId: string;
   eventName: string;
-  status: 'PENDING' | 'ACCEPTED' | 'DECLINED';
+  status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED';
+  message?: string;
   createdAt: string;
   expiresAt: string;
 }
@@ -113,7 +142,7 @@ export interface CourtReservation {
   title: string;
   start: string;
   end: string;
-  status: 'CONFIRMED' | 'PENDING' | 'CANCELED';
+  status: 'CONFIRMED' | 'PENDING' | 'CANCELLED';
   createdAt: string;
   updatedAt: string;
 }
@@ -126,7 +155,8 @@ export interface TournamentSettings {
 }
 
 // Define enum types matching the PostgreSQL schema
-export type match_stage = 'GROUP' | 'ELIMINATION';
+export type match_stage = 'GROUP' | 'ROUND_OF_32' | 'ROUND_OF_16' | 'QUARTER_FINALS' | 'SEMI_FINALS' | 'THIRD_PLACE' | 'FINALS' | 'ELIMINATION';
+export type match_status = 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'WALKOVER' | 'FORFEIT';
 export type tournament_status = 'CREATED' | 'STARTED' | 'FINISHED' | 'CANCELLED';
 
 export interface Match {
@@ -220,25 +250,51 @@ export interface Group {
 }
 
 export interface GroupTeamStats {
-  teamId: string[]; // Array of participant IDs representing the team
+  teamId: string[];
   wins: number;
   losses: number;
-  draws?: number;  // Optional for backward compatibility
-  points?: number; // Optional for backward compatibility
   gamesWon: number;
   gamesLost: number;
   gameDifference: number;
   matchesPlayed: number;
   setsWon: number;
   setsLost: number;
-  groupNumber?: number; // Group number for the team
+  setDifference: number;
+  points: number;
+  draws: number;
   headToHeadWins: { [opponentTeamKey: string]: boolean };
+  // Add missing properties for Beach Tennis
+  proportionalWins?: number;
+  proportionalGameDifference?: number;
+  proportionalGamesWon?: number;
+  headToHead?: Map<string, { wins: number; gamesWon: number; gamesLost: number }>; // Make properties required, not optional
 }
 
 export interface GroupRanking {
   teamId: string[];
+  team?: string; // Make optional for compatibility
   rank: number;
+  position: number; // Add the missing position property
   stats: GroupTeamStats;
+  groupNumber?: number;
+}
+
+export interface OverallRanking {
+  teamId: string[];
+  team: string; // Required for Beach Tennis rules
+  rank: number;
+  stats: {
+    wins: number;
+    losses: number;
+    matchesPlayed: number;
+    gamesWon: number;
+    gamesLost: number;
+    gameDifference: number;
+    groupNumber: number;
+    headToHead?: Map<string, { wins: number; gamesWon: number; gamesLost: number }>; // Make properties required, not optional
+  };
+  groupNumber: number;
+  groupPosition?: number; // Add for ranking utils compatibility
 }
 
 // Add these enum types
@@ -249,20 +305,25 @@ export enum TransactionType {
 
 export enum PaymentMethod {
   PIX = 'PIX',
-  CARD = 'CARD',
+  CREDIT_CARD = 'CREDIT_CARD',
+  DEBIT_CARD = 'DEBIT_CARD',
   CASH = 'CASH',
+  BANK_TRANSFER = 'BANK_TRANSFER',
   OTHER = 'OTHER'
 }
 
 export enum PaymentStatus {
   PENDING = 'PENDING',
   CONFIRMED = 'CONFIRMED',
-  CANCELLED = 'CANCELLED'
+  CANCELLED = 'CANCELLED',
+  REFUNDED = 'REFUNDED',
+  EXPIRED = 'EXPIRED'
 }
 
 export interface FinancialTransaction {
   id: string;
   eventId: string;
+  eventName?: string; // Event name for display purposes
   participantId?: string;
   amount: number;
   type: TransactionType; // Now using the enum type
@@ -289,11 +350,18 @@ export interface User {
 export interface Organizer {
   id: string;
   name: string;
+  description?: string;
   phone: string;
   email?: string;
+  website?: string;
   pixKey?: string;
+  bankDetails?: Record<string, any>;
   defaultCommissionRate: number;
+  settings?: Record<string, any>;
   active: boolean;
+  verified?: boolean;
+  address?: Record<string, any>;
+  logoUrl?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -400,18 +468,6 @@ export interface Team {
 export interface TeamWithNames extends Team {
   player1Name: string;
   player2Name?: string;
-}
-
-// Nova interface para convites de dupla
-export interface PartnerInvite {
-  id: string;
-  eventId: string;
-  senderId: string;
-  senderName: string;
-  receiverId: string;
-  status: 'PENDING' | 'ACCEPTED' | 'DECLINED';
-  createdAt: string;
-  expiresAt: string;
 }
 
 export interface EventDetail {

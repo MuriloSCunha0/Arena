@@ -6,7 +6,8 @@ import { User } from '../../types';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { AlertCircle, Clock, Flag, Plus, Trash2, User as UserIcon } from 'lucide-react';
-import { useNotificationStore, useAuthStore } from '../../store';
+import { useNotificationStore } from '../../store';
+import { useAuth } from '../../hooks/useAuth';
 import IncidentService from '../../services/supabase/incidentService';
 import { formatDateTime } from '../../utils/formatters';
 
@@ -30,7 +31,7 @@ export const IncidentManager: React.FC<IncidentManagerProps> = ({
   participantMap,
   onIncidentAdded
 }) => {
-  const { user } = useAuthStore();
+  const { user } = useAuth();
   const addNotification = useNotificationStore((state) => state.addNotification);
   
   const [incidents, setIncidents] = useState<MatchIncident[]>([]);

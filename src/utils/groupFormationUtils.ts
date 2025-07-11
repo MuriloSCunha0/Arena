@@ -10,139 +10,142 @@
  * - Permite grupos de 2 ou 4 duplas quando necessário para incluir todos
  * - Otimiza a distribuição para o chaveamento
  * - Garante que todos os grupos tenham partidas equilibradas
+ * - Suporte para cálculo automático de grupos baseado no máximo de duplas
  *
  * @param teams Array de duplas/times para agrupar
- * @param defaultGroupSize Tamanho de grupo padrão (geralmente 3 para Beach Tênis)
+ * @param maxTeamsPerGroup Máximo de duplas por grupo (usado para calcular quantidade de grupos automaticamente)
+ * @param autoCalculateGroups Se true, calcula automaticamente o número de grupos baseado no maxTeamsPerGroup
  * @returns Lista de grupos formados otimizada para ranking
  */
 export function distributeTeamsIntoGroups(
   teams: string[][],
-  defaultGroupSize: number = 3
+  maxTeamsPerGroup: number = 4,
+  autoCalculateGroups: boolean = false
 ): string[][][] {
+  console.log(`🔧 [distributeTeamsIntoGroups] Called with:`, {
+    teamsCount: teams.length,
+    teams: teams,
+    maxTeamsPerGroup: maxTeamsPerGroup,
+    autoCalculateGroups: autoCalculateGroups
+  });
+  
   // Copia e embaralha os times para distribuição aleatória
   const shuffledTeams = [...teams].sort(() => Math.random() - 0.5);
   const totalTeams = shuffledTeams.length;
+  
+  console.log(`🔧 [distributeTeamsIntoGroups] Total teams: ${totalTeams}`);
+  
+  // Calcular o tamanho ideal dos grupos
+  let idealGroupSize: number;
+  let numberOfGroups: number;
+  
+  if (autoCalculateGroups) {
+    // Modo automático: calcular baseado no máximo de duplas por grupo
+    numberOfGroups = Math.ceil(totalTeams / maxTeamsPerGroup);
+    idealGroupSize = Math.ceil(totalTeams / numberOfGroups);
+    
+    console.log(`🔧 [AUTO] Calculated ${numberOfGroups} groups with ~${idealGroupSize} teams each (max: ${maxTeamsPerGroup})`);
+  } else {
+    // Modo tradicional: usar tamanho padrão de 3-4 duplas por grupo
+    idealGroupSize = Math.min(maxTeamsPerGroup, 4); // Máximo 4, mas preferencialmente 3
+    numberOfGroups = Math.ceil(totalTeams / idealGroupSize);
+    
+    console.log(`🔧 [TRADITIONAL] Using ideal group size: ${idealGroupSize}, calculated ${numberOfGroups} groups`);
+  }
   
   // Resultados serão armazenados aqui
   const groups: string[][][] = [];
   let teamIndex = 0;
   
-  // Tratamento especial para poucos times (menos de 6)
-  if (totalTeams <= 3) {
-    // Se houver 2 ou 3 times, colocamos todos em um único grupo
-    const singleGroup: string[][] = [];
-    for (let i = 0; i < totalTeams; i++) {
-      singleGroup.push(shuffledTeams[i]);
-    }
-    groups.push(singleGroup);
-  } 
-  else if (totalTeams === 4) {
-    // Para 4 times, criamos um grupo de 4 - ideal para ranking equilibrado
-    const group: string[][] = [];
-    for (let i = 0; i < 4; i++) {
-      group.push(shuffledTeams[i]);
-    }
-    groups.push(group);
-  }
-  else if (totalTeams === 5) {
-    // Para 5 times, criamos um grupo de 3 e um grupo de 2
-    // Isso permite comparação justa no ranking geral
-    const group1: string[][] = [];
-    for (let i = 0; i < 3; i++) {
-      group1.push(shuffledTeams[i]);
-    }
-    groups.push(group1);
+  // NOVA LÓGICA: Distribuição inteligente baseada no modo selecionado
+  if (autoCalculateGroups) {
+    // Modo automático: distribuir uniformemente respeitando o máximo
+    console.log(`🔧 [AUTO MODE] Distributing ${totalTeams} teams into ${numberOfGroups} groups (max ${maxTeamsPerGroup} per group)`);
     
-    const group2: string[][] = [];
-    for (let i = 3; i < 5; i++) {
-      group2.push(shuffledTeams[i]);
-    }
-    groups.push(group2);
-  }
-  else {
-    // Para 6+ times, aplicamos o algoritmo otimizado para ranking justo
+    // Calcular distribuição equilibrada
+    const baseTeamsPerGroup = Math.floor(totalTeams / numberOfGroups);
+    const extraTeams = totalTeams % numberOfGroups;
     
-    // Calcular quantos grupos de tamanho defaultGroupSize (3) teremos
-    let groupCount = Math.floor(totalTeams / defaultGroupSize);
-    const remainingTeams = totalTeams % defaultGroupSize;
+    console.log(`🔧 [AUTO MODE] Base teams per group: ${baseTeamsPerGroup}, extra teams: ${extraTeams}`);
     
-    // Estratégia otimizada para ranking equilibrado
-    if (remainingTeams === 0) {
-      // Caso perfeito: todos os grupos terão exatamente 3 times
-      // Isso garante que todas as equipes joguem o mesmo número de partidas
-      for (let i = 0; i < groupCount; i++) {
-        const group: string[][] = [];
-        for (let j = 0; j < defaultGroupSize; j++) {
-          group.push(shuffledTeams[teamIndex++]);
-        }
-        groups.push(group);
+    for (let groupIndex = 0; groupIndex < numberOfGroups; groupIndex++) {
+      const group: string[][] = [];
+      const teamsForThisGroup = baseTeamsPerGroup + (groupIndex < extraTeams ? 1 : 0);
+      
+      for (let teamInGroup = 0; teamInGroup < teamsForThisGroup && teamIndex < totalTeams; teamInGroup++) {
+        group.push(shuffledTeams[teamIndex++]);
       }
+      
+      if (group.length > 0) {
+        groups.push(group);
+        console.log(`🔧 [AUTO MODE] Group ${groupIndex + 1}: ${group.length} teams`);
+      }
+    }
+  } else {
+    // Modo tradicional: usar lógica otimizada para Beach Tennis
+    console.log(`🔧 [TRADITIONAL MODE] Using Beach Tennis optimized distribution`);
+    
+    // Tratamento especial para poucos times (menos de 6)
+    if (totalTeams <= 3) {
+      console.log(`🔧 [distributeTeamsIntoGroups] Case: totalTeams <= 3 (${totalTeams})`);
+      const singleGroup: string[][] = [];
+      for (let i = 0; i < totalTeams; i++) {
+        singleGroup.push(shuffledTeams[i]);
+      }
+      groups.push(singleGroup);
+      console.log(`🔧 [distributeTeamsIntoGroups] Created single group with ${singleGroup.length} teams`);
     } 
-    else if (remainingTeams === 1) {
-      // Sobra 1 time: melhor estratégia é criar um grupo com 4 times
-      // Isso mantém o equilíbrio no ranking geral
-      groupCount--;
+    else if (totalTeams === 4) {
+      console.log(`🔧 [distributeTeamsIntoGroups] Case: totalTeams === 4`);
+      const group: string[][] = [];
+      for (let i = 0; i < 4; i++) {
+        group.push(shuffledTeams[i]);
+      }
+      groups.push(group);
+      console.log(`🔧 [distributeTeamsIntoGroups] Created group of 4 teams`);
+    }
+    else if (totalTeams === 5) {
+      console.log(`🔧 [distributeTeamsIntoGroups] Case: totalTeams === 5`);
+      const group1: string[][] = [];
+      for (let i = 0; i < 3; i++) {
+        group1.push(shuffledTeams[i]);
+      }
+      groups.push(group1);
       
-      // Primeiro criamos os grupos com 3 times
-      for (let i = 0; i < groupCount; i++) {
+      const group2: string[][] = [];
+      for (let i = 3; i < 5; i++) {
+        group2.push(shuffledTeams[i]);
+      }
+      groups.push(group2);
+      console.log(`🔧 [distributeTeamsIntoGroups] Created 2 groups: [${group1.length}, ${group2.length}] teams`);
+    }
+    else {
+      // Para 6+ times, distribuir usando o tamanho ideal respeitando o máximo
+      const actualGroupSize = Math.min(idealGroupSize, maxTeamsPerGroup);
+      let groupCount = Math.ceil(totalTeams / actualGroupSize);
+      
+      console.log(`🔧 [TRADITIONAL] Distributing ${totalTeams} teams into ${groupCount} groups of ~${actualGroupSize} teams`);
+      
+      // Distribuição equilibrada
+      for (let groupIndex = 0; groupIndex < groupCount; groupIndex++) {
         const group: string[][] = [];
-        for (let j = 0; j < defaultGroupSize; j++) {
+        const remainingTeams = totalTeams - teamIndex;
+        const remainingGroups = groupCount - groupIndex;
+        const teamsForThisGroup = Math.ceil(remainingTeams / remainingGroups);
+        
+        for (let teamInGroup = 0; teamInGroup < teamsForThisGroup && teamIndex < totalTeams; teamInGroup++) {
           group.push(shuffledTeams[teamIndex++]);
         }
-        groups.push(group);
-      }
-      
-      // Depois criamos o grupo com 4 times
-      const specialGroup: string[][] = [];
-      for (let j = 0; j < 4; j++) {
-        specialGroup.push(shuffledTeams[teamIndex++]);
-      }
-      groups.push(specialGroup);
-    }
-    else if (remainingTeams === 2) {
-      // Para ranking justo no Beach Tennis, preferimos grupos maiores
-      // quando possível para evitar desequilíbrios
-      if (totalTeams >= 8) {
-        // Criamos grupos regulares de 3 times
-        for (let i = 0; i < groupCount; i++) {
-          const group: string[][] = [];
-          for (let j = 0; j < defaultGroupSize; j++) {
-            group.push(shuffledTeams[teamIndex++]);
-          }
+        
+        if (group.length > 0) {
           groups.push(group);
-        }
-        
-        // Adicionamos um grupo com 2 times
-        const smallGroup: string[][] = [];
-        for (let j = 0; j < 2; j++) {
-          smallGroup.push(shuffledTeams[teamIndex++]);
-        }
-        groups.push(smallGroup);
-      } else {
-        // Com menos times, redistribuir em grupos de 4 é mais equilibrado
-        groupCount = Math.max(0, groupCount - 1);
-        
-        // Grupos com 3 times
-        for (let i = 0; i < groupCount; i++) {
-          const group: string[][] = [];
-          for (let j = 0; j < defaultGroupSize; j++) {
-            group.push(shuffledTeams[teamIndex++]);
-          }
-          groups.push(group);
-        }
-        
-        // Um grupo com 4 ou 5 times (dependendo do que sobrou)
-        if (teamIndex < totalTeams) {
-          const specialGroup: string[][] = [];
-          while (teamIndex < totalTeams) {
-            specialGroup.push(shuffledTeams[teamIndex++]);
-          }
-          groups.push(specialGroup);
+          console.log(`🔧 [TRADITIONAL] Group ${groupIndex + 1}: ${group.length} teams`);
         }
       }
     }
   }
   
+  console.log(`🔧 [distributeTeamsIntoGroups] Final result: ${groups.length} groups`, groups);
   return groups;
 }
 

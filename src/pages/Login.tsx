@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { debugAuth } from '../lib/supabase';
 import { useNotificationStore } from '../components/ui/Notification';
 
 export const Login: React.FC = () => {
@@ -12,7 +11,10 @@ export const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  
+  // Use auth methods from store for login functionality
   const { signIn } = useAuthStore();
+  
   const addNotification = useNotificationStore((state: { addNotification: (notification: any) => void }) => 
     state.addNotification
   );

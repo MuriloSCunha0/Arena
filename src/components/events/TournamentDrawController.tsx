@@ -5,7 +5,6 @@ import { BracketAnimation } from './BracketAnimation';
 import { useTournamentStore, useParticipantsStore, useCourtsStore } from '../../store';
 import { useNotificationStore } from '../ui/Notification';
 import { PlayCircle, Users, MapPin } from 'lucide-react';
-import { Participant, Court } from '../../types';
 
 interface TournamentDrawControllerProps {
   eventId: string;
@@ -16,7 +15,7 @@ export const TournamentDrawController: React.FC<TournamentDrawControllerProps> =
 }) => {
   const { courts } = useCourtsStore();
   const { eventParticipants } = useParticipantsStore();
-  const { generateBracket, fetchTournament } = useTournamentStore(); // Changed from generateTournament
+  const { generateRandomStructure, fetchTournament } = useTournamentStore();
   const addNotification = useNotificationStore(state => state.addNotification);
   
   const [showDrawModal, setShowDrawModal] = useState(false);
@@ -45,18 +44,18 @@ export const TournamentDrawController: React.FC<TournamentDrawControllerProps> =
   };
   
   const handleDrawComplete = async (
-    matches: Array<[string, string]>, 
-    courtAssignments: Record<string, string[]>
+    matches: Array<[string, string]>
   ) => {
     try {
       setIsGenerating(true);
       
-      // Pass matches directly rather than extracting just IDs
-      // The matches parameter already contains the required [string, string][] format
-      await generateBracket(
+      // Convert matches array to the format expected by generateRandomStructure
+      // matches is already [string, string][] which can be treated as string[][]
+      const teams: string[][] = matches;
+      
+      await generateRandomStructure(
         eventId, 
-        matches, // This is already in the correct format needed by generateBracket
-        courtAssignments,
+        teams, 
         { forceReset: true }
       );
       

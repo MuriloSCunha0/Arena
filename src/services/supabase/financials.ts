@@ -5,6 +5,7 @@ import { FinancialTransaction } from '../../types';
 const transformTransaction = (data: any): FinancialTransaction => ({
   id: data.id,
   eventId: data.event_id,
+  eventName: data.events?.title || data.event_name, // Get from joined events table or direct field
   participantId: data.participant_id,
   amount: data.amount,
   type: data.type, // INCOME ou EXPENSE conforme o enum transaction_type
@@ -33,7 +34,12 @@ export const FinancialsService = {
   async getAll(): Promise<FinancialTransaction[]> {
     const { data, error } = await supabase
       .from('financial_transactions')
-      .select('*')
+      .select(`
+        *,
+        events (
+          title
+        )
+      `)
       .order('transaction_date', { ascending: false });
 
     if (error) throw error;
@@ -44,7 +50,12 @@ export const FinancialsService = {
   async getByEventId(eventId: string): Promise<FinancialTransaction[]> {
     const { data, error } = await supabase
       .from('financial_transactions')
-      .select('*')
+      .select(`
+        *,
+        events (
+          title
+        )
+      `)
       .eq('event_id', eventId)
       .order('transaction_date', { ascending: false });
 
@@ -56,7 +67,12 @@ export const FinancialsService = {
   async getById(id: string): Promise<FinancialTransaction | null> {
     const { data, error } = await supabase
       .from('financial_transactions')
-      .select('*')
+      .select(`
+        *,
+        events (
+          title
+        )
+      `)
       .eq('id', id)
       .single();
 
@@ -145,7 +161,12 @@ export const FinancialsService = {
   }> {
     const { data, error } = await supabase
       .from('financial_transactions')
-      .select('*')
+      .select(`
+        *,
+        events (
+          title
+        )
+      `)
       .eq('event_id', eventId);
 
     if (error) throw error;

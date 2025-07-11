@@ -16,15 +16,25 @@ interface TournamentState {
   generateFormedStructure: (
     eventId: string,
     teams: string[][],
-    options?: { groupSize?: number; forceReset?: boolean }
+    options?: { 
+      groupSize?: number; 
+      forceReset?: boolean;
+      maxTeamsPerGroup?: number;
+      autoCalculateGroups?: boolean;
+    }
   ) => Promise<void>;
   generateRandomStructure: (
     eventId: string,
-    teams: Array<[string, string]>, // Pairs from randomizer
-    options?: { groupSize?: number; forceReset?: boolean }
+    participants: any[], // Can be participants or pre-formed teams
+    options?: { 
+      groupSize?: number; 
+      forceReset?: boolean;
+      maxTeamsPerGroup?: number;
+      autoCalculateGroups?: boolean;
+    }
   ) => Promise<void>;
-  // New action for elimination stage
-  generateEliminationBracket: (tournamentId: string) => Promise<void>;
+  // Updated action for elimination stage with Beach Tennis rules support
+  generateEliminationBracket: (tournamentId: string, useBeachTennisRules?: boolean) => Promise<Tournament>;
   // Add the new action to the interface
   generateBilateralEliminationBracket: (tournamentId: string) => Promise<void>;
   updateMatchResults: (matchId: string, score1: number, score2: number) => Promise<void>;
@@ -33,8 +43,20 @@ interface TournamentState {
   updateMatchSchedule: (matchId: string, courtId: string | null, scheduledTime: string | null) => Promise<void>;
   clearError: () => void;
   resetTournamentState: () => void; // Added reset function
-  generateFormedBracket: (eventId: string, teams: string[][], options?: { forceReset?: boolean }) => Promise<void>;
-  generateRandomBracketAndGroups: (eventId: string, teams: string[][], options?: { forceReset?: boolean }) => Promise<void>;
+  // Adicionar função para forçar refresh completo dos dados
+  forceRefreshTournament: (eventId: string) => Promise<void>;
+  generateFormedBracket: (eventId: string, teams: string[][], options?: { 
+    forceReset?: boolean;
+    groupSize?: number;
+    maxTeamsPerGroup?: number;
+    autoCalculateGroups?: boolean;
+  }) => Promise<void>;
+  generateRandomBracketAndGroups: (eventId: string, teams: string[][], options?: { 
+    forceReset?: boolean;
+    groupSize?: number;
+    maxTeamsPerGroup?: number;
+    autoCalculateGroups?: boolean;
+  }) => Promise<void>;
   checkGroupStageCompletion: () => boolean; // Helper function to check if group stage is complete
 }
 
@@ -75,12 +97,18 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
   generateFormedStructure: async (
     eventId: string,
     teams: string[][],
-    options?: { groupSize?: number; forceReset?: boolean }
+    options?: { 
+      groupSize?: number; 
+      forceReset?: boolean;
+      maxTeamsPerGroup?: number;
+      autoCalculateGroups?: boolean;
+    }
   ) => {
     try {
       set({ loading: true, error: null, isNewTournament: false });
       
       console.log(`Generating formed structure for event ${eventId} with ${teams.length} teams`);
+      console.log('Group options:', options);
       
       const tournament = await TournamentService.generateTournamentStructure(
         eventId,
@@ -126,12 +154,18 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
   generateRandomStructure: async (
     eventId: string,
     participants: any[], // <- Isso deveria aceitar tanto participants quanto teams já formados
-    options?: { groupSize?: number; forceReset?: boolean }
+    options?: { 
+      groupSize?: number; 
+      forceReset?: boolean;
+      maxTeamsPerGroup?: number;
+      autoCalculateGroups?: boolean;
+    }
   ) => {
     set({ loading: true, error: null, isNewTournament: false });
     
     try {
       console.log(`Generating random structure for event ${eventId} with ${participants.length} participants/teams`);
+      console.log('Group options:', options);
       
       let teams: string[][];
       
@@ -191,19 +225,25 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
   },
 
   // New action implementation
-  generateEliminationBracket: async (tournamentId: string) => {
-    set({ loading: true, error: null });
+  generateEliminationBracket: async (tournamentId: string, useBeachTennisRules: boolean = true) => {
     try {
-      const tournament = await TournamentService.generateEliminationBracket(tournamentId);
+      set({ loading: true, error: null });
+      
+      const tournament = await TournamentService.generateEliminationBracket(tournamentId, useBeachTennisRules);
+      
       set({ 
-        tournament: tournament,
+        tournament,
         loading: false 
       });
+      
+      return tournament;
     } catch (error) {
-      console.error('Error generating elimination bracket:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Erro ao gerar chaveamento eliminatório';
-      set({ error: errorMessage, loading: false });
-      throw new Error(errorMessage);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to generate elimination bracket';
+      set({ 
+        error: errorMessage, 
+        loading: false 
+      });
+      throw error;
     }
   },
 
@@ -227,7 +267,8 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
     }
   },
   updateMatchResults: async (matchId: string, score1: number, score2: number) => {
-    set({ loading: true, error: null });
+    // ✅ Não mostrar loading para atualização de resultados
+    set({ error: null });
     try {
       console.log(`Updating match ${matchId} with scores: ${score1}-${score2}`);
       
@@ -245,46 +286,59 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
       // Use the corrected method
       const updatedMatch = await TournamentService.updateMatchResults(matchId, score1, score2);
       
-      // Update the tournament state with the new match data
+      console.log('Match updated from service:', updatedMatch);
+      
+      // ✅ Atualizar estado localmente sem refresh completo que causa loading
       if (currentTournament && currentTournament.matches) {
-        const updatedMatches = currentTournament.matches.map(match => 
-          match.id === matchId ? { ...match, ...updatedMatch } : match
-        );
-        
-        // If this is an elimination match, update the bracket
-        const completedMatch = updatedMatches.find(m => m.id === matchId);
-        if (completedMatch && completedMatch.stage === 'ELIMINATION' && completedMatch.completed) {
-          try {
-            const updatedTournament = await TournamentService.updateEliminationBracket(
-              currentTournament.id, 
-              matchId
-            );
-            
-            if (updatedTournament) {
-              set({ 
-                tournament: updatedTournament,
-                loading: false 
-              });
-              return;
-            }
-          } catch (bracketError) {
-            console.error('Error updating bracket after match completion:', bracketError);
+        // Find and update the match in the array
+        const updatedMatches = currentTournament.matches.map(match => {
+          if (match.id === matchId) {
+            const merged = { 
+              ...match, 
+              ...updatedMatch,
+              // Ensure key fields are properly set
+              score1: updatedMatch.score1 ?? score1,
+              score2: updatedMatch.score2 ?? score2,
+              winnerId: updatedMatch.winnerId,
+              completed: updatedMatch.completed ?? true
+            };
+            console.log(`Updated match ${matchId} in state:`, merged);
+            return merged;
           }
-        }
-        
-        const updatedTournament = { ...currentTournament, matches: updatedMatches };
-        set({ 
-          tournament: updatedTournament,
-          loading: false 
+          return match;
         });
         
-        if (completedMatch && completedMatch.stage === 'GROUP') {
-          setTimeout(() => {
-            get().checkGroupStageCompletion();
-          }, 0);
+        console.log('Updated matches array length:', updatedMatches.length);
+        console.log('Target match in updated array:', updatedMatches.find(m => m.id === matchId));
+        
+        // ✅ Atualizar estado do torneio com as partidas atualizadas
+        const updatedTournament = {
+          ...currentTournament,
+          matches: updatedMatches
+        };
+        
+        console.log('Setting updated tournament with matches:', updatedTournament.matches.length);
+        
+        // ✅ Atualização imediata do estado sem loading
+        set({ 
+          tournament: updatedTournament
+        });
+        
+        // ✅ Verificar completion do torneio em background, sem afetar UI
+        const completedMatch = updatedMatches.find(m => m.id === matchId);
+        if (completedMatch?.completed) {
+          // Executar verificações em background sem loading
+          setTimeout(async () => {
+            try {
+              // Check if tournament should be completed
+              await get().checkGroupStageCompletion();
+            } catch (error) {
+              console.warn('Could not check tournament completion:', error);
+            }
+          }, 100);
         }
       } else {
-        set({ loading: false });
+        console.warn('No current tournament or matches found in state');
       }
     } catch (error) {
       console.error('Error updating match results for', matchId, ':', error);
@@ -303,7 +357,7 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
         }
       }
       
-      set({ error: errorMessage, loading: false });
+      set({ error: errorMessage });
       throw new Error(errorMessage);
     }
   },
@@ -373,16 +427,24 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
   }),
 
   // Alias para manter compatibilidade com código existente
-  generateFormedBracket: async (eventId: string, teams: string[][], options?: { forceReset?: boolean }) => {
+  generateFormedBracket: async (eventId: string, teams: string[][], options?: { 
+    forceReset?: boolean;
+    groupSize?: number;
+    maxTeamsPerGroup?: number;
+    autoCalculateGroups?: boolean;
+  }) => {
     // Reutiliza a implementação existente
-    return get().generateFormedStructure(eventId, teams, {
-      ...options,
-      groupSize: options?.forceReset ? 4 : undefined // Use um valor padrão ou mantenha undefined
-    });
+    return get().generateFormedStructure(eventId, teams, options);
   },
   // Alias para manter compatibilidade com código existente
-  generateRandomBracketAndGroups: async (eventId: string, teams: string[][], options?: { forceReset?: boolean }) => {
-    // Agora passamos as teams diretamente, pois o método foi atualizado para aceitar ambos os formatos
+  generateRandomBracketAndGroups: async (eventId: string, teams: string[][], options?: { 
+    forceReset?: boolean;
+    groupSize?: number;
+    maxTeamsPerGroup?: number;
+    autoCalculateGroups?: boolean;
+  }) => {
+    // Convert teams to the format expected by generateRandomStructure
+    // Since generateRandomStructure now accepts both participants and teams, we can pass teams directly
     return get().generateRandomStructure(eventId, teams, options);
   },
   
@@ -404,5 +466,42 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
     }
     
     return isComplete;
+  },
+
+  // Nova ação para forçar refresh completo dos dados do torneio
+  forceRefreshTournament: async (eventId: string) => {
+    console.log(`Force refreshing tournament data for event ${eventId}...`);
+    set({ loading: true, error: null });
+    try {
+      // Limpa o estado atual para forçar um refresh completo
+      set({ tournament: null });
+      
+      // Aguarda um pouco para garantir que o estado foi limpo
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Busca dados frescos do banco
+      const tournament = await TournamentService.getByEventId(eventId);
+      
+      console.log('Force refresh completed, tournament loaded:', tournament?.id);
+      console.log('Matches loaded:', tournament?.matches?.length || 0);
+      
+      set({ 
+        tournament,
+        loading: false 
+      });
+      
+      // Verificar se a fase de grupos está completa após o refresh
+      if (tournament) {
+        setTimeout(() => {
+          get().checkGroupStageCompletion();
+        }, 100);
+      }
+      
+    } catch (error) {
+      console.error('Error forcing tournament refresh:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Erro ao forçar atualização do torneio';
+      set({ error: errorMessage, loading: false });
+      throw new Error(errorMessage);
+    }
   },
 }));

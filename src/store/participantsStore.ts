@@ -3,15 +3,7 @@ import { create } from 'zustand';
 import { Participant, CreateParticipantDTO } from '../types';
 import { ParticipantsService } from '../services';
 import { traduzirErroSupabase } from '../lib/supabase';
-
-// Remove the local definition of CreateParticipantDTO
-// interface CreateParticipantDTO {
-//   eventId: string;
-//   name: string;
-//   email: string;
-//   phone: string;
-//   partnerId?: string;
-// }
+import { withCacheRetry, isCacheError } from '../utils/cacheUtils';
 
 interface ParticipantsState {
   eventParticipants: Participant[];
@@ -107,7 +99,12 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
   updateParticipantPayment: async (id: string, status: 'PENDING' | 'CONFIRMED') => {
     set({ loading: true, error: null });
     try {
-      const updatedParticipant = await ParticipantsService.updatePaymentStatus(id, status);
+      // Usar withCacheRetry para operação robusta
+      const updatedParticipant = await withCacheRetry(
+        () => ParticipantsService.updatePaymentStatus(id, status),
+        2,
+        'atualizar pagamento do participante'
+      );
 
       // Atualiza o participante na lista
       const eventParticipants = get().eventParticipants.map(participant =>
@@ -117,10 +114,18 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
       set({ eventParticipants, loading: false });
     } catch (error) {      
       console.error(`Erro ao atualizar pagamento do participante ${id}:`, error);
+      
+      // Usar detecção inteligente de erro de cache
+      const cacheInfo = isCacheError(error);
       let mensagemErro = 'Falha ao atualizar status de pagamento';
       
-      // Verificar se é erro 406 especificamente
-      if (error instanceof Error && error.message.includes('406')) {
+      if (cacheInfo.isSchemaCache) {
+        if (cacheInfo.missingColumn) {
+          mensagemErro = `Erro de configuração: coluna '${cacheInfo.missingColumn}' não encontrada. Contate o administrador.`;
+        } else {
+          mensagemErro = 'Erro de cache do banco de dados. Tente novamente em alguns instantes.';
+        }
+      } else if (error instanceof Error && error.message.includes('406')) {
         mensagemErro = 'Erro de permissão. Verifique se você tem acesso para atualizar participantes.';
       } else {
         mensagemErro = traduzirErroSupabase(error) || mensagemErro;

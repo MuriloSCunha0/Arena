@@ -32,7 +32,7 @@ export const RegistrationLink: React.FC<RegistrationLinkProps> = ({ event }) => 
   const totalParticipants = eventParticipants.length;
   const confirmedPayments = eventParticipants.filter(p => p.paymentStatus === 'CONFIRMED').length;
   const pendingPayments = totalParticipants - confirmedPayments;
-  const totalAmount = confirmedPayments * event.price;
+  const totalAmount = confirmedPayments * (event.entry_fee || 0);
   
   // URL hardcoded que deveria ser configurável ou vir do backend
   const registrationLink = `https://arena-conexao.com.br/inscricao/${event.id}`;
@@ -208,7 +208,7 @@ export const RegistrationLink: React.FC<RegistrationLinkProps> = ({ event }) => 
                   <div>
                     <p className="font-semibold">Valor da Inscrição</p>
                     <p className="text-white/90">
-                      {`R$ ${event.price.toFixed(2).replace('.', ',')}`}
+                      {`R$ ${(event.entry_fee || 0).toFixed(2).replace('.', ',')}`}
                     </p>
                   </div>
                 </div>

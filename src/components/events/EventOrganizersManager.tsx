@@ -5,7 +5,7 @@ import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
 import { OrganizerService, EventOrganizer } from '../../services/organizerService';
 import { User, UserPlus, Trash2, Edit2, Mail, AtSign, UserCheck } from 'lucide-react';
-import { useAuthStore } from '../../store/authStore';
+import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
 
 interface EventOrganizersManagerProps {
@@ -21,7 +21,7 @@ export const EventOrganizersManager: React.FC<EventOrganizersManagerProps> = ({ 
   const [selectedOrganizer, setSelectedOrganizer] = useState<EventOrganizer | null>(null);
   const [selectedRole, setSelectedRole] = useState<EventOrganizer['role']>('ORGANIZER');
   const addNotification = useNotificationStore(state => state.addNotification);
-  const { user: currentUser } = useAuthStore();
+  const { user: currentUser } = useAuth();
   
   const fetchOrganizers = async () => {
     setLoading(true);

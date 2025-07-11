@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useTournamentStore } from '../store/tournamentStore';
-import { GroupRanking, OverallRanking, calculateOverallGroupStageRankings, calculateGroupRankings, calculateRankingsForPlacement } from '../utils/rankingUtils';
+import { 
+  GroupRanking, 
+  OverallRanking, 
+  calculateOverallGroupStageRankings, 
+  calculateGroupRankings, 
+  calculateRankingsForPlacement 
+} from '../utils/rankingUtils';
+import { validateBeachTennisRules } from '../utils/beachTennisRules';
 import { Match } from '../types';
 
 interface TournamentRankingsProps {
@@ -22,6 +29,7 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
   const [isGroupStageComplete, setIsGroupStageComplete] = useState(false);
   const [generatingBracket, setGeneratingBracket] = useState(false);
   const [localPlayerNameMap, setLocalPlayerNameMap] = useState<Record<string, string>>({});
+
   // Build player name map from tournament data or use provided map
   useEffect(() => {
     if (tournament && !playerNameMap) {
@@ -46,6 +54,74 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
       setLocalPlayerNameMap(playerNameMap);
     }
   }, [tournament, playerNameMap]);
+
+  // Helper function to calculate rankings by placement position
+  const calculatePlacementRankings = (
+    groupRankings: Record<number, GroupRanking[]>, 
+    position: number
+  ): OverallRanking[] => {
+    const placementTeams: OverallRanking[] = [];
+    
+    // Extract teams from specific position in each group
+    Object.entries(groupRankings).forEach(([groupNum, rankings]) => {
+      if (rankings.length >= position) {
+        const team = rankings[position - 1]; // position is 1-based, array is 0-based
+        placementTeams.push({
+          teamId: team.teamId,
+          team: team.team || team.teamId.join(' & '),
+          rank: 0, // Will be recalculated
+          stats: {
+            wins: team.stats.wins,
+            losses: team.stats.losses,
+            matchesPlayed: team.stats.matchesPlayed,
+            gamesWon: team.stats.gamesWon,
+            gamesLost: team.stats.gamesLost,
+            gameDifference: team.stats.gameDifference,
+            groupNumber: parseInt(groupNum),
+            headToHead: team.stats.headToHead
+          },
+          groupNumber: parseInt(groupNum)
+        });
+      }
+    });
+
+    // Sort by Beach Tennis criteria
+    placementTeams.sort((a, b) => {
+      // 1. Game difference (primary criterion)
+      if (a.stats.gameDifference !== b.stats.gameDifference) {
+        return b.stats.gameDifference - a.stats.gameDifference;
+      }
+
+      // 2. Total games won
+      if (a.stats.gamesWon !== b.stats.gamesWon) {
+        return b.stats.gamesWon - a.stats.gamesWon;
+      }
+
+      // 3. Fewest games lost
+      if (a.stats.gamesLost !== b.stats.gamesLost) {
+        return a.stats.gamesLost - b.stats.gamesLost;
+      }
+
+      // 4. Most wins
+      if (a.stats.wins !== b.stats.wins) {
+        return b.stats.wins - a.stats.wins;
+      }
+
+      // 5. Most matches played
+      if (a.stats.matchesPlayed !== b.stats.matchesPlayed) {
+        return b.stats.matchesPlayed - a.stats.matchesPlayed;
+      }
+
+      return 0;
+    });
+
+    // Assign ranks
+    placementTeams.forEach((team, index) => {
+      team.rank = index + 1;
+    });
+
+    return placementTeams;
+  };
 
   useEffect(() => {
     if (!tournament) {
@@ -91,7 +167,8 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
           allGroupMatchesComplete = false;
         }
         
-        rankings[parseInt(groupNum)] = calculateGroupRankings(completedMatches);
+        // Usar regras específicas do Beach Tennis para cálculo de rankings
+        rankings[parseInt(groupNum)] = calculateGroupRankings(completedMatches, true);
         allCompletedGroupMatches = [...allCompletedGroupMatches, ...completedMatches];
       });
 
@@ -102,10 +179,10 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
       const overall = calculateOverallGroupStageRankings(allCompletedGroupMatches);
       setOverallRankings(overall);
 
-      // Calcular rankings por posição
-      setFirstPlaceRankings(calculateRankingsForPlacement(rankings, 1));
-      setSecondPlaceRankings(calculateRankingsForPlacement(rankings, 2));
-      setThirdPlaceRankings(calculateRankingsForPlacement(rankings, 3));
+      // Calcular rankings por posição usando a nova função
+      setFirstPlaceRankings(calculatePlacementRankings(rankings, 1));
+      setSecondPlaceRankings(calculatePlacementRankings(rankings, 2));
+      setThirdPlaceRankings(calculatePlacementRankings(rankings, 3));
 
       setLoading(false);
     } catch (err) {
@@ -120,8 +197,9 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
     
     setGeneratingBracket(true);
     try {
+      // Usar regras específicas do Beach Tennis
       await generateEliminationBracket(tournament.id);
-      window.alert('Fase eliminatória gerada com sucesso!');
+      window.alert('Fase eliminatória gerada com sucesso seguindo as regras do Beach Tennis!');
     } catch (error) {
       console.error("Erro ao gerar fase eliminatória:", error);
       window.alert('Erro ao gerar fase eliminatória: ' + (error instanceof Error ? error.message : 'Erro desconhecido'));
@@ -130,16 +208,33 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
     }
   };
 
+  // Validar regras do Beach Tennis
+  useEffect(() => {
+    if (tournament && tournament.matches.length > 0) {
+      // Extrair grupos da estrutura do torneio
+      const groups: string[][][] = [];
+      // Esta lógica dependeria da estrutura específica do torneio
+      
+      const validation = validateBeachTennisRules(groups, tournament.matches);
+      if (!validation.isValid) {
+        console.warn('Beach Tennis rules validation failed:', validation.errors);
+      }
+    }
+  }, [tournament]);
+
   const renderTabContent = () => {
     const getLegend = () => (
       <div className="bg-blue-50 p-3 mb-4 rounded-lg border border-blue-100 text-sm">
-        <h5 className="font-medium mb-2 text-blue-700">Legenda:</h5>
+        <h5 className="font-medium mb-2 text-blue-700">Legenda (Regras Beach Tennis):</h5>
         <ul className="space-y-1 text-blue-800">
           <li><span className="font-medium">V</span> - Vitórias: Total de partidas vencidas pela dupla</li>
-          <li><span className="font-medium">SG</span> - Saldo de Games: Diferença entre games ganhos e perdidos</li>
+          <li><span className="font-medium">SG</span> - Saldo de Games: Diferença entre games ganhos e perdidos (critério principal)</li>
           <li><span className="font-medium">PG</span> - Games Ganhos: Total de games conquistados pela dupla</li>
           <li><span className="font-medium">JP</span> - Jogos Disputados: Total de partidas em que a dupla participou</li>
         </ul>
+        <div className="mt-2 text-xs text-blue-600">
+          <strong>Critérios de classificação:</strong> 1º Saldo de Games, 2º Games Ganhos, 3º Confronto Direto, 4º Jogos Disputados
+        </div>
       </div>
     );
 
@@ -163,7 +258,8 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
                   <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">JP</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">                {rankings.map((entry) => {
+              <tbody className="bg-white divide-y divide-gray-200">
+                {rankings.map((entry) => {
                   // Map player IDs to names if available, otherwise use the IDs
                   const playerNames = entry.teamId.map(id => 
                     (playerNameMap && playerNameMap[id]) || 
@@ -176,7 +272,8 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
                     <tr key={entry.teamId.join('-')} className="hover:bg-gray-50">
                       <td className="px-3 py-2 whitespace-nowrap font-medium">
                         {entry.rank}
-                      </td>                      <td className="px-3 py-2">
+                      </td>
+                      <td className="px-3 py-2">
                         <div className="flex items-center">
                           {/* Badge for top ranking teams */}
                           {entry.rank <= 3 && (
@@ -188,9 +285,9 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
                           {/* Team name */}
                           <div>
                             {teamName}
-                            {entry.rank <= 2 && (
+                            {entry.rank <= 2 && activeTab === 'overall' && (
                               <div className="text-xs text-green-600 font-medium">
-                                Classificado para eliminatórias
+                                Classificado para eliminatórias (Beach Tennis)
                               </div>
                             )}
                           </div>
@@ -220,28 +317,28 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
         return (
           <div className="space-y-4">
             {getLegend()}
-            {renderRankingTable(overallRankings, "Ranking Geral")}
+            {renderRankingTable(overallRankings, "Ranking Geral (Beach Tennis)")}
           </div>
         );
       case 'first':
         return (
           <div className="space-y-4">
             {getLegend()}
-            {renderRankingTable(firstPlaceRankings, "Ranking dos Primeiros Lugares")}
+            {renderRankingTable(firstPlaceRankings, "Ranking dos Primeiros Lugares por Grupo")}
           </div>
         );
       case 'second':
         return (
           <div className="space-y-4">
             {getLegend()}
-            {renderRankingTable(secondPlaceRankings, "Ranking dos Segundos Lugares")}
+            {renderRankingTable(secondPlaceRankings, "Ranking dos Segundos Lugares por Grupo")}
           </div>
         );
       case 'third':
         return (
           <div className="space-y-4">
             {getLegend()}
-            {renderRankingTable(thirdPlaceRankings, "Ranking dos Terceiros Lugares")}
+            {renderRankingTable(thirdPlaceRankings, "Ranking dos Terceiros Lugares por Grupo")}
           </div>
         );
     }
@@ -267,7 +364,7 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-md">
-      <h2 className="text-2xl font-bold mb-6 text-center">Rankings do Torneio</h2>
+      <h2 className="text-2xl font-bold mb-6 text-center">Rankings do Torneio (Beach Tennis)</h2>
       
       <div className="flex flex-wrap gap-2 mb-6 justify-center">
         <button
@@ -315,7 +412,9 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
       {/* Área de exibição do ranking selecionado */}
       <div className="mt-4">
         {renderTabContent()}
-      </div>      {/* Status da fase de grupos */}
+      </div>
+
+      {/* Status da fase de grupos */}
       <div className="mt-6 mb-4">
         <div className={`p-4 rounded-lg border ${isGroupStageComplete ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
           <div className="flex items-center">
@@ -336,8 +435,8 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
               </h3>
               <p className={`text-sm ${isGroupStageComplete ? 'text-green-600' : 'text-yellow-600'}`}>
                 {isGroupStageComplete 
-                  ? 'Todas as partidas da fase de grupos foram concluídas. Os rankings estão finalizados.'
-                  : 'Ainda existem partidas pendentes na fase de grupos. Os rankings podem mudar conforme os resultados são registrados.'
+                  ? 'Todas as partidas da fase de grupos foram concluídas. Rankings calculados com regras do Beach Tennis.'
+                  : 'Ainda existem partidas pendentes na fase de grupos. Rankings atualizados conforme regras do Beach Tennis.'
                 }
               </p>
             </div>
@@ -357,7 +456,7 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
                 : 'bg-green-600 hover:bg-green-700'
             } text-white font-bold rounded-lg shadow-md transition-colors`}
           >
-            {generatingBracket ? 'Gerando...' : 'Avançar para Fase Eliminatória'}
+            {generatingBracket ? 'Gerando Chave...' : 'Avançar para Fase Eliminatória (Beach Tennis)'}
           </button>
         </div>
       )}

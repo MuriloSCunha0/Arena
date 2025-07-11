@@ -5,15 +5,21 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { TournamentCardList } from '../../components/tournaments/TournamentCards';
 import { PageHeader } from '../../components/ui/PageHeader';
-import { supabase } from '../../lib/supabase';
+import { useEventsStore } from '../../store/eventsStore';
 import { useNotificationStore } from '../../components/ui/Notification';
 
 export const EventsListPage: React.FC = () => {
   const navigate = useNavigate();
   const addNotification = useNotificationStore((state) => state.addNotification);
   
-  const [events, setEvents] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Connect to EventsStore instead of local state
+  const { 
+    events, 
+    loading, 
+    error,
+    fetchEvents 
+  } = useEventsStore();
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<string | null>(null);
   
@@ -33,56 +39,17 @@ export const EventsListPage: React.FC = () => {
   
   useEffect(() => {
     fetchEvents();
-  }, []);
+  }, [fetchEvents]);
   
-  const fetchEvents = async () => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('events')
-        .select(`
-          id,
-          title,
-          description,
-          location,
-          date,
-          time,
-          price,
-          max_participants,
-          prize,
-          banner_image_url,
-          type,
-          categories,
-          team_formation,
-          tournaments:tournaments(status)
-        `)
-        .order('date', { ascending: false });
-      
-      if (error) throw error;
-      
-      // Adiciona o status do torneio ao evento para poder mostrar no card
-      const eventsWithStatus = data.map(event => {
-        // Se o evento tiver um torneio associado, adiciona o status
-        if (event.tournaments && event.tournaments.length > 0) {
-          return {
-            ...event,
-            status: event.tournaments[0].status
-          };
-        }
-        return event;
-      });
-      
-      setEvents(eventsWithStatus);
-    } catch (error) {
-      console.error('Error fetching events:', error);
+  // Show error notification if there's an error
+  useEffect(() => {
+    if (error) {
       addNotification({
         type: 'error',
         message: 'Falha ao carregar os eventos'
       });
-    } finally {
-      setLoading(false);
     }
-  };
+  }, [error, addNotification]);
   
   const handleCreateEvent = () => {
     navigate('/events/new');
@@ -144,7 +111,7 @@ export const EventsListPage: React.FC = () => {
         </div>
       ) : (
         <TournamentCardList 
-          tournaments={filteredEvents} 
+          tournaments={filteredEvents as any} 
           emptyMessage={
             filterType === 'TOURNAMENT' 
               ? "Nenhum torneio encontrado" 

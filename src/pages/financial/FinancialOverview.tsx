@@ -10,7 +10,7 @@ import { Modal } from '../../components/ui/Modal';
 import { AddTransactionForm } from '../../components/events/AddTransactionForm';
 import { useFinancialsStore, useEventsStore } from '../../store';
 import { useNotificationStore } from '../../components/ui/Notification';
-import { formatCurrency, formatDateTime } from '../../utils/formatters';
+import { formatCurrency, formatDateTime, formatPaymentMethod } from '../../utils/formatters';
 import { FinancialSummaryCard } from '../../components/financials/FinancialSummaryCard';
 import { FinancialEventBreakdown } from '../../components/financials/FinancialEventBreakdown';
 
@@ -357,9 +357,7 @@ export const FinancialOverview = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">
-                          {transaction.paymentMethod === 'PIX' ? 'PIX' : 
-                           transaction.paymentMethod === 'CARD' ? 'Cartão' : 
-                           transaction.paymentMethod === 'CASH' ? 'Dinheiro' : 'Outro'}
+                          {formatPaymentMethod(transaction.paymentMethod)}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">

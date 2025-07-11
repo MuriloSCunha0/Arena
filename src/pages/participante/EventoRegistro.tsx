@@ -14,6 +14,7 @@ interface Event {
   date: string;
   location: string;
   price: number;
+  entry_fee?: number; // ✅ Adicionado para compatibilidade com DDL
   banner_image_url?: string;
   description?: string;
   isTeamEvent?: boolean;
@@ -146,7 +147,7 @@ export const EventoRegistro = () => {
             </div>
             <div className="flex items-center">
               <DollarSign size={16} className="mr-2 text-brand-green" />
-              <span>{event.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+              <span>{(event.entry_fee || event.price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
             </div>
           </div>
         </div>
@@ -206,7 +207,7 @@ export const EventoRegistro = () => {
                 </div>
                 <div className="flex items-center">
                   <DollarSign size={16} className="mr-2 text-brand-green" />
-                  {event.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  {(event.entry_fee || event.price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                 </div>
               </div>
               
@@ -225,7 +226,7 @@ export const EventoRegistro = () => {
             eventId={event.id}
             eventTitle={event.title}
             eventDate={event.date}
-            eventPrice={event.price}
+            eventPrice={event.entry_fee || event.price || 0}
             isTeamEvent={event.isTeamEvent}
             onSuccess={handleRegistrationSuccess}
             onError={handleRegistrationError}

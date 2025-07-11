@@ -6,7 +6,6 @@ import {
   Search, 
   Filter, 
   PlusCircle,
-  Wallet,
   Loader2 
 } from 'lucide-react';
 import { Button } from '../ui/Button';
@@ -14,7 +13,7 @@ import { Modal } from '../ui/Modal';
 import { AddTransactionForm } from './AddTransactionForm';
 import { useFinancialsStore } from '../../store';
 import { useNotificationStore } from '../ui/Notification';
-import { formatCurrency, formatDateTime } from '../../utils/formatters';
+import { formatCurrency, formatDateTime, formatPaymentMethod, formatPaymentStatus } from '../../utils/formatters';
 
 interface EventFinancialProps {
   eventId: string;
@@ -237,21 +236,11 @@ export const EventFinancial: React.FC<EventFinancialProps> = ({ eventId }) => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
-                        {transaction.paymentMethod === 'PIX' ? 'PIX' : 
-                         transaction.paymentMethod === 'CARD' ? 'Cartão' : 
-                         transaction.paymentMethod === 'CASH' ? 'Dinheiro' : 'Outro'}
+                        {formatPaymentMethod(transaction.paymentMethod)}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {transaction.status === 'CONFIRMED' ? (
-                        <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">
-                          Confirmado
-                        </span>
-                      ) : (
-                        <span className="px-2 py-1 text-xs rounded-full bg-brand-orange/20 text-brand-orange">
-                          Pendente
-                        </span>
-                      )}
+                      {formatPaymentStatus(transaction.status)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className={`text-sm font-medium ${

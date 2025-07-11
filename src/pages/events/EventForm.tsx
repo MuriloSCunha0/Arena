@@ -122,7 +122,7 @@ export const EventForm = () => {
     if (currentEvent) {
       reset({
         ...currentEvent,
-        price: currentEvent.price ?? 0,
+        price: currentEvent.entry_fee || currentEvent.price || 0, // ✅ Priorizar entry_fee
         maxParticipants: currentEvent.maxParticipants ?? 0,
         organizerId: currentEvent.organizerId ?? null,
         organizerCommissionRate: currentEvent.organizerCommissionRate ?? null,
@@ -442,7 +442,12 @@ export const EventForm = () => {
 
       <Modal isOpen={showPreviewModal} onClose={() => setShowPreviewModal(false)} title="Pré-visualização do Evento">
         <TournamentCard
-          tournament={{ ...watchedFormData, id: id || 'preview-id' } as Event}
+          tournament={{ 
+            ...watchedFormData, 
+            id: id || 'preview-id',
+            entry_fee: watchedFormData.price, // ✅ Mapear price para entry_fee
+            status: 'DRAFT' // ✅ Definir status padrão
+          } as Event}
           showActions={false}
         />
       </Modal>

@@ -1,47 +1,108 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useMemo, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
+import type { UserRole } from '../store/authStore';
 
 // Tipo para o contexto de autenticação
 export interface AuthContextType {
   user: any;
   isLoading: boolean;
-  userData: any; // Add missing property for user data
-  userRole: string | null; // Add missing property for user role
+  userData: any;
+  userRole: UserRole | null;
   isAuth: () => boolean;
-  isAdmin: () => boolean; // Add missing method
-  isParticipante: () => boolean; // Add missing method
+  isAdmin: () => boolean;
+  isParticipante: () => boolean;
   logout: () => Promise<void>;
-  // ...outros métodos e propriedades necessárias
 }
 
 // Criar o contexto com um valor padrão
 const AuthContext = createContext<AuthContextType>({
   user: null,
   isLoading: true,
-  userData: null, // Default value for userData
-  userRole: null, // Default value for userRole
+  userData: null,
+  userRole: null,
   isAuth: () => false,
-  isAdmin: () => false, // Default implementation
-  isParticipante: () => false, // Default implementation
+  isAdmin: () => false,
+  isParticipante: () => false,
   logout: async () => {},
-  // ...outros métodos e propriedades com valores padrão
 });
 
 // Provider do contexto
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const { user, userRole, loading: authLoading, signOut, initializeFromStorage } = useAuthStore();
+  const { 
+    user, 
+    userRole, 
+    loading: authLoading, 
+    signOut, 
+    initializeFromStorage,
+    checkUserRole 
+  } = useAuthStore();
+  
   const [userData, setUserData] = useState<any>(null);
   const [dataLoading, setDataLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
   
-  // Initialize from storage only once
+  // Initialize auth state and listen for changes
   useEffect(() => {
-    if (!initialized) {
-      initializeFromStorage();
-      setInitialized(true);
-    }
-  }, [initializeFromStorage, initialized]);
+    let mounted = true;
+    
+    const initAuth = async () => {
+      if (initialized) return;
+      
+      try {
+        // Initialize from storage first
+        initializeFromStorage();
+        
+        // Get current session from Supabase
+        const { data: sessionData, error } = await supabase.auth.getSession();
+        
+        if (!error && sessionData?.session?.user && mounted) {
+          console.log('✅ Session found, checking user role');
+          useAuthStore.getState().setUser(sessionData.session.user);
+          
+          // Check and set user role
+          await checkUserRole(sessionData.session.user.id);
+        } else if (mounted) {
+          console.log('ℹ️ No valid session found');
+          useAuthStore.getState().setUser(null);
+          useAuthStore.getState().setUserRole(null);
+        }
+      } catch (error) {
+        console.error('❌ Error during auth initialization:', error);
+        if (mounted) {
+          useAuthStore.getState().setUser(null);
+          useAuthStore.getState().setUserRole(null);
+        }
+      } finally {
+        if (mounted) {
+          setInitialized(true);
+        }
+      }
+    };
+
+    initAuth();
+
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('🔄 Auth state changed:', event);
+      
+      if (mounted) {
+        if (event === 'SIGNED_OUT') {
+          useAuthStore.getState().setUser(null);
+          useAuthStore.getState().setUserRole(null);
+          setUserData(null);
+        } else if (session?.user) {
+          useAuthStore.getState().setUser(session.user);
+          await checkUserRole(session.user.id);
+        }
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [initializeFromStorage, checkUserRole, initialized]);
   
   // Memoize the user data fetching function
   const fetchUserData = useCallback(async (userId: string) => {
@@ -104,5 +165,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
 // Hook para usar o contexto
 export const useAuth = () => {
-  return useContext(AuthContext);
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
 };

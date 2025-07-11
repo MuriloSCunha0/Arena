@@ -141,10 +141,12 @@ const formAutomaticPairs = (participants: any[]): string[][] => {
 };
 
 export const TournamentService = {
-  // Método atualizado para trabalhar com JSONB
+  // Método atualizado para trabalhar exclusivamente com JSONB
   async getByEventId(eventId: string): Promise<Tournament | null> {
     try {
-      // First check if tournaments table exists and get tournament
+      console.log(`🔍 Fetching tournament for event ${eventId}...`);
+      
+      // Busca o torneio com todos os dados JSONB
       const { data: tournament, error } = await supabase
         .from('tournaments')
         .select('*')
@@ -156,61 +158,26 @@ export const TournamentService = {
         return null;
       }
       
-      if (!tournament) return null;
-
-      // Try to fetch matches, but handle if table doesn't exist
-      let matchesData: any[] = [];
-      try {
-        const { data: matches, error: matchesError } = await supabase
-          .from('tournament_matches')
-          .select('*')
-          .eq('tournament_id', tournament.id)
-          .order('stage', { ascending: true })
-          .order('group_number', { ascending: true, nullsFirst: true })
-          .order('round', { ascending: true })
-          .order('position', { ascending: true });
-
-        if (matchesError) {
-          if (matchesError.code === '42P01') { // Table doesn't exist
-            console.warn('tournament_matches table does not exist, creating empty matches array');
-            matchesData = [];
-          } else {
-            throw matchesError;
-          }
-        } else {
-          matchesData = matches || [];
-        }
-      } catch (matchError) {
-        console.warn('Could not fetch matches:', matchError);
-        matchesData = [];
+      if (!tournament) {
+        console.log(`No tournament found for event ${eventId}`);
+        return null;
       }
 
-      const validatedMatches = matchesData
-        .filter(match => match !== null)
-        .map(match => ({
-          id: match.id,
-          tournamentId: match.tournament_id,
-          eventId: match.event_id,
-          round: match.round ?? 0,
-          position: match.position ?? 0,
-          team1: match.team1,
-          team2: match.team2,
-          score1: match.score1,
-          score2: match.score2,
-          winnerId: match.winner_id,
-          completed: match.completed || false,
-          courtId: match.court_id,
-          scheduledTime: match.scheduled_time,
-          stage: match.stage || 'ELIMINATION',
-          groupNumber: match.group_number,
-          createdAt: match.created_at,
-          updatedAt: match.updated_at,
-        }));
+      console.log(`📊 Tournament found: ${tournament.id}, status: ${tournament.status}`);
+      console.log(`📊 JSONB matches_data length: ${tournament.matches_data?.length || 0}`);
 
-      // Use transformTournament to create proper Tournament object
+      // Use transformTournament para criar o objeto Tournament correto
+      // transformTournament já configura matches = data.matches_data
       const transformedTournament = transformTournament(tournament);
-      transformedTournament.matches = validatedMatches;
       transformedTournament.isNewTournament = false;
+
+      // Log para debug
+      console.log(`✅ Tournament transformed with ${transformedTournament.matches?.length || 0} matches`);
+      
+      if (transformedTournament.matches && transformedTournament.matches.length > 0) {
+        const completedMatches = transformedTournament.matches.filter(m => m.completed).length;
+        console.log(`📈 Matches status: ${completedMatches}/${transformedTournament.matches.length} completed`);
+      }
 
       return transformedTournament;
     } catch (error) {

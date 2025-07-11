@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-import { useAuthStore } from '../../store/authStore';
+import { useAuth } from '../../hooks/useAuth';
 import { UserProfileService, UserProfile } from '../../services/userProfileService';
 import { formatCPF, formatPhone } from '../../utils/validation';
 import { useNotificationStore } from '../../components/ui/Notification';
@@ -15,7 +15,7 @@ export const Settings = () => {
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const { user } = useAuthStore();
+  const { user } = useAuth();
   const addNotification = useNotificationStore(state => state.addNotification);
   
   // Form fields

@@ -9,63 +9,24 @@ import {
   CircleDollarSign 
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { supabase } from '../../lib/supabase';
+import { useEventsStore } from '../../store/eventsStore';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { Button } from '../../components/ui/Button';
 
-interface EventDetails {
-  id: string;
-  title: string;
-  description: string;
-  date: string;
-  location: string;
-  price: number;
-  max_participants: number;
-  team_formation: 'FORMED' | 'RANDOM';
-  banner_image_url?: string;
-  status: string;
-  participants_count: number;
-}
-
 export const EventosDisponiveis = () => {
-  const [events, setEvents] = useState<EventDetails[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Connect to EventsStore instead of local state
+  const { 
+    events, 
+    loading, 
+    fetchEvents 
+  } = useEventsStore();
+  
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all'); // all, formed, random
 
   useEffect(() => {
-    const fetchEvents = async () => {
-      try {
-        // Consulta básica para eventos com contagem de participantes
-        const { data, error } = await supabase
-          .from('events')
-          .select(`
-            *,
-            participants:participants(count)
-          `)
-          .eq('status', 'SCHEDULED') // Apenas eventos agendados
-          .order('date', { ascending: true });
-        
-        if (error) throw error;
-        
-        if (data) {
-          // Formatar os eventos para incluir a contagem de participantes
-          const formattedEvents = data.map(event => ({
-            ...event,
-            participants_count: event.participants?.[0]?.count || 0
-          }));
-          
-          setEvents(formattedEvents);
-        }
-      } catch (error) {
-        console.error('Error fetching events:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    
     fetchEvents();
-  }, []);
+  }, [fetchEvents]);
 
   // Filtrar eventos com base no termo de busca e filtro de tipo
   const filteredEvents = events.filter(event => {
@@ -76,8 +37,8 @@ export const EventosDisponiveis = () => {
     
     const matchesFilter = 
       filterType === 'all' || 
-      (filterType === 'formed' && event.team_formation === 'FORMED') ||
-      (filterType === 'random' && event.team_formation === 'RANDOM');
+      (filterType === 'formed' && event.teamFormation === 'FORMED') ||
+      (filterType === 'random' && event.teamFormation === 'RANDOM');
     
     return matchesSearch && matchesFilter;
   });
@@ -133,8 +94,8 @@ export const EventosDisponiveis = () => {
               <div 
                 className="h-40 bg-cover bg-center" 
                 style={{ 
-                  backgroundImage: event.banner_image_url 
-                    ? `url(${event.banner_image_url})` 
+                  backgroundImage: event.bannerImageUrl 
+                    ? `url(${event.bannerImageUrl})` 
                     : 'linear-gradient(to right, #4facfe 0%, #00f2fe 100%)' 
                 }}
               >
@@ -158,19 +119,19 @@ export const EventosDisponiveis = () => {
                   
                   <div className="flex items-center text-gray-600">
                     <Users size={16} className="mr-2 text-brand-blue" />
-                    {event.participants_count} / {event.max_participants} participantes
+                    {(event as any).participants_count || 0} / {event.maxParticipants} participantes
                   </div>
                   
                   <div className="flex items-center text-gray-600">
                     <CircleDollarSign size={16} className="mr-2 text-brand-green" />
-                    {formatCurrency(event.price)}
+                    {formatCurrency(event.entry_fee || event.price || 0)}
                   </div>
                 </div>
                 
                 <div className="flex items-center mt-3 px-3 py-1 rounded-full bg-blue-50 w-fit">
                   <Users size={14} className="mr-1 text-blue-500" />
                   <span className="text-xs text-blue-600 font-medium">
-                    {event.team_formation === 'FORMED' ? 'Duplas formadas' : 'Duplas aleatórias'}
+                    {event.teamFormation === 'FORMED' ? 'Duplas formadas' : 'Duplas aleatórias'}
                   </span>
                 </div>
               </div>

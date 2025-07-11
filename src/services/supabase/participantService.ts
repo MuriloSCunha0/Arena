@@ -89,94 +89,79 @@ export const ParticipantService = {
     }
   },
 
-  // Convidar um parceiro para o evento
+  // Partner Invite Methods
   async invitePartner(userId: string, eventId: string, partnerUserId: string): Promise<PartnerInvite> {
     try {
-      // Verificar se o evento permite duplas formadas
-      const { data: event, error: eventError } = await supabase
-        .from('events')
-        .select('team_formation, title')
-        .eq('id', eventId)
-        .single();
-        
-      if (eventError) throw new Error('Evento não encontrado');
-      
-      if (event.team_formation !== 'FORMED') {
-        throw new Error('Este evento não permite escolha de parceiro');
-      }
-      
-      // Buscar participante que está convidando
-      const { data: participant, error: participantError } = await supabase
-        .from('participants')
-        .select('id, name')
-        .eq('user_id', userId)
+      // Verificar se já existe um convite pendente
+      const { data: existingInvite } = await supabase
+        .from('partner_invites')
+        .select('*')
+        .eq('sender_id', userId)
+        .eq('receiver_id', partnerUserId)
         .eq('event_id', eventId)
-        .single();
-        
-      if (participantError) throw new Error('Você precisa se inscrever primeiro');
-      
-      // Verificar se o parceiro já está inscrito com alguém
-      const { data: existingPartner } = await supabase
-        .from('participants')
-        .select('id, partner_id')
-        .eq('user_id', partnerUserId)
-        .eq('event_id', eventId)
-        .eq('partner_invite_status', 'ACCEPTED')
+        .eq('status', 'PENDING')
         .maybeSingle();
-        
-      if (existingPartner && existingPartner.partner_id) {
-        throw new Error('Este jogador já possui um parceiro para este evento');
+
+      if (existingInvite) {
+        throw new Error('Já existe um convite pendente para este usuário neste evento');
       }
-      
-      // Verificar usuário parceiro
-      const { data: partnerUser, error: partnerUserError } = await supabase
-        .from('users')
-        .select('id, full_name')
-        .eq('id', partnerUserId)
-        .single();
-        
-      if (partnerUserError) throw new Error('Usuário parceiro não encontrado');
-      
-      // Criar convite
-      const expirationDate = new Date();
-      expirationDate.setDate(expirationDate.getDate() + 7); // Convite expira em 7 dias
-      
-      const { data: invite, error: inviteError } = await supabase
+
+      // Buscar informações do remetente e do evento
+      const [senderResult, eventResult] = await Promise.all([
+        supabase.from('user_profiles').select('name').eq('user_id', userId).single(),
+        supabase.from('events').select('title').eq('id', eventId).single()
+      ]);
+
+      if (senderResult.error) throw new Error('Usuário remetente não encontrado');
+      if (eventResult.error) throw new Error('Evento não encontrado');
+
+      // Criar o convite
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7); // Expira em 7 dias
+
+      const { data: invite, error } = await supabase
         .from('partner_invites')
         .insert({
           sender_id: userId,
-          sender_name: participant.name,
+          sender_name: senderResult.data.name,
           receiver_id: partnerUserId,
           event_id: eventId,
-          event_name: event.title,
+          event_name: eventResult.data.title,
           status: 'PENDING',
-          created_at: new Date().toISOString(),
-          expires_at: expirationDate.toISOString()
+          expires_at: expiresAt.toISOString()
         })
-        .select()
+        .select('*')
         .single();
-        
-      if (inviteError) throw inviteError;
-      
-      // Atualizar participante com o status do convite
-      await supabase
-        .from('participants')
-        .update({
-          partner_user_id: partnerUserId,
-          partner_name: partnerUser.full_name,
-          partner_invite_status: 'PENDING'
-        })
-        .eq('id', participant.id);
-      
+
+      if (error) throw error;
+
       return transformInvite(invite);
     } catch (error) {
-      console.error('Error inviting partner:', error);
+      console.error('Error sending partner invite:', error);
       throw error;
     }
   },
 
-  // Aceitar convite de parceiro
-  async acceptPartnerInvite(inviteId: string, userId: string): Promise<{ participant: Participant, invite: PartnerInvite }> {
+  async getPendingInvites(userId: string): Promise<PartnerInvite[]> {
+    try {
+      const { data: invites, error } = await supabase
+        .from('partner_invites')
+        .select('*')
+        .eq('receiver_id', userId)
+        .eq('status', 'PENDING')
+        .gt('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      return invites?.map(transformInvite) || [];
+    } catch (error) {
+      console.error('Error fetching pending invites:', error);
+      throw error;
+    }
+  },
+
+  async acceptPartnerInvite(inviteId: string, userId: string): Promise<{ success: boolean }> {
     try {
       // Buscar o convite
       const { data: invite, error: inviteError } = await supabase
@@ -186,165 +171,55 @@ export const ParticipantService = {
         .eq('receiver_id', userId)
         .eq('status', 'PENDING')
         .single();
-        
-      if (inviteError) throw new Error('Convite não encontrado ou já foi respondido');
-      
-      // Buscar o participante que enviou o convite
-      const { data: senderParticipant, error: senderError } = await supabase
-        .from('participants')
-        .select('*')
-        .eq('user_id', invite.sender_id)
-        .eq('event_id', invite.event_id)
-        .single();
-        
-      if (senderError) throw new Error('Participante que enviou o convite não encontrado');
-      
-      // Verificar se o usuário já está inscrito no evento
-      const { data: existingParticipation } = await supabase
-        .from('participants')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('event_id', invite.event_id)
-        .maybeSingle();
-      
-      let participantId;
-      let resultParticipant;
-      
-      // Se já está inscrito, atualizar. Senão, criar nova inscrição
-      if (existingParticipation) {
-        participantId = existingParticipation.id;
-        
-        const { data: updatedParticipant } = await supabase
-          .from('participants')
-          .update({
-            partner_id: senderParticipant.id,
-            partner_user_id: invite.sender_id,
-            partner_name: invite.sender_name,
-            partner_invite_status: 'ACCEPTED'
-          })
-          .eq('id', existingParticipation.id)
-          .select()
-          .single();
-          
-        resultParticipant = updatedParticipant;
-      } else {
-        // Buscar dados do usuário
-        const { data: userData, error: userError } = await supabase
-          .from('users')
-          .select('full_name, email, phone, cpf, birth_date')
-          .eq('id', userId)
-          .single();
-        
-        if (userError || !userData) throw new Error('Usuário não encontrado');
-        
-        // Criar nova inscrição
-        const { data: newParticipant } = await supabase
-          .from('participants')
-          .insert({
-            user_id: userId,
-            event_id: invite.event_id,
-            name: userData.full_name || '',
-            email: userData.email || '',
-            phone: userData.phone || '',
-            cpf: userData.cpf || '',
-            birth_date: userData.birth_date || null,
-            partner_id: senderParticipant.id,
-            partner_user_id: invite.sender_id,
-            partner_name: invite.sender_name,
-            partner_invite_status: 'ACCEPTED',
-            payment_status: 'PENDING',
-            registered_at: new Date().toISOString()
-          })
-          .select()
-          .single();
-          
-        participantId = newParticipant.id;
-        resultParticipant = newParticipant;
+
+      if (inviteError || !invite) {
+        throw new Error('Convite não encontrado ou inválido');
       }
-      
-      // Atualizar o participante que enviou o convite
-      await supabase
-        .from('participants')
-        .update({
-          partner_id: participantId,
-          partner_invite_status: 'ACCEPTED'
-        })
-        .eq('id', senderParticipant.id);
-      
-      // Atualizar o status do convite
-      const { data: updatedInvite } = await supabase
+
+      // Verificar se o convite não expirou
+      if (new Date(invite.expires_at) < new Date()) {
+        throw new Error('Este convite expirou');
+      }
+
+      // Verificar se ambos os usuários ainda não estão inscritos no evento
+      const [senderCheck, receiverCheck] = await Promise.all([
+        supabase.from('participants').select('id').eq('user_id', invite.sender_id).eq('event_id', invite.event_id).maybeSingle(),
+        supabase.from('participants').select('id').eq('user_id', userId).eq('event_id', invite.event_id).maybeSingle()
+      ]);
+
+      if (senderCheck.data || receiverCheck.data) {
+        throw new Error('Um dos usuários já está inscrito neste evento');
+      }
+
+      // Atualizar status do convite
+      const { error: updateError } = await supabase
         .from('partner_invites')
         .update({ status: 'ACCEPTED' })
-        .eq('id', inviteId)
-        .select()
-        .single();
-      
-      return {
-        participant: transformParticipant(resultParticipant),
-        invite: transformInvite(updatedInvite)
-      };
+        .eq('id', inviteId);
+
+      if (updateError) throw updateError;
+
+      return { success: true };
     } catch (error) {
       console.error('Error accepting partner invite:', error);
       throw error;
     }
   },
 
-  // Recusar convite de parceiro
-  async declinePartnerInvite(inviteId: string, userId: string): Promise<PartnerInvite> {
+  async declinePartnerInvite(inviteId: string, userId: string): Promise<{ success: boolean }> {
     try {
-      // Buscar o convite
-      const { data: invite, error: inviteError } = await supabase
-        .from('partner_invites')
-        .select('*')
-        .eq('id', inviteId)
-        .eq('receiver_id', userId)
-        .eq('status', 'PENDING')
-        .single();
-        
-      if (inviteError) throw new Error('Convite não encontrado ou já foi respondido');
-      
-      // Atualizar participante que enviou o convite
-      await supabase
-        .from('participants')
-        .update({
-          partner_id: null,
-          partner_user_id: null,
-          partner_name: null,
-          partner_invite_status: 'DECLINED'
-        })
-        .eq('user_id', invite.sender_id)
-        .eq('event_id', invite.event_id);
-      
-      // Atualizar status do convite
-      const { data: updatedInvite } = await supabase
+      const { error } = await supabase
         .from('partner_invites')
         .update({ status: 'DECLINED' })
         .eq('id', inviteId)
-        .select()
-        .single();
-      
-      return transformInvite(updatedInvite);
+        .eq('receiver_id', userId)
+        .eq('status', 'PENDING');
+
+      if (error) throw error;
+
+      return { success: true };
     } catch (error) {
       console.error('Error declining partner invite:', error);
-      throw error;
-    }
-  },
-
-  // Obter convites pendentes para um usuário
-  async getPendingInvites(userId: string): Promise<PartnerInvite[]> {
-    try {
-      const { data, error } = await supabase
-        .from('partner_invites')
-        .select('*')
-        .eq('receiver_id', userId)
-        .eq('status', 'PENDING')
-        .order('created_at', { ascending: false });
-        
-      if (error) throw error;
-      
-      return data ? data.map(transformInvite) : [];
-    } catch (error) {
-      console.error('Error fetching pending invites:', error);
       throw error;
     }
   },
@@ -436,6 +311,162 @@ export const ParticipantService = {
       return { upcomingTournaments, pastTournaments };
     } catch (error) {
       console.error('Error fetching participant tournaments:', error);
+      throw error;
+    }
+  },
+
+  // Obter todos os participantes de um evento
+  async getParticipantsByEvent(eventId: string): Promise<Participant[]> {
+    try {
+      const { data, error } = await supabase
+        .from('participants')
+        .select(`
+          *,
+          events!inner(title)
+        `)
+        .eq('event_id', eventId)
+        .order('registered_at', { ascending: true });
+        
+      if (error) throw error;
+      
+      return data?.map(p => ({
+        ...transformParticipant(p),
+        eventName: p.events?.title
+      })) || [];
+    } catch (error) {
+      console.error('Error fetching event participants:', error);
+      throw error;
+    }
+  },
+
+  // Atualizar status de pagamento de um participante
+  async updatePaymentStatus(participantId: string, status: 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'REFUNDED' | 'EXPIRED'): Promise<Participant> {
+    try {
+      // Primeiro, tentar com a função RPC se disponível
+      try {
+        const { data: rpcData, error: rpcError } = await supabase
+          .rpc('update_participant_payment_status', {
+            participant_id: participantId,
+            new_status: status
+          });
+
+        if (!rpcError && rpcData) {
+          return transformParticipant(rpcData);
+        }
+      } catch (rpcErr) {
+        console.warn('RPC function not available, using direct update');
+      }
+
+      // Fallback: método direto com múltiplas tentativas
+      const updatePayload = { 
+        payment_status: status,
+        payment_date: status === 'CONFIRMED' ? new Date().toISOString() : null
+      };
+
+      // Tentativa 1: query normal
+      const { data, error } = await supabase
+        .from('participants')
+        .update(updatePayload)
+        .eq('id', participantId)
+        .select('*')
+        .single();
+
+      if (error) {
+        // Se erro PGRST204 (cache), tentar alternativas
+        if (error.code === 'PGRST204') {
+          // Tentativa 2: forçar refresh e tentar novamente
+          try {
+            await supabase.rpc('pg_notify', { 
+              channel: 'pgrst', 
+              payload: 'reload schema' 
+            });
+          } catch (notifyErr) {
+            console.warn('Could not send cache refresh notification');
+          }
+
+          const { data: retryData, error: retryError } = await supabase
+            .from('participants')
+            .update(updatePayload)
+            .eq('id', participantId)
+            .select('*')
+            .single();
+
+          if (retryError) {
+            throw new Error(`Erro de cache do banco de dados: ${retryError.message}. Tente novamente em alguns instantes.`);
+          }
+
+          // Buscar dados adicionais para transformação
+          const { data: eventData } = await supabase
+            .from('events')
+            .select('title')
+            .eq('id', retryData.event_id)
+            .single();
+
+          return transformParticipant({
+            ...retryData,
+            event_name: eventData?.title || ''
+          });
+        }
+        
+        throw error;
+      }
+
+      // Buscar dados adicionais para transformação
+      const { data: eventData } = await supabase
+        .from('events')
+        .select('title')
+        .eq('id', data.event_id)
+        .single();
+
+      return transformParticipant({
+        ...data,
+        event_name: eventData?.title || ''
+      });
+
+    } catch (error) {
+      console.error('Error updating payment status:', error);
+      
+      // Traduzir erro para mensagem amigável
+      if (error instanceof Error) {
+        if (error.message.includes('PGRST204') || error.message.includes('schema cache')) {
+          throw new Error('Erro de cache do banco de dados. Tente novamente em alguns instantes.');
+        }
+        if (error.message.includes('payment_status')) {
+          throw new Error('Erro de configuração do banco. Contate o administrador.');
+        }
+      }
+      
+      throw error;
+    }
+  },
+
+  // Obter estatísticas de participantes de um evento
+  async getEventParticipantStats(eventId: string): Promise<{
+    total: number;
+    paid: number;
+    pending: number;
+    withPartner: number;
+    solo: number;
+  }> {
+    try {
+      const { data, error } = await supabase
+        .from('participants')
+        .select('payment_status, partner_id')
+        .eq('event_id', eventId);
+        
+      if (error) throw error;
+      
+      const stats = {
+        total: data?.length || 0,
+        paid: data?.filter(p => p.payment_status === 'PAID').length || 0,
+        pending: data?.filter(p => p.payment_status === 'PENDING').length || 0,
+        withPartner: data?.filter(p => p.partner_id).length || 0,
+        solo: data?.filter(p => !p.partner_id).length || 0
+      };
+      
+      return stats;
+    } catch (error) {
+      console.error('Error fetching event participant stats:', error);
       throw error;
     }
   }

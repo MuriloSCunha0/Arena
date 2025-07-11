@@ -21,6 +21,7 @@ export const Register = () => {
   const [success, setSuccess] = useState('');
   const [showAdminOption, setShowAdminOption] = useState(false);
   
+  // Use store methods for registration functionality
   const signUp = useAuthStore((state) => state.signUp);
   const navigate = useNavigate();
   const resetForm = () => {
