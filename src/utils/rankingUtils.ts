@@ -679,3 +679,248 @@ export function updateEliminationBracket(
     return matches; // Return original matches if error
   }
 }
+
+/**
+ * Gera confrontos eliminatórios com afunilamento por ranking
+ * 1º vs último, 2º vs penúltimo, evitando mesmo grupo na primeira rodada
+ */
+export function generateEliminationPairings(qualifiedTeams: OverallRanking[]): Match[] {
+  const matches: Match[] = [];
+  const sortedTeams = [...qualifiedTeams].sort((a, b) => a.rank - b.rank);
+  const used = new Set<number>();
+  
+  for (let i = 0; i < Math.floor(sortedTeams.length / 2); i++) {
+    if (used.has(i)) continue;
+    
+    const bestTeam = sortedTeams[i];
+    let worstTeamIndex = sortedTeams.length - 1 - i;
+    
+    // Procurar pior time disponível de grupo diferente
+    while (worstTeamIndex > i && (
+      used.has(worstTeamIndex) || 
+      sortedTeams[worstTeamIndex].groupNumber === bestTeam.groupNumber
+    )) {
+      worstTeamIndex--;
+    }
+    
+    if (worstTeamIndex <= i) {
+      // Fallback: próximo disponível
+      worstTeamIndex = i + 1;
+      while (worstTeamIndex < sortedTeams.length && used.has(worstTeamIndex)) {
+        worstTeamIndex++;
+      }
+    }
+    
+    if (worstTeamIndex < sortedTeams.length) {
+      const worstTeam = sortedTeams[worstTeamIndex];
+      
+      matches.push({
+        id: generateUUID(),
+        team1: bestTeam.teamId,
+        team2: worstTeam.teamId,
+        score1: null,
+        score2: null,
+        completed: false,
+        round: 1,
+        groupNumber: null,
+        winnerId: null,
+        stage: 'ELIMINATION',
+        eventId: '', // Será preenchido pelo contexto
+        tournamentId: '', // Será preenchido pelo contexto
+        position: matches.length + 1,
+        scheduledTime: null
+      });
+      
+      used.add(i);
+      used.add(worstTeamIndex);
+    }
+  }
+  
+  return matches;
+}
+
+/**
+ * Gera bracket eliminatório com BYE automático
+ * BYEs vão para as duplas melhor rankeadas quando número ímpar
+ */
+export function generateEliminationBracketWithByes(qualifiedTeams: OverallRanking[]): Match[] {
+  const sortedTeams = [...qualifiedTeams].sort((a, b) => a.rank - b.rank);
+  const totalTeams = sortedTeams.length;
+  
+  // Calcular próxima potência de 2
+  const nextPowerOf2 = Math.pow(2, Math.ceil(Math.log2(totalTeams)));
+  const byesNeeded = nextPowerOf2 - totalTeams;
+  
+  const matches: Match[] = [];
+  const teamsWithByes = sortedTeams.slice(0, byesNeeded);
+  const teamsWithoutByes = sortedTeams.slice(byesNeeded);
+  
+  // Criar partidas BYE para melhores duplas
+  teamsWithByes.forEach((team, index) => {
+    matches.push({
+      id: generateUUID(),
+      team1: team.teamId,
+      team2: null, // BYE
+      score1: null,
+      score2: null,
+      completed: true,
+      round: 1,
+      groupNumber: null,
+      winnerId: 'team1',
+      stage: 'ELIMINATION',
+      eventId: '',
+      tournamentId: '',
+      position: index + 1,
+      scheduledTime: null
+    });
+  });
+  
+  // Gerar confrontos para duplas restantes
+  const regularPairings = generateEliminationPairings(teamsWithoutByes);
+  matches.push(...regularPairings);
+  
+  return matches;
+}
+
+/**
+ * Verifica se uma partida é BYE
+ */
+export function hasBye(match: Match): boolean {
+  return match.team2 === null;
+}
+
+/**
+ * Obtém o nome da dupla que avança em partida BYE
+ */
+export function getByeAdvancingTeam(match: Match): string[] | null {
+  if (!hasBye(match)) return null;
+  return match.team1;
+}
+
+/**
+ * Gera o bracket eliminatório considerando BYEs manuais.
+ * @param qualifiedTeams - Array de duplas classificadas (ordenadas por ranking)
+ * @param byeTeams - Array de teamId[] das duplas que devem avançar direto para a próxima fase
+ * @returns Array de partidas (Match[])
+ */
+export function generateEliminationBracketWithManualByes(
+  qualifiedTeams: OverallRanking[],
+  byeTeams: string[][]
+): Match[] {
+  // Helper para comparar arrays de teamId
+  const isSameTeam = (a: string[], b: string[]) =>
+  a.slice().sort().join('|') === b.slice().sort().join('|');
+
+  // Separe as duplas BYE das demais
+  const teamsWithByes = qualifiedTeams.filter(team =>
+    byeTeams.some(bye => isSameTeam(bye, team.teamId))
+  );
+  const teamsWithoutByes = qualifiedTeams.filter(team =>
+    !byeTeams.some(bye => isSameTeam(bye, team.teamId))
+  );
+
+  // Calcule o tamanho do chaveamento (potência de 2)
+  const totalTeams = qualifiedTeams.length;
+  const nextPowerOf2 = Math.pow(2, Math.ceil(Math.log2(totalTeams)));
+  const firstRoundTeamsCount = teamsWithoutByes.length;
+  const firstRoundMatchesCount = Math.floor(firstRoundTeamsCount / 2);
+
+  const matches: Match[] = [];
+  let idx = 0;
+
+  // 1. Crie as partidas da primeira rodada (apenas times SEM BYE)
+  for (let i = 0; i < firstRoundMatchesCount; i++) {
+    const team1 = teamsWithoutByes[idx++]?.teamId || [];
+    const team2 = teamsWithoutByes[idx++]?.teamId || [];
+    matches.push({
+      id: generateUUID(),
+      team1,
+      team2,
+      round: 1,
+      position: i + 1,
+      score1: null,
+      score2: null,
+      completed: false,
+      winnerId: null,
+      courtId: null,
+      scheduledTime: null,
+      stage: 'ELIMINATION',
+      groupNumber: null,
+      eventId: '',
+      tournamentId: '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  // 2. Descubra quantas vagas já estão ocupadas na próxima rodada (BYEs)
+  const secondRoundTeams: string[][] = [];
+
+  // Adicione todos os vencedores da primeira rodada (um para cada partida)
+  for (let i = 0; i < firstRoundMatchesCount; i++) {
+    secondRoundTeams.push([]); // TBD, será preenchido pelo vencedor
+  }
+  // Adicione os times BYE diretamente na próxima rodada
+  for (const byeTeam of teamsWithByes) {
+    secondRoundTeams.push(byeTeam.teamId);
+  }
+
+  // 3. Crie as partidas da segunda rodada (ex: quartas ou semifinais)
+  const secondRoundMatchesCount = Math.floor(secondRoundTeams.length / 2);
+  let pos = 1;
+  for (let i = 0; i < secondRoundMatchesCount; i++) {
+    const team1 = secondRoundTeams[i * 2];
+    const team2 = secondRoundTeams[i * 2 + 1];
+    matches.push({
+      id: generateUUID(),
+      team1,
+      team2,
+      round: 2,
+      position: pos++,
+      score1: null,
+      score2: null,
+      completed: false,
+      winnerId: null,
+      courtId: null,
+      scheduledTime: null,
+      stage: 'ELIMINATION',
+      groupNumber: null,
+      eventId: '',
+      tournamentId: '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  // 4. Gere rodadas seguintes (semifinal, final, etc.) normalmente, sempre com "TBD"
+  let prevRoundTeams = secondRoundTeams.length;
+  let round = 3;
+  while (prevRoundTeams > 1) {
+    const matchesInRound = Math.floor(prevRoundTeams / 2);
+    for (let i = 0; i < matchesInRound; i++) {
+      matches.push({
+        id: generateUUID(),
+        team1: [],
+        team2: [],
+        round,
+        position: i + 1,
+        score1: null,
+        score2: null,
+        completed: false,
+        winnerId: null,
+        courtId: null,
+        scheduledTime: null,
+        stage: 'ELIMINATION',
+        groupNumber: null,
+        eventId: '',
+        tournamentId: '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    prevRoundTeams = matchesInRound;
+    round++;
+  }
+
+  return matches;
+}

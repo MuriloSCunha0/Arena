@@ -11,13 +11,11 @@ const fetchTournament = async (tournamentId: string): Promise<void> => {
 // Update the function signature to match what we're calling
 export const generateEliminationBracket = async (
   tournamentId: string,
-  seedingData?: {
-    firstPlaceTeams: OverallRanking[];
-    secondPlaceTeams: OverallRanking[];
-    groupRankings: Record<number, GroupRanking[]>;
-  }
+  useBeachTennisRules?: boolean
 ): Promise<void> => {
-  console.log(`Generating elimination bracket for tournament ${tournamentId}`);
+  console.log(`Generating elimination bracket for tournament ${tournamentId}`, {
+    useBeachTennisRules
+  });
   try {
     // For now, just update the tournament status since we don't have the matches table
     const { data: tournamentData, error: tournamentError } = await supabase

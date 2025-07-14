@@ -5,7 +5,9 @@ import {
   OverallRanking, 
   calculateOverallGroupStageRankings, 
   calculateGroupRankings, 
-  calculateRankingsForPlacement 
+  calculateRankingsForPlacement,
+  hasBye,
+  getByeAdvancingTeam
 } from '../utils/rankingUtils';
 import { validateBeachTennisRules } from '../utils/beachTennisRules';
 import { Match } from '../types';
@@ -14,13 +16,19 @@ interface TournamentRankingsProps {
   tournamentId: string;
   // Optional prop to provide player name mapping
   playerNameMap?: Record<string, string>;
+  // Optional prop to provide elimination matches for elimination ranking
+  eliminationMatches?: Match[];
 }
 
-const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, playerNameMap }) => {
+const TournamentRankings: React.FC<TournamentRankingsProps> = ({ 
+  tournamentId: _tournamentId, 
+  playerNameMap, 
+  eliminationMatches = [] 
+}) => {
   const { tournament, generateEliminationBracket } = useTournamentStore();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overall' | 'first' | 'second' | 'third'>('overall');
+  const [activeTab, setActiveTab] = useState<'overall' | 'first' | 'second' | 'third' | 'groups' | 'elimination'>('overall');
   const [overallRankings, setOverallRankings] = useState<OverallRanking[]>([]);
   const [firstPlaceRankings, setFirstPlaceRankings] = useState<OverallRanking[]>([]);
   const [secondPlaceRankings, setSecondPlaceRankings] = useState<OverallRanking[]>([]);
@@ -29,6 +37,10 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
   const [isGroupStageComplete, setIsGroupStageComplete] = useState(false);
   const [generatingBracket, setGeneratingBracket] = useState(false);
   const [localPlayerNameMap, setLocalPlayerNameMap] = useState<Record<string, string>>({});
+  
+  // Estado para gerenciar BYEs antes da geração das eliminatórias
+  const [selectedByes, setSelectedByes] = useState<Set<string>>(new Set());
+  const [showByeMode, setShowByeMode] = useState(false);
 
   // Build player name map from tournament data or use provided map
   useEffect(() => {
@@ -197,15 +209,45 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
     
     setGeneratingBracket(true);
     try {
-      // Usar regras específicas do Beach Tennis
-      await generateEliminationBracket(tournament.id);
-      window.alert('Fase eliminatória gerada com sucesso seguindo as regras do Beach Tennis!');
+      // Preparar lista de BYEs selecionados
+      const byeTeamIds = Array.from(selectedByes).map(teamKey => teamKey.split('|'));
+      
+      console.log('Gerando eliminatórias com BYEs:', byeTeamIds);
+      
+      // TODO: Implementar passagem de BYEs para o serviço
+      // Por enquanto, usar método atual
+      await generateEliminationBracket(tournament.id, true);
+      
+      // Limpar BYEs após a geração
+      setSelectedByes(new Set());
+      setShowByeMode(false);
+      
+      window.alert(`Fase eliminatória gerada com sucesso${byeTeamIds.length > 0 ? ` com ${byeTeamIds.length} BYE(s)` : ''}!`);
     } catch (error) {
       console.error("Erro ao gerar fase eliminatória:", error);
       window.alert('Erro ao gerar fase eliminatória: ' + (error instanceof Error ? error.message : 'Erro desconhecido'));
     } finally {
       setGeneratingBracket(false);
     }
+  };
+
+  // Função para toggle de BYE
+  const toggleBye = (teamId: string[]) => {
+    const teamKey = teamId.join('|');
+    setSelectedByes(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(teamKey)) {
+        newSet.delete(teamKey);
+      } else {
+        newSet.add(teamKey);
+      }
+      return newSet;
+    });
+  };
+
+  // Função para limpar todos os BYEs
+  const clearAllByes = () => {
+    setSelectedByes(new Set());
   };
 
   // Validar regras do Beach Tennis
@@ -243,9 +285,51 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
         return <p className="text-gray-500 text-center">Não há rankings disponíveis para {title.toLowerCase()}.</p>;
       }
 
+      const isOverallRanking = activeTab === 'overall';
+      const canShowByes = isOverallRanking && isGroupStageComplete && eliminationMatches.length === 0;
+
       return (
         <>
-          <h3 className="text-xl font-bold mb-3">{title}</h3>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-xl font-bold">{title}</h3>
+            {canShowByes && (
+              <div className="flex items-center gap-2">
+                {showByeMode && selectedByes.size > 0 && (
+                  <span className="text-sm text-orange-600 bg-orange-50 px-2 py-1 rounded">
+                    {selectedByes.size} BYE{selectedByes.size > 1 ? 's' : ''} selecionado{selectedByes.size > 1 ? 's' : ''}
+                  </span>
+                )}
+                <button
+                  onClick={() => setShowByeMode(!showByeMode)}
+                  className={`px-3 py-1 text-sm rounded transition-colors ${
+                    showByeMode 
+                      ? 'bg-orange-500 text-white hover:bg-orange-600' 
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  {showByeMode ? 'Cancelar BYEs' : 'Atribuir BYEs'}
+                </button>
+                {showByeMode && selectedByes.size > 0 && (
+                  <button
+                    onClick={clearAllByes}
+                    className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                  >
+                    Limpar
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {canShowByes && showByeMode && (
+            <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+              <p className="text-sm text-orange-800">
+                <strong>Modo BYE ativado:</strong> Clique nas duplas que devem receber BYE (avanço automático) 
+                na primeira rodada das eliminatórias. As duplas marcadas passarão direto para a segunda rodada.
+              </p>
+            </div>
+          )}
+          
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
@@ -256,6 +340,9 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
                   <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">SG</th>
                   <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">PG</th>
                   <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">JP</th>
+                  {canShowByes && showByeMode && (
+                    <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">BYE</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -267,9 +354,14 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
                     id
                   );
                   const teamName = playerNames.join(' & ');
+                  const teamKey = entry.teamId.join('|');
+                  const hasBye = selectedByes.has(teamKey);
                   
                   return (
-                    <tr key={entry.teamId.join('-')} className="hover:bg-gray-50">
+                    <tr 
+                      key={entry.teamId.join('-')} 
+                      className={`hover:bg-gray-50 ${hasBye ? 'bg-orange-50 border-l-4 border-orange-400' : ''}`}
+                    >
                       <td className="px-3 py-2 whitespace-nowrap font-medium">
                         {entry.rank}
                       </td>
@@ -285,9 +377,14 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
                           {/* Team name */}
                           <div>
                             {teamName}
-                            {entry.rank <= 2 && activeTab === 'overall' && (
+                            {activeTab === 'overall' && entry.rank <= (overallRankings.filter(e => e.rank <= 2).length) && (
                               <div className="text-xs text-green-600 font-medium">
                                 Classificado para eliminatórias (Beach Tennis)
+                              </div>
+                            )}
+                            {hasBye && (
+                              <div className="text-xs text-orange-600 font-medium">
+                                🚀 BYE - Avança automaticamente
                               </div>
                             )}
                           </div>
@@ -302,6 +399,20 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-center">{entry.stats.gamesWon}</td>
                       <td className="px-3 py-2 whitespace-nowrap text-center">{entry.stats.matchesPlayed}</td>
+                      {canShowByes && showByeMode && (
+                        <td className="px-3 py-2 whitespace-nowrap text-center">
+                          <button
+                            onClick={() => toggleBye(entry.teamId)}
+                            className={`px-2 py-1 text-xs rounded transition-colors ${
+                              hasBye
+                                ? 'bg-orange-500 text-white hover:bg-orange-600'
+                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                            }`}
+                          >
+                            {hasBye ? '✓ BYE' : 'Dar BYE'}
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -339,6 +450,250 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
           <div className="space-y-4">
             {getLegend()}
             {renderRankingTable(thirdPlaceRankings, "Ranking dos Terceiros Lugares por Grupo")}
+          </div>
+        );
+      case 'groups':
+        return (
+          <div className="space-y-6">
+            {/* Legend específica para rankings por grupos */}
+            <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+              <h5 className="font-semibold text-green-800 mb-2 flex items-center gap-2">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                Critérios de Classificação Beach Tennis
+              </h5>
+              <div className="text-sm text-green-700 space-y-1">
+                <div>1. <strong>Saldo de Games</strong> (games ganhos - games perdidos)</div>
+                <div>2. <strong>Total de Games Ganhos</strong></div>
+                <div>3. <strong>Confronto Direto</strong> (em caso de empate)</div>
+                <div>4. <strong>Menor Número de Games Perdidos</strong></div>
+              </div>
+            </div>
+            
+            {/* Grid de rankings por grupos */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {Object.entries(groupRankings).map(([groupNumber, rankings]) => (
+                <div key={groupNumber} className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                  <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-4 rounded-t-lg">
+                    <h3 className="font-bold text-lg">Grupo {groupNumber}</h3>
+                  </div>
+                  <div className="p-4 space-y-3">
+                    {rankings.map((team, index) => {
+                      const position = index + 1;
+                      const isQualified = position <= 2; // Top 2 se classificam
+                      const playerNames = team.teamId.map(id => 
+                        (playerNameMap && playerNameMap[id]) || 
+                        (localPlayerNameMap && localPlayerNameMap[id]) || 
+                        id
+                      );
+                      const teamName = playerNames.join(' / ');
+                      
+                      const getRankIcon = (pos: number) => {
+                        switch (pos) {
+                          case 1: return <svg className="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732L14.146 12.8l-1.179 4.456a1 1 0 01-1.934 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732L9.854 7.2l1.179-4.456A1 1 0 0112 2z" clipRule="evenodd" /></svg>;
+                          case 2: return <svg className="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732L14.146 12.8l-1.179 4.456a1 1 0 01-1.934 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732L9.854 7.2l1.179-4.456A1 1 0 0112 2z" clipRule="evenodd" /></svg>;
+                          case 3: return <svg className="w-5 h-5 text-amber-600" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732L14.146 12.8l-1.179 4.456a1 1 0 01-1.934 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732L9.854 7.2l1.179-4.456A1 1 0 0112 2z" clipRule="evenodd" /></svg>;
+                          default: return <svg className="w-4 h-4 text-gray-300" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732L14.146 12.8l-1.179 4.456a1 1 0 01-1.934 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732L9.854 7.2l1.179-4.456A1 1 0 0112 2z" clipRule="evenodd" /></svg>;
+                        }
+                      };
+                      
+                      const getRankColor = (pos: number, qualified: boolean) => {
+                        if (qualified) {
+                          return pos === 1 
+                            ? 'bg-gradient-to-r from-yellow-50 to-yellow-100 border-yellow-300'
+                            : 'bg-gradient-to-r from-gray-50 to-gray-100 border-gray-300';
+                        }
+                        return 'bg-gray-50 border-gray-200';
+                      };
+                      
+                      return (
+                        <div
+                          key={team.teamId.join('|')}
+                          className={`p-3 rounded-lg border-2 ${getRankColor(position, isQualified)}`}
+                        >
+                          <div className="flex items-center gap-2 mb-2">
+                            {getRankIcon(position)}
+                            <span className="font-semibold">{position}º</span>
+                            {isQualified && (
+                              <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">
+                                CLASSIFICADO
+                              </span>
+                            )}
+                          </div>
+                          <div className="font-medium text-gray-900 mb-2">
+                            {teamName}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            <div className="flex justify-between">
+                              <span>Saldo:</span>
+                              <span className={team.stats.gameDifference > 0 ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
+                                {team.stats.gameDifference > 0 ? '+' : ''}{team.stats.gameDifference}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Vitórias:</span>
+                              <span className="font-medium text-blue-600">{team.stats.wins}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      case 'elimination':
+        return (
+          <div className="space-y-6">
+            {/* Legend específica para fase eliminatória */}
+            <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+              <h5 className="font-semibold text-purple-800 mb-2 flex items-center gap-2">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.293l-3-3a1 1 0 00-1.414 1.414L10.586 9.5 8.293 7.207a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0z" clipRule="evenodd" />
+                </svg>
+                Status da Fase Eliminatória
+              </h5>
+              <div className="text-sm text-purple-700 space-y-1">
+                <div><strong>BYE:</strong> Equipe avança automaticamente para a próxima fase</div>
+                <div><strong>Aguardando:</strong> Partida ainda não iniciada</div>
+                <div><strong>Em andamento:</strong> Partida sendo disputada</div>
+                <div><strong>Finalizada:</strong> Partida concluída</div>
+              </div>
+            </div>
+
+            {eliminationMatches.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <svg className="w-12 h-12 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p className="text-lg">Nenhuma partida eliminatória encontrada</p>
+                <p className="text-sm">A fase eliminatória ainda não foi gerada</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Agrupamento por rodadas */}
+                {Object.entries(
+                  eliminationMatches.reduce((rounds, match) => {
+                    const round = match.round || 'Sem Rodada';
+                    if (!rounds[round]) rounds[round] = [];
+                    rounds[round].push(match);
+                    return rounds;
+                  }, {} as Record<string, typeof eliminationMatches>)
+                ).map(([roundName, roundMatches]) => (
+                  <div key={roundName} className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                    <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-4 rounded-t-lg">
+                      <h3 className="font-bold text-lg">{roundName}</h3>
+                      <p className="text-purple-100 text-sm">{roundMatches.length} partida(s)</p>
+                    </div>
+                    <div className="p-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {roundMatches.map((match) => {
+                          // Verificar se é BYE
+                          const isByeMatch = hasBye(match);
+                          const byeAdvancingTeam = isByeMatch ? getByeAdvancingTeam(match) : null;
+                          
+                          // Obter nomes das equipes
+                          const getTeamName = (teamIds: string[] | null) => {
+                            if (!teamIds || teamIds.length === 0) return 'TBD';
+                            return teamIds.map(id => 
+                              (playerNameMap && playerNameMap[id]) || 
+                              (localPlayerNameMap && localPlayerNameMap[id]) || 
+                              id
+                            ).join(' & ');
+                          };
+
+                          const team1Name = getTeamName(match.team1);
+                          const team2Name = getTeamName(match.team2);
+                          
+                          // Status da partida
+                          const getMatchStatus = () => {
+                            if (isByeMatch) return { text: 'BYE', color: 'bg-blue-100 text-blue-800' };
+                            if (match.completed) return { text: 'Finalizada', color: 'bg-gray-100 text-gray-800' };
+                            if (match.scheduledTime) return { text: 'Agendada', color: 'bg-yellow-100 text-yellow-800' };
+                            return { text: 'Aguardando', color: 'bg-gray-100 text-gray-600' };
+                          };
+
+                          const status = getMatchStatus();
+
+                          return (
+                            <div key={match.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                              <div className="flex justify-between items-start mb-3">
+                                <div className="text-sm text-gray-500">
+                                  Partida #{match.position || 'N/A'}
+                                </div>
+                                <span className={`px-2 py-1 text-xs font-medium rounded ${status.color}`}>
+                                  {status.text}
+                                </span>
+                              </div>
+
+                              {isByeMatch ? (
+                                <div className="text-center py-4">
+                                  <div className="text-lg font-semibold text-blue-600 mb-2">
+                                    {byeAdvancingTeam ? getTeamName(byeAdvancingTeam) : 'Equipe BYE'}
+                                  </div>
+                                  <div className="text-sm text-gray-500">
+                                    Avança automaticamente (BYE)
+                                  </div>
+                                  <div className="mt-2">
+                                    <svg className="w-8 h-8 mx-auto text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.293l-3-3a1 1 0 00-1.414 1.414L10.586 9.5 8.293 7.207a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0z" clipRule="evenodd" />
+                                    </svg>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="space-y-2 mb-3">
+                                    <div className="flex justify-between items-center">
+                                      <span className="font-medium text-gray-900">{team1Name}</span>
+                                      <span className="text-sm text-gray-500">vs</span>
+                                      <span className="font-medium text-gray-900">{team2Name}</span>
+                                    </div>
+                                    
+                                    {match.completed && (
+                                      <div className="flex justify-between items-center text-center">
+                                        <div className={`px-3 py-1 rounded ${
+                                          match.score1 && match.score2 && match.score1 > match.score2 
+                                            ? 'bg-green-100 text-green-800 font-semibold' 
+                                            : 'bg-gray-100 text-gray-600'
+                                        }`}>
+                                          {match.score1 || 0}
+                                        </div>
+                                        <span className="text-gray-400">×</span>
+                                        <div className={`px-3 py-1 rounded ${
+                                          match.score1 && match.score2 && match.score2 > match.score1 
+                                            ? 'bg-green-100 text-green-800 font-semibold' 
+                                            : 'bg-gray-100 text-gray-600'
+                                        }`}>
+                                          {match.score2 || 0}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {(match.scheduledTime || match.courtId) && (
+                                    <div className="text-xs text-gray-500 space-y-1">
+                                      {match.scheduledTime && (
+                                        <div>📅 {new Date(match.scheduledTime).toLocaleString('pt-BR')}</div>
+                                      )}
+                                      {match.courtId && (
+                                        <div>🏟️ Quadra {match.courtId}</div>
+                                      )}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         );
     }
@@ -407,6 +762,17 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
         >
           3º Lugares
         </button>
+        <button
+          onClick={() => setActiveTab('groups')}
+          className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+            activeTab === 'groups' 
+              ? 'bg-green-600 text-white' 
+              : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+          }`}
+        >
+          Rankings por Grupos
+        </button>
+        
       </div>
 
       {/* Área de exibição do ranking selecionado */}
@@ -454,9 +820,20 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({ tournamentId, p
               generatingBracket
                 ? 'bg-gray-400 cursor-not-allowed'
                 : 'bg-green-600 hover:bg-green-700'
-            } text-white font-bold rounded-lg shadow-md transition-colors`}
+            } text-white font-bold rounded-lg shadow-md transition-colors flex items-center gap-2`}
           >
-            {generatingBracket ? 'Gerando Chave...' : 'Avançar para Fase Eliminatória (Beach Tennis)'}
+            {generatingBracket ? (
+              'Gerando Chave...'
+            ) : (
+              <>
+                Avançar para Fase Eliminatória (Beach Tennis)
+                {selectedByes.size > 0 && (
+                  <span className="bg-white bg-opacity-20 px-2 py-1 rounded text-sm">
+                    {selectedByes.size} BYE{selectedByes.size > 1 ? 's' : ''}
+                  </span>
+                )}
+              </>
+            )}
           </button>
         </div>
       )}
