@@ -27,16 +27,15 @@ import {
   GroupRanking, 
   calculateOverallGroupStageRankings, 
   OverallRanking,
-  generateEliminationPairings, 
-  generateEliminationBracketWithManualByes, 
-  hasBye 
-  // ✅ CORREÇÃO: Removida a importação de calculateRankingsForPlacement que não existe mais
+  generateEliminationBracketWithSmartBye,
+  detectTieBreaksInRanking,
+  removeTeamFromRanking,
+  updateEliminationBracket
 } from '../../utils/rankingUtils';
 import TournamentRankings from '../TournamentRankings'; // Import the new component
 import EliminationRankings from '../EliminationRankings';
 import TournamentWinner from '../TournamentWinner';
-import BracketEditor from '../BracketEditor';
-import ByeAssignment from '../ByeAssignment'; // Import da versão completa e corrigida
+import BracketEditor from '../BracketEditor';// Import da versão completa e corrigida
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip';
 import { TournamentService } from '../../services/supabase/tournament'; // Add this import
 import { EventsService } from '../../services/supabase/events'; // Add EventsService import
@@ -58,7 +57,10 @@ interface MatchCardProps {
   scheduledTime?: string;
   completed?: boolean;
 }
-
+function getTeamKey(team: string[] | null | undefined): string {
+  if (!team) return '';
+  return team.join('|');
+}
 const MatchCard: React.FC<MatchCardProps> = ({ 
   teamA = '', 
   teamB = '', 
@@ -400,7 +402,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     selectMatch,
     updateMatchSchedule,
   } = useTournamentStore();
-  const [selectedByes, setSelectedByes] = useState<string[][]>([]);
+  
   const { eventParticipants, loading: loadingParticipants, fetchParticipantsByEvent } = useParticipantsStore();
   const { courts, loading: loadingCourts, fetchCourts } = useCourtsStore();
   const addNotification = useNotificationStore((state) => state.addNotification);
@@ -436,67 +438,6 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
   const verticalPadding = 80;   // Espaço vertical para centralizar o chaveamento
   const globalCenterY = 500;    // Centro vertical para alinhamento do chaveamento
 
-  // Function to calculate optimal zoom level for fullscreen
-  const calculateOptimalZoom = (): number => {
-    if (!bracketContainerRef.current) return 100;
-    
-    const container = bracketContainerRef.current;
-    const screenWidth = window.screen.width;
-    const screenHeight = window.screen.height;
-    
-    // Get the natural dimensions of the bracket
-    const bracketWidth = container.scrollWidth;
-    const bracketHeight = container.scrollHeight;
-    
-    // Calculate zoom to fit both width and height with some padding
-    const widthZoom = (screenWidth * 0.95) / bracketWidth * 100;
-    const heightZoom = (screenHeight * 0.90) / bracketHeight * 100;
-    
-    // Use the smaller zoom to ensure everything fits
-    const optimalZoom = Math.min(widthZoom, heightZoom);
-    
-    // Ensure zoom is within reasonable bounds
-    return Math.max(50, Math.min(150, Math.round(optimalZoom)));
-  };
-  // Add toggleFullScreen function implementation
-  const toggleFullScreen = () => {
-    if (!document.fullscreenElement) {
-      // Enter full-screen mode
-      if (bracketContainerRef.current?.parentElement?.requestFullscreen) {
-        bracketContainerRef.current.parentElement.requestFullscreen()
-          .then(() => {
-            setIsFullScreen(true);
-            // Calculate and apply optimal zoom for fullscreen
-            setTimeout(() => {
-              const optimalZoom = calculateOptimalZoom();
-              setAutoZoomLevel(zoomLevel); // Save current zoom to restore later
-              setZoomLevel(optimalZoom);
-            }, 100); // Small delay to ensure fullscreen is applied
-          })
-          .catch(err => {
-            console.error(`Error attempting to enable full-screen mode: ${err.message}`);
-            addNotification({ type: 'error', message: 'Não foi possível ativar o modo tela cheia' });
-          });
-      }
-    } else {
-      // Exit full-screen mode
-      if (document.exitFullscreen) {
-        document.exitFullscreen()
-          .then(() => {
-            setIsFullScreen(false);
-            // Restore previous zoom level
-            if (autoZoomLevel !== null) {
-              setZoomLevel(autoZoomLevel);
-              setAutoZoomLevel(null);
-            }
-          })
-          .catch(err => {
-            console.error(`Error attempting to exit full-screen mode: ${err.message}`);
-          });
-      }
-    }
-  };
-  // Add event listener for fullscreen changes
   useEffect(() => {
     const handleFullScreenChange = () => {
       const isFullscreen = !!document.fullscreenElement;
@@ -599,17 +540,6 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     }
   }, [tournamentError, addNotification]);
 
-  const handleGenerateFormedStructure = async () => {
-    if (!eventId || eventParticipants.length < 2) {
-      addNotification({ type: 'warning', message: 'É necessário pelo menos 2 participantes/duplas para gerar a estrutura' });
-      return;
-    }
-    if (!currentEvent) return;
-
-    // Abrir modal de configuração ao invés de gerar diretamente
-    setGroupConfigMode('formed');
-    setShowGroupConfigModal(true);
-  };
 
   const handleGenerateFormedStructureWithConfig = async () => {
     console.log('🔧 [handleGenerateFormedStructureWithConfig] Called');
@@ -717,35 +647,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
   };
 
   // Add a new function to handle group stage completion check
-  const handleCheckGroupStageCompletion = () => {
-    if (!tournament || !matchesByStage.GROUP) {
-      addNotification({ type: 'warning', message: 'Dados do torneio ou partidas de grupo não disponíveis.' });
-      return;
-    }
-
-    let allGroupsCompleted = true;
-    let incompleteGroups: number[] = [];
-
-    for (const groupNum in matchesByStage.GROUP) {
-      const groupMatches = matchesByStage.GROUP[groupNum];
-      const completedMatches = groupMatches.filter(match => match.completed);
-      
-      // Check if this group is complete
-      if (completedMatches.length !== groupMatches.length) {
-        allGroupsCompleted = false;
-        incompleteGroups.push(parseInt(groupNum));
-      }
-    }
-
-    if (allGroupsCompleted) {
-      addNotification({ type: 'success', message: 'Todas as partidas da fase de grupos estão concluídas.' });
-    } else {
-      addNotification({ 
-        type: 'info', 
-        message: `As seguintes grupos ainda têm partidas pendentes: ${incompleteGroups.join(', ')}` 
-      });
-    }
-  };
+  
 
   const handleStartTournament = async () => {
     if (!tournament) return;
@@ -914,53 +816,11 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     }
   };
 
-  const toggleSkipTeam = (participantId: string) => {
-    setSkipTeamIds(prev => {
-      if (prev.includes(participantId)) {
-        return prev.filter(id => id !== participantId);
-      } else {
-        return [...prev, participantId];
-      }
-    });
-  };
+  
 
-  const filterMatchesByCourt = (matches: Match[]) => {
-    if (!selectedCourtId || viewMode === 'all') return matches;
-    return matches.filter(match => match.courtId === selectedCourtId);
-  };
+  
 
-  const handleAutoAssignCourts = async () => {
-    if (!tournament || !courts.length) return;
-
-    try {
-      const firstRoundMatches = tournament.matches.filter(m => m.round === 1 && m.team1 && m.team2);
-
-      const updates = firstRoundMatches.map((match, index) => {
-        const courtIndex = index % courts.length;
-        return {
-          matchId: match.id,
-          courtId: courts[courtIndex].id,
-          scheduledTime: new Date().toISOString()
-        };
-      });
-
-      for (const update of updates) {
-        await updateMatchSchedule(update.matchId, update.courtId, update.scheduledTime);
-      }
-
-      addNotification({
-        type: 'success',
-        message: 'Quadras alocadas automaticamente!'
-      });
-
-    } catch (err) {
-      console.error("Erro ao alocar quadras:", err);
-      addNotification({
-        type: 'error',
-        message: 'Erro ao alocar quadras automaticamente.'
-      });
-    }
-  };
+  
 
   const handleShowRankings = () => {
     if (!tournament || !matchesByStage.GROUP) {
@@ -1091,112 +951,37 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     setShowOverallRankingsModal(true);
   };
 
-  const handleShowPlacementRankings = (placement: number, title: string) => {
-    if (!tournament || !matchesByStage.GROUP || !isGroupStageComplete) {
-      addNotification({ type: 'warning', message: 'Todas as partidas de fase de grupos devem estar concluídas.' });
-      return;
-    }
-    
-    let currentCalculatedRankings = calculatedRankings;
-    if (Object.keys(currentCalculatedRankings).length === 0 && isGroupStageComplete) {
-      // Calcular rankings se não estão disponíveis
-      const rankings: Record<number, GroupRanking[]> = {};
-      for (const groupNum in matchesByStage.GROUP) {
-        const groupMatches = matchesByStage.GROUP[groupNum];
-        // Ensure all matches in the group are completed for this specific calculation context
-        const completedMatches = groupMatches.filter(match => match.completed);
-        if (completedMatches.length === groupMatches.length) { // Only consider fully completed groups for this
-           rankings[groupNum] = calculateGroupRankings(completedMatches);
-        }
-      }
-      currentCalculatedRankings = rankings;
-      // setCalculatedRankings(rankings); // Avoid direct state update if it triggers re-renders elsewhere unexpectedly
-    }
-    
-    if (Object.keys(currentCalculatedRankings).length === 0) {
-      addNotification({ type: 'info', message: 'Não foi possível calcular os rankings dos grupos. Verifique se todas as partidas estão completas.' });
-      return;
-    }
-
-    // ✅ CORREÇÃO: Criar função local para calcular rankings por posição
-    const calculatePlacementRankingsLocal = (
-      groupRankings: Record<number, GroupRanking[]>, 
-      position: number
-    ): OverallRanking[] => {
-      const placementTeams: OverallRanking[] = [];
-      
-      // Extract teams from specific position in each group
-      Object.entries(groupRankings).forEach(([groupNum, rankings]) => {
-        if (rankings.length >= position) {
-          const team = rankings[position - 1]; // position is 1-based, array is 0-based
-          placementTeams.push({
-            teamId: team.teamId,
-            team: team.team || team.teamId.join(' & '),
-            rank: 0, // Will be recalculated
-            stats: {
-              wins: team.stats.wins,
-              losses: team.stats.losses,
-              matchesPlayed: team.stats.matchesPlayed,
-              gamesWon: team.stats.gamesWon,
-              gamesLost: team.stats.gamesLost,
-              gameDifference: team.stats.gameDifference,
-              groupNumber: parseInt(groupNum),
-              headToHead: team.stats.headToHead
-            },
-            groupNumber: parseInt(groupNum)
-          });
-        }
-      });
-
-      // Sort by Beach Tennis criteria
-      placementTeams.sort((a, b) => {
-        // 1. Game difference (primary criterion)
-        if (a.stats.gameDifference !== b.stats.gameDifference) {
-          return b.stats.gameDifference - a.stats.gameDifference;
-        }
-
-        // 2. Total games won
-        if (a.stats.gamesWon !== b.stats.gamesWon) {
-          return b.stats.gamesWon - a.stats.gamesWon;
-        }
-
-        // 3. Fewest games lost
-        if (a.stats.gamesLost !== b.stats.gamesLost) {
-          return a.stats.gamesLost - b.stats.gamesLost;
-        }
-
-        // 4. Most wins
-        if (a.stats.wins !== b.stats.wins) {
-          return b.stats.wins - a.stats.wins;
-        }
-
-        // 5. Most matches played
-        if (a.stats.matchesPlayed !== b.stats.matchesPlayed) {
-          return b.stats.matchesPlayed - a.stats.matchesPlayed;
-        }
-
-        return 0;
-      });
-
-      // Assign ranks
-      placementTeams.forEach((team, index) => {
-        team.rank = index + 1;
-      });
-
-      return placementTeams;
-    };
-
-    const placementRankingsData = calculatePlacementRankingsLocal(currentCalculatedRankings, placement);
-    if (placementRankingsData.length === 0) {
-        addNotification({ type: 'info', message: `Nenhuma equipe encontrada na ${placement}ª colocação dos grupos.` });
-        return;
-    }
-    setPlacementRankingModalData(placementRankingsData);
-    setPlacementRankingModalTitle(title);
-    setShowPlacementRankingModal(true);
-  };
+  
 
   const isDataLoading = loadingTournament || loadingParticipants || loadingCourts || loadingEventDetails;
+
+  // Acessar metadados do elimination_bracket para exibir informações de BYE
+  const eliminationBracketMetadata = useMemo(() => {
+    if (!tournament) return null;
+    
+    // Cast para incluir elimination_bracket do banco
+    const tournamentWithBracket = tournament as any;
+    if (!tournamentWithBracket.elimination_bracket) return null;
+    
+    // Se elimination_bracket for apenas um array de matches (formato antigo)
+    if (Array.isArray(tournamentWithBracket.elimination_bracket)) {
+      return null;
+    }
+    
+    // Se elimination_bracket tem metadados completos (novo formato)
+    return tournamentWithBracket.elimination_bracket as {
+      matches: Match[];
+      bracketCase: string;
+      description: string;
+      teamsWithByes: Array<{
+        teamId: string[];
+        rank: number;
+        groupNumber: number;
+      }>;
+      totalTeams: number;
+      generatedAt: string;
+    };
+  }, [tournament]);
 
   const matchesByStage = useMemo(() => {
     if (!tournament?.matches) return { GROUP: {}, ELIMINATION: [] };
@@ -1294,46 +1079,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
   }, [eliminationMatches, overallGroupRankings, tournamentWinner, setTournamentWinner, setFinalMatch, setShowWinnerCeremony]);
 
   // Add this function to handle bilateral bracket visualization
-  const handleGenerateBilateralBracket = async () => {
-    if (!tournament) return;
-    
-    try {
-      // Check if group stage is complete
-      if (!isGroupStageComplete) {
-        const confirmIncomplete = window.confirm("Algumas partidas da fase de grupos ainda não foram concluídas. Deseja gerar o chaveamento mesmo assim? Isso pode resultar em um chaveamento incompleto.");
-        if (!confirmIncomplete) return;
-      }
-      
-      // Show loading indicator
-      setGeneratingStructure(true);
-      
-      // IMPORTANTE: Força um refresh completo antes de gerar a fase eliminatória
-      // para garantir que todos os resultados mais recentes sejam considerados
-      console.log('Refreshing tournament data before generating elimination bracket...');
-      await fetchTournament(tournament.eventId);
-      
-      // Aguarda um pouco para garantir que os dados foram atualizados
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Use the bilateral bracket generation
-      
-      // Força outro refresh após a geração para exibir os dados corretos
-      await fetchTournament(tournament.eventId);
-      
-      addNotification({
-        type: 'success',
-        message: 'Chaveamento eliminatório bilateral gerado com sucesso!'
-      });
-    } catch (err) {
-      console.error('Error generating bilateral bracket:', err);
-      addNotification({
-        type: 'error',
-        message: err instanceof Error ? err.message : 'Erro ao gerar chaveamento eliminatório bilateral'
-      });
-    } finally {
-      setGeneratingStructure(false);
-    }
-  };
+  
 
   // Enhance the useMemo to support bilateral bracket visualization
   const { eliminationRoundsArray, bracketLines, matchPositionMap } = useMemo(() => {    
@@ -1825,7 +1571,6 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
         matches
       });
     });
-    
     // Add right side rounds
     Object.entries(rightSideMatches).forEach(([round, matches]) => {
       roundsArray.push({
@@ -1901,61 +1646,6 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     };
   }, []);
 
-  const handleForceRecalculateRankings = () => {
-    try {
-      if (!tournament || !matchesByStage.GROUP) {
-        addNotification({ 
-          type: 'warning', 
-          message: 'Não há dados suficientes para calcular rankings.' 
-        });
-        return;
-      }
-
-      const allRankings: Record<number, GroupRanking[]> = {};
-      let allGroupMatchesCompleted = true;
-
-      // Para cada grupo, recalcular rankings
-      Object.keys(matchesByStage.GROUP).forEach(groupNumStr => {
-        const groupNum = parseInt(groupNumStr);
-        const groupMatches = matchesByStage.GROUP[groupNum];
-        const completedMatches = groupMatches.filter(m => m.completed);
-        
-        console.log(`Grupo ${groupNum}: ${completedMatches.length}/${groupMatches.length} partidas concluídas`);
-        
-        // Verificar se todas as partidas do grupo estão concluídas
-        if (completedMatches.length !== groupMatches.length) {
-          allGroupMatchesCompleted = false;
-        }
-        
-        // Calcular rankings para este grupo
-        allRankings[groupNum] = calculateGroupRankings(groupMatches, true);
-      });
-
-      // Exibir resultados 
-      setCalculatedRankings(allRankings);
-      setShowGroupRankingsModal(true);
-      
-      // Informar o status das partidas
-      if (!allGroupMatchesCompleted) {
-        addNotification({ 
-          type: 'warning', 
-          message: 'Nem todas as partidas da fase de grupos estão concluídas.' 
-        });
-      } else {
-        addNotification({ 
-          type: 'success', 
-          message: 'Todas as partidas da fase de grupos estão concluídas. Você pode gerar a fase eliminatória.' 
-        });
-      }
-    } catch (error) {
-      console.error("Error calculating rankings:", error);
-      addNotification({ 
-        type: 'error', 
-        message: 'Erro ao calcular rankings: ' + (error instanceof Error ? error.message : 'Erro desconhecido')
-      });
-    }
-  };
-
   // Function to open transmission screen
   const openTransmission = () => {
     const transmissionUrl = `${window.location.origin}/transmission/${eventId}`;
@@ -2012,6 +1702,40 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
           </div>
         </div>
 
+        {/* BYE Information Section */}
+        {eliminationBracketMetadata && eliminationBracketMetadata.teamsWithByes.length > 0 && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <div className="flex items-center mb-3">
+              <UserX size={20} className="text-green-600 mr-2" />
+              <h3 className="text-lg font-semibold text-green-800">
+                BYE Automático Aplicado
+              </h3>
+            </div>
+            <div className="space-y-2">
+              <p className="text-green-700 text-sm">
+                <strong>Caso:</strong> {eliminationBracketMetadata.description}
+              </p>
+              <div className="text-green-700 text-sm">
+                <strong>Duplas com BYE ({eliminationBracketMetadata.teamsWithByes.length}):</strong>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {eliminationBracketMetadata.teamsWithByes.map((team, index) => (
+                    <span 
+                      key={`${team.teamId.join('-')}-${index}`}
+                      className="inline-flex items-center px-2 py-1 bg-green-100 border border-green-300 rounded text-xs"
+                    >
+                      <Trophy size={12} className="mr-1" />
+                      {team.rank}º - G{team.groupNumber} - {getTeamDisplayName(team.teamId)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <p className="text-green-600 text-xs mt-2">
+                Gerado em: {new Date(eliminationBracketMetadata.generatedAt).toLocaleString('pt-BR')}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Tournament content */}
         {currentStage === 'GROUP' && (
           <div className="space-y-6">
@@ -2057,36 +1781,72 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                               variant={isGroupStageComplete ? "primary" : "outline"}
                               size="sm"
                               disabled={!isGroupStageComplete}
+                              // Modificar o handler do botão "Gerar Fase Eliminatória" para considerar duplas eliminadas
+                              // No TournamentBracket.tsx - substituir o handler do botão
+                              // SUBSTITUIR o onClick atual por este:
                               onClick={async () => {
                                 if (tournament && isGroupStageComplete) {
                                   try {
                                     addNotification({
                                       type: 'info',
-                                      message: 'Gerando fase eliminatória considerando BYEs manuais...'
+                                      message: 'Analisando estrutura do torneio e aplicando BYE automático inteligente...'
                                     });
 
-                                    // 1. Calcule o ranking geral dos classificados
+                                    // 1. Calcular ranking geral final
                                     let allCompletedGroupMatches: Match[] = [];
                                     for (const groupNum in matchesByStage.GROUP) {
                                       allCompletedGroupMatches = allCompletedGroupMatches.concat(
                                         matchesByStage.GROUP[groupNum].filter(match => match.completed)
                                       );
                                     }
-                                    const overallRankingsData = calculateOverallGroupStageRankings(allCompletedGroupMatches);
+                                    let overallRankingsData = calculateOverallGroupStageRankings(allCompletedGroupMatches);
 
-                                    // 2. Monte o array de BYEs (teamId[])
-                                    const byeTeams: string[][] = selectedByes;
+                                    // 2. Filtrar duplas eliminadas por desempate
+                                    const eliminatedTeamsFromStorage = JSON.parse(
+                                      localStorage.getItem(`eliminated_teams_${tournament.id}`) || '[]'
+                                    ) as string[];
 
-                                    // 3. Gere as partidas da eliminatória com BYEs manuais
-                                    const eliminationMatches = generateEliminationBracketWithManualByes(overallRankingsData, byeTeams);
+                                    overallRankingsData = overallRankingsData.filter(
+                                      team => !eliminatedTeamsFromStorage.includes(team.teamId.join('|'))
+                                    );
 
-                                    // 4. Salve as partidas no torneio (atualizando elimination_bracket e matches_data)
-                                    const allMatches = [...tournament.matches, ...eliminationMatches];
+                                    console.log(`🎾 Duplas classificadas para eliminatória: ${overallRankingsData.length}`);
+                                    console.log(`📊 Dados das duplas:`, overallRankingsData);
+
+                                    // 3. ⭐ USAR NOVA LÓGICA DE BYE INTELIGENTE
+                                    console.log(`🔍 Iniciando geração de bracket com BYE inteligente...`);
+                                    
+                                    console.log(`🔨 Iniciando geração do bracket...`);
+                                    let eliminationData;
+                                    try {
+                                      eliminationData = generateEliminationBracketWithSmartBye(overallRankingsData);
+                                      console.log(`✅ Bracket gerado:`, eliminationData);
+                                      console.log(`📈 Total de matches: ${eliminationData.matches.length}`);
+                                      console.log(`📋 Metadata:`, eliminationData.metadata);
+                                    } catch (bracketError) {
+                                      console.error(`❌ Erro na geração do bracket:`, bracketError);
+                                      throw bracketError;
+                                    }
+
+                                    // 4. Criar metadados do bracket incluindo informações de BYE
+                                    const bracketMetadata = {
+                                      matches: eliminationData.matches,
+                                      metadata: eliminationData.metadata,
+                                      qualifiedTeams: overallRankingsData.map(team => ({
+                                        teamId: team.teamId,
+                                        rank: team.rank,
+                                        groupNumber: team.groupNumber
+                                      })),
+                                      generatedAt: new Date().toISOString()
+                                    };
+
+                                    // 5. Salvar no banco com metadados completos
+                                    const allMatches = [...tournament.matches, ...eliminationData.matches];
                                     const uniqueAllMatches = Array.from(new Map(allMatches.map(m => [m.id, m])).values());
                                     const { error: updateError } = await supabase
                                       .from('tournaments')
                                       .update({
-                                        elimination_bracket: eliminationMatches,
+                                        elimination_bracket: bracketMetadata,
                                         matches_data: uniqueAllMatches,
                                         stage: 'ELIMINATION',
                                         status: 'STARTED',
@@ -2098,13 +1858,12 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                                       throw updateError;
                                     }
 
-                                    // 5. Atualize o estado e notifique o usuário
+                                    // 5. Atualizar estado
                                     await fetchTournament(tournament.eventId);
                                     addNotification({
                                       type: 'success',
-                                      message: 'Fase eliminatória gerada com BYEs manuais!'
+                                      message: 'Fase eliminatória gerada com BYE automático inteligente aplicado!'
                                     });
-                                    setSelectedByes([]);
                                   } catch (error) {
                                     addNotification({
                                       type: 'error',
@@ -2298,15 +2057,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                   <List size={16} className="mr-1" />
                   Ver Rankings da Eliminatória
                 </Button>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => setShowByeAssignment(true)}
-                  className="bg-orange-500 hover:bg-orange-600 text-white"
-                >
-                  <UserX size={16} className="mr-1" />
-                  Atribuir BYE
-                </Button>
+  
                 <Button
                   variant="outline"
                   size="sm"
@@ -2744,47 +2495,6 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                 }, {} as Record<string, string>)
               }
             />
-          </Modal>
-        )}
-
-        {/* Modal de atribuição de BYE */}
-        {showByeAssignment && (
-          <Modal
-            isOpen={showByeAssignment}
-            onClose={() => setShowByeAssignment(false)}
-            title="Atribuir BYE Manual"
-            size="large"
-          >
-            <ByeAssignment
-                eliminationMatches={eliminationMatches}
-                playerNameMap={
-                  Array.from(participantMap.entries()).reduce((map, [id, name]) => {
-                    map[id] = name;
-                    return map;
-                  }, {} as Record<string, string>)
-                }
-                tournamentId={tournament?.id || ''}
-                onClose={() => setShowByeAssignment(false)}
-                onByeAssigned={(byeTeams: string[][]) => {
-                  setSelectedByes(byeTeams); // <-- ESSA LINHA É FUNDAMENTAL!
-                  setShowByeAssignment(false);
-                  // Opcional: recarregar dados do torneio se necessário
-                  if (tournament?.eventId) {
-                    fetchTournament(tournament.eventId).then(() => {
-                      addNotification({
-                        type: 'success',
-                        message: 'Dados do torneio atualizados após atribuição de BYE'
-                      });
-                    }).catch((error) => {
-                      console.error('Erro ao recarregar dados do torneio:', error);
-                      addNotification({
-                        type: 'warning',
-                        message: 'BYE atribuído, mas houve erro ao atualizar a visualização'
-                      });
-                    });
-                  }
-                }}
-              />
           </Modal>
         )}
 

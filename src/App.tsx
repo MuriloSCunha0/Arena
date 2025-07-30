@@ -24,6 +24,8 @@ const ReportsDashboard = lazy(() => import('./pages/reports/ReportsDashboard').t
 const Settings = lazy(() => import('./pages/settings/Settings').then(module => ({ default: module.Settings })));
 // Novo componente para gerenciamento de quadras
 const CourtsManagement = lazy(() => import('./pages/courts/CourtsManagement').then(module => ({ default: module.CourtsManagement })));
+// Ambiente de testes para torneios
+const TestTournamentManager = lazy(() => import('./components/testing/TestTournamentManager').then(module => ({ default: module.default })));
 // Componente para inscrição em evento para participantes
 const EventoRegistro = lazy(() => import('./pages/participante/EventoRegistro').then(module => ({ default: module.EventoRegistro })));
 // Componentes para participantes
@@ -96,6 +98,7 @@ const ProtectedApp = () => {
             <Route path="/relatorios" element={<ReportsDashboard />} />
             <Route path="/configuracoes" element={<Settings />} />
             <Route path="/quadras" element={<CourtsManagement />} />
+            <Route path="/testes" element={<TestTournamentManager />} />
             <Route path="/debug/payment-test" element={<PaymentStatusTest />} />
             <Route path="/organizadores" element={<OrganizersList />} />
             <Route path="/organizadores/novo" element={<OrganizerForm />} />

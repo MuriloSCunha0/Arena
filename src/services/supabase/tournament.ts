@@ -216,25 +216,18 @@ export const TournamentService = {
       
       // Combinar dados de standings_data e elimination_bracket
       const standingsData = tournamentData.standings_data || [];
-      const eliminationData = Array.isArray(tournamentData.elimination_bracket) 
-        ? tournamentData.elimination_bracket 
+      const eliminationData = tournamentData.elimination_bracket 
+        ? (Array.isArray(tournamentData.elimination_bracket) 
+            ? tournamentData.elimination_bracket 
+            : tournamentData.elimination_bracket.matches || []) // Novo formato com metadados
         : [];
       const matchesData = tournamentData.matches_data || [];
       
       console.log(`📊 JSONB data - standings: ${standingsData.length}, elimination: ${typeof tournamentData.elimination_bracket === 'object' ? 'object' : eliminationData.length}, matches: ${matchesData.length}`);
       
-      // Priorizar dados específicos por stage
-      if (standingsData.length > 0 || eliminationData.length > 0) {
-        // Usar dados das colunas específicas - garantir que são arrays
-        const safeStandingsData = Array.isArray(standingsData) ? standingsData : [];
-        const safeEliminationData = Array.isArray(eliminationData) ? eliminationData : [];
-        allMatchesData = [...safeStandingsData, ...safeEliminationData];
-        console.log(`📊 Using stage-specific data: ${allMatchesData.length} matches`);
-      } else {
-        // Fallback para matches_data se não houver dados específicos
-        allMatchesData = Array.isArray(matchesData) ? matchesData : [];
-        console.log(`📊 Using fallback matches_data: ${allMatchesData.length} matches`);
-      }
+      // Sempre usar matches_data que contém todas as partidas (grupo + eliminatória)
+      allMatchesData = Array.isArray(matchesData) ? matchesData : [];
+      console.log(`📊 Using matches_data: ${allMatchesData.length} total matches`);
 
       // Transform matches using the existing transformMatch function
       const allMatches = allMatchesData.map((match: any) => {

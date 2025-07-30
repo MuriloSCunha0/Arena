@@ -7,10 +7,12 @@ import {
   calculateGroupRankings, 
   calculateRankingsForPlacement,
   hasBye,
-  getByeAdvancingTeam
+  getByeAdvancingTeam,
+  detectTieBreaksInRanking
 } from '../utils/rankingUtils';
 import { validateBeachTennisRules } from '../utils/beachTennisRules';
 import { Match } from '../types';
+import { TieBreakSelector } from './TieBreakSelector';
 
 interface TournamentRankingsProps {
   tournamentId: string;
@@ -37,11 +39,9 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({
   const [isGroupStageComplete, setIsGroupStageComplete] = useState(false);
   const [generatingBracket, setGeneratingBracket] = useState(false);
   const [localPlayerNameMap, setLocalPlayerNameMap] = useState<Record<string, string>>({});
+  const [eliminatedTeams, setEliminatedTeams] = useState<string[]>([]);
+  const [showTieBreakResolver, setShowTieBreakResolver] = useState(false);
   
-  // Estado para gerenciar BYEs antes da geração das eliminatórias
-  const [selectedByes, setSelectedByes] = useState<Set<string>>(new Set());
-  const [showByeMode, setShowByeMode] = useState(false);
-
   // Build player name map from tournament data or use provided map
   useEffect(() => {
     if (tournament && !playerNameMap) {
@@ -209,45 +209,16 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({
     
     setGeneratingBracket(true);
     try {
-      // Preparar lista de BYEs selecionados
-      const byeTeamIds = Array.from(selectedByes).map(teamKey => teamKey.split('|'));
-      
-      console.log('Gerando eliminatórias com BYEs:', byeTeamIds);
-      
-      // TODO: Implementar passagem de BYEs para o serviço
-      // Por enquanto, usar método atual
+      // USAR APENAS BYE AUTOMÁTICO INTELIGENTE
       await generateEliminationBracket(tournament.id, true);
       
-      // Limpar BYEs após a geração
-      setSelectedByes(new Set());
-      setShowByeMode(false);
-      
-      window.alert(`Fase eliminatória gerada com sucesso${byeTeamIds.length > 0 ? ` com ${byeTeamIds.length} BYE(s)` : ''}!`);
+      window.alert('Fase eliminatória gerada com BYE automático inteligente!');
     } catch (error) {
       console.error("Erro ao gerar fase eliminatória:", error);
       window.alert('Erro ao gerar fase eliminatória: ' + (error instanceof Error ? error.message : 'Erro desconhecido'));
     } finally {
       setGeneratingBracket(false);
     }
-  };
-
-  // Função para toggle de BYE
-  const toggleBye = (teamId: string[]) => {
-    const teamKey = teamId.join('|');
-    setSelectedByes(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(teamKey)) {
-        newSet.delete(teamKey);
-      } else {
-        newSet.add(teamKey);
-      }
-      return newSet;
-    });
-  };
-
-  // Função para limpar todos os BYEs
-  const clearAllByes = () => {
-    setSelectedByes(new Set());
   };
 
   // Validar regras do Beach Tennis
@@ -263,6 +234,16 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({
       }
     }
   }, [tournament]);
+
+  // Adicionar função para lidar com eliminação de dupla
+  const handleTeamElimination = (eliminatedTeam: OverallRanking) => {
+    const teamKey = eliminatedTeam.teamId.join('|');
+    setEliminatedTeams(prev => [...prev, teamKey]);
+    setShowTieBreakResolver(false);
+    
+    // Notificar sobre a eliminação
+    window.alert(`Dupla ${eliminatedTeam.teamId.map(id => playerNameMap?.[id] || 'Desconhecido').join(' & ')} foi eliminada do ranking geral.`);
+  };
 
   const renderTabContent = () => {
     const getLegend = () => (
@@ -280,55 +261,16 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({
       </div>
     );
 
-    const renderRankingTable = (rankings: OverallRanking[], title: string) => {
+    const renderRankingTable = (rankings: OverallRanking[], title: string, showEliminated?: boolean, isOverall?: boolean) => {
       if (rankings.length === 0) {
         return <p className="text-gray-500 text-center">Não há rankings disponíveis para {title.toLowerCase()}.</p>;
       }
-
-      const isOverallRanking = activeTab === 'overall';
-      const canShowByes = isOverallRanking && isGroupStageComplete && eliminationMatches.length === 0;
 
       return (
         <>
           <div className="flex justify-between items-center mb-3">
             <h3 className="text-xl font-bold">{title}</h3>
-            {canShowByes && (
-              <div className="flex items-center gap-2">
-                {showByeMode && selectedByes.size > 0 && (
-                  <span className="text-sm text-orange-600 bg-orange-50 px-2 py-1 rounded">
-                    {selectedByes.size} BYE{selectedByes.size > 1 ? 's' : ''} selecionado{selectedByes.size > 1 ? 's' : ''}
-                  </span>
-                )}
-                <button
-                  onClick={() => setShowByeMode(!showByeMode)}
-                  className={`px-3 py-1 text-sm rounded transition-colors ${
-                    showByeMode 
-                      ? 'bg-orange-500 text-white hover:bg-orange-600' 
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }`}
-                >
-                  {showByeMode ? 'Cancelar BYEs' : 'Atribuir BYEs'}
-                </button>
-                {showByeMode && selectedByes.size > 0 && (
-                  <button
-                    onClick={clearAllByes}
-                    className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
-                  >
-                    Limpar
-                  </button>
-                )}
-              </div>
-            )}
           </div>
-
-          {canShowByes && showByeMode && (
-            <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
-              <p className="text-sm text-orange-800">
-                <strong>Modo BYE ativado:</strong> Clique nas duplas que devem receber BYE (avanço automático) 
-                na primeira rodada das eliminatórias. As duplas marcadas passarão direto para a segunda rodada.
-              </p>
-            </div>
-          )}
           
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200 text-sm">
@@ -340,9 +282,6 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({
                   <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">SG</th>
                   <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">PG</th>
                   <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">JP</th>
-                  {canShowByes && showByeMode && (
-                    <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">BYE</th>
-                  )}
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -354,13 +293,10 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({
                     id
                   );
                   const teamName = playerNames.join(' & ');
-                  const teamKey = entry.teamId.join('|');
-                  const hasBye = selectedByes.has(teamKey);
                   
                   return (
                     <tr 
                       key={entry.teamId.join('-')} 
-                      className={`hover:bg-gray-50 ${hasBye ? 'bg-orange-50 border-l-4 border-orange-400' : ''}`}
                     >
                       <td className="px-3 py-2 whitespace-nowrap font-medium">
                         {entry.rank}
@@ -382,11 +318,6 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({
                                 Classificado para eliminatórias (Beach Tennis)
                               </div>
                             )}
-                            {hasBye && (
-                              <div className="text-xs text-orange-600 font-medium">
-                                🚀 BYE - Avança automaticamente
-                              </div>
-                            )}
                           </div>
                         </div>
                       </td>
@@ -399,20 +330,6 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-center">{entry.stats.gamesWon}</td>
                       <td className="px-3 py-2 whitespace-nowrap text-center">{entry.stats.matchesPlayed}</td>
-                      {canShowByes && showByeMode && (
-                        <td className="px-3 py-2 whitespace-nowrap text-center">
-                          <button
-                            onClick={() => toggleBye(entry.teamId)}
-                            className={`px-2 py-1 text-xs rounded transition-colors ${
-                              hasBye
-                                ? 'bg-orange-500 text-white hover:bg-orange-600'
-                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                            }`}
-                          >
-                            {hasBye ? '✓ BYE' : 'Dar BYE'}
-                          </button>
-                        </td>
-                      )}
                     </tr>
                   );
                 })}
@@ -425,10 +342,66 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({
 
     switch (activeTab) {
       case 'overall':
+        if (overallRankings.length === 0) {
+          return (
+            <div className="text-center py-8 text-gray-500">
+              <p>Complete todas as partidas da fase de grupos para ver o ranking geral.</p>
+            </div>
+          );
+        }
+
+        // Filtrar duplas eliminadas
+        const filteredOverallRankings = overallRankings.filter(
+          team => !eliminatedTeams.includes(team.teamId.join('|'))
+        );
+
+        // Detectar empates que afetam classificação (assumindo top 8 classificam)
+        const qualificationCutoff = 8;
+        const tieBreakInfo = detectTieBreaksInRanking(filteredOverallRankings, qualificationCutoff);
+
         return (
-          <div className="space-y-4">
+          <div className="space-y-6">
             {getLegend()}
-            {renderRankingTable(overallRankings, "Ranking Geral (Beach Tennis)")}
+            
+            {/* Mostrar alerta de empate se necessário */}
+            {tieBreakInfo.hasTieBreaks && tieBreakInfo.affectsQualification && (
+              <TieBreakSelector
+                tiedTeams={tieBreakInfo.tiedTeams}
+                onTeamEliminated={handleTeamElimination}
+                playerNameMap={playerNameMap || {}}
+              />
+            )}
+            
+            {/* Mostrar duplas eliminadas */}
+            {eliminatedTeams.length > 0 && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <h4 className="font-medium text-red-800 mb-2">Duplas Eliminadas por Desempate:</h4>
+                <div className="space-y-1">
+                  {eliminatedTeams.map(teamKey => {
+                    const originalTeam = overallRankings.find(t => t.teamId.join('|') === teamKey);
+                    if (!originalTeam) return null;
+                    
+                    return (
+                      <div key={teamKey} className="text-sm text-red-700">
+                        • {originalTeam.teamId.map(id => playerNameMap?.[id] || 'Desconhecido').join(' & ')} 
+                        (Grupo {originalTeam.groupNumber})
+                      </div>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={() => {
+                    setEliminatedTeams([]);
+                    setShowTieBreakResolver(false);
+                  }}
+                  className="mt-2 text-sm text-red-600 hover:text-red-800 underline"
+                >
+                  Restaurar todas as duplas
+                </button>
+              </div>
+            )}
+            
+            {renderRankingTable(filteredOverallRankings, "Ranking Geral", true, true)}
           </div>
         );
       case 'first':
@@ -491,7 +464,7 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({
                       
                       const getRankIcon = (pos: number) => {
                         switch (pos) {
-                          case 1: return <svg className="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732L14.146 12.8l-1.179 4.456a1 1 0 01-1.934 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732L9.854 7.2l1.179-4.456A1 1 0 0112 2z" clipRule="evenodd" /></svg>;
+                          case 1: return <svg className="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732L14.146 12.8l-1.179 4.456a1 1 0 01-1.934 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732L9.854 7.2l1.179-4.456A1 1 0 0112 2z" clipRule="evenodd" /></svg>;
                           case 2: return <svg className="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732L14.146 12.8l-1.179 4.456a1 1 0 01-1.934 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732L9.854 7.2l1.179-4.456A1 1 0 0112 2z" clipRule="evenodd" /></svg>;
                           case 3: return <svg className="w-5 h-5 text-amber-600" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732L14.146 12.8l-1.179 4.456a1 1 0 01-1.934 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732L9.854 7.2l1.179-4.456A1 1 0 0112 2z" clipRule="evenodd" /></svg>;
                           default: return <svg className="w-4 h-4 text-gray-300" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732L14.146 12.8l-1.179 4.456a1 1 0 01-1.934 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732L9.854 7.2l1.179-4.456A1 1 0 0112 2z" clipRule="evenodd" /></svg>;
@@ -827,11 +800,6 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({
             ) : (
               <>
                 Avançar para Fase Eliminatória (Beach Tennis)
-                {selectedByes.size > 0 && (
-                  <span className="bg-white bg-opacity-20 px-2 py-1 rounded text-sm">
-                    {selectedByes.size} BYE{selectedByes.size > 1 ? 's' : ''}
-                  </span>
-                )}
               </>
             )}
           </button>

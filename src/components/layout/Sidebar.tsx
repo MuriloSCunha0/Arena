@@ -9,7 +9,8 @@ import {
   Settings, 
   LogOut,
   BarChart3,
-  MapPin // Novo ícone para quadras
+  MapPin, // Novo ícone para quadras
+  TestTube // Ícone para testes
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -76,6 +77,7 @@ export const Sidebar = () => {
         <NavItem to="/financeiro" icon={DollarSign} label="Financeiro" />
         <NavItem to="/relatorios" icon={BarChart3} label="Relatórios" />
         <NavItem to="/quadras" icon={MapPin} label="Quadras" /> {/* Nova opção de menu */}
+        <NavItem to="/testes" icon={TestTube} label="Ambiente de Testes" />
         <NavItem to="/configuracoes" icon={Settings} label="Configurações" />
       </nav>
       

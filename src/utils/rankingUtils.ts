@@ -34,11 +34,6 @@ interface TeamStatisticsExtended extends TeamStatistics {
   groupNumber: number;
 }
 
-// Helper to create a unique key for a team (array of participant IDs)
-const getTeamKey = (teamId: string[]): string => {
-  return [...teamId].sort().join('|');
-};
-
 // Helper to initialize team stats
 const initializeTeamStats = (teamId: string[]): GroupTeamStats => ({
   teamId: [...teamId],
@@ -303,9 +298,6 @@ export function generateEliminationBracket(
     throw new Error('Pelo menos 2 times qualificados são necessários para a fase eliminatória');
   }
 
-  // Generate bracket structure
-  const totalTeams = qualifiedTeams.length;
-  
   // Create first round matches
   let currentRound = 1;
   let currentPosition = 1;
@@ -586,10 +578,10 @@ export function calculateOverallGroupStageRankings(allGroupMatches: Match[]): Ov
  */
 export function calculateRankingsForPlacement(
   matches: Match[],
-  placementType: 'first' | 'second' | 'third'
+  _placementType: 'first' | 'second' | 'third'
 ): OverallRanking[] {
   // Filter matches based on placement type
-  const relevantMatches = matches.filter(match => {
+  const relevantMatches = matches.filter(_match => {
     // This would need specific logic based on how placements are determined
     // For now, return all matches
     return true;
@@ -609,7 +601,7 @@ export function calculateRankingsForPlacement(
 export function updateEliminationBracket(
   matches: Match[],
   completedMatchId: string,
-  winnerId: 'team1' | 'team2',
+  _winnerId: 'team1' | 'team2',
   winnerTeam: string[]
 ): Match[] {
   try {
@@ -681,246 +673,262 @@ export function updateEliminationBracket(
 }
 
 /**
- * Gera confrontos eliminatórios com afunilamento por ranking
- * 1º vs último, 2º vs penúltimo, evitando mesmo grupo na primeira rodada
+ * Gera bracket eliminatório com BYE inteligente
+ * Nova lógica que posiciona BYEs em lados opostos da chave
  */
-export function generateEliminationPairings(qualifiedTeams: OverallRanking[]): Match[] {
-  const matches: Match[] = [];
+export function generateEliminationBracketWithSmartBye(
+  qualifiedTeams: OverallRanking[]
+): { matches: Match[]; metadata: any } {
   const sortedTeams = [...qualifiedTeams].sort((a, b) => a.rank - b.rank);
-  const used = new Set<number>();
+  const totalTeams = sortedTeams.length;
   
-  for (let i = 0; i < Math.floor(sortedTeams.length / 2); i++) {
+  console.log(`🎾 [NEW BYE LOGIC] Gerando bracket com ${totalTeams} duplas`);
+  
+  // Determinar estrutura do bracket
+  const nextPowerOf2 = Math.pow(2, Math.ceil(Math.log2(totalTeams)));
+  const byesNeeded = nextPowerOf2 - totalTeams;
+  
+  const matches: Match[] = [];
+  const metadata = {
+    totalTeams,
+    bracketSize: nextPowerOf2,
+    byesNeeded,
+    teamsWithByes: sortedTeams.slice(0, byesNeeded),
+    bracketStructure: `${totalTeams} teams → ${nextPowerOf2} bracket (${byesNeeded} BYEs)`
+  };
+  
+  if (byesNeeded === 0) {
+    // Bracket simples sem BYEs
+    console.log(`📊 Bracket completo sem BYEs`);
+    const pairings = generateOptimalPairings(sortedTeams);
+    
+    pairings.forEach((pair, index) => {
+      matches.push(createMatch(pair[0].teamId, pair[1].teamId, 1, index + 1));
+    });
+    
+    generateEmptyRounds(matches, pairings.length);
+    
+  } else {
+    // Bracket com BYEs posicionados inteligentemente
+    console.log(`📊 Bracket com ${byesNeeded} BYEs para as ${byesNeeded} melhores duplas`);
+    
+    const teamsWithByes = sortedTeams.slice(0, byesNeeded);
+    const teamsWithoutByes = sortedTeams.slice(byesNeeded);
+    
+    // Log das duplas com BYE
+    teamsWithByes.forEach((team, index) => {
+      console.log(`👑 BYE ${index + 1}: ${team.rank}º lugar (Grupo ${team.groupNumber})`);
+    });
+    
+    // Primeira rodada: apenas duplas sem BYE
+    if (teamsWithoutByes.length > 0) {
+      const firstRoundPairs = generateOptimalPairings(teamsWithoutByes);
+      
+      firstRoundPairs.forEach((pair, index) => {
+        matches.push(createMatch(pair[0].teamId, pair[1].teamId, 1, index + 1));
+        console.log(`🥊 Round 1-${index + 1}: ${pair[0].rank}º vs ${pair[1].rank}º`);
+      });
+    }
+    
+    // Segunda rodada: incluir duplas com BYE em posições estratégicas
+    const winnersFromRound1 = Math.floor(teamsWithoutByes.length / 2);
+    const totalInRound2 = winnersFromRound1 + teamsWithByes.length;
+    const matchesInRound2 = Math.floor(totalInRound2 / 2);
+    
+    // Posicionar BYEs em lados opostos
+    for (let i = 0; i < matchesInRound2; i++) {
+      const match = createMatch([], [], 2, i + 1);
+      
+      // Estratégia: alternar BYEs nos primeiros slots
+      if (i < teamsWithByes.length) {
+        if (i % 2 === 0) {
+          match.team1 = teamsWithByes[i].teamId; // BYE na posição 1
+          console.log(`🚀 Round 2-${i + 1}: ${teamsWithByes[i].rank}º lugar (BYE) vs vencedor`);
+        } else {
+          match.team2 = teamsWithByes[i].teamId; // BYE na posição 2  
+          console.log(`🚀 Round 2-${i + 1}: vencedor vs ${teamsWithByes[i].rank}º lugar (BYE)`);
+        }
+      } else {
+        console.log(`⚔️ Round 2-${i + 1}: vencedor vs vencedor`);
+      }
+      
+      matches.push(match);
+    }
+    
+    // Rodadas subsequentes
+    generateEmptyRounds(matches, matchesInRound2, 3);
+  }
+  
+  console.log(`✅ [NEW BYE LOGIC] Bracket gerado: ${matches.length} partidas`);
+  console.log(`📋 Metadata:`, metadata);
+  
+  return { matches, metadata };
+}
+
+/**
+ * Gera confrontos otimizados respeitando ranking e evitando mesmo grupo
+ */
+function generateOptimalPairings(teams: OverallRanking[]): [OverallRanking, OverallRanking][] {
+  const pairs: [OverallRanking, OverallRanking][] = [];
+  const used = new Set<number>();
+  const sortedTeams = [...teams].sort((a, b) => a.rank - b.rank);
+  
+  for (let i = 0; i < sortedTeams.length && used.size < sortedTeams.length; i++) {
     if (used.has(i)) continue;
     
     const bestTeam = sortedTeams[i];
-    let worstTeamIndex = sortedTeams.length - 1 - i;
+    let worstTeamIndex = findOptimalOpponent(sortedTeams, i, used);
     
-    // Procurar pior time disponível de grupo diferente
-    while (worstTeamIndex > i && (
-      used.has(worstTeamIndex) || 
-      sortedTeams[worstTeamIndex].groupNumber === bestTeam.groupNumber
-    )) {
-      worstTeamIndex--;
-    }
-    
-    if (worstTeamIndex <= i) {
-      // Fallback: próximo disponível
-      worstTeamIndex = i + 1;
-      while (worstTeamIndex < sortedTeams.length && used.has(worstTeamIndex)) {
-        worstTeamIndex++;
-      }
-    }
-    
-    if (worstTeamIndex < sortedTeams.length) {
+    if (worstTeamIndex !== -1) {
       const worstTeam = sortedTeams[worstTeamIndex];
-      
-      matches.push({
-        id: generateUUID(),
-        team1: bestTeam.teamId,
-        team2: worstTeam.teamId,
-        score1: null,
-        score2: null,
-        completed: false,
-        round: 1,
-        groupNumber: null,
-        winnerId: null,
-        stage: 'ELIMINATION',
-        eventId: '', // Será preenchido pelo contexto
-        tournamentId: '', // Será preenchido pelo contexto
-        position: matches.length + 1,
-        scheduledTime: null
-      });
-      
+      pairs.push([bestTeam, worstTeam]);
       used.add(i);
       used.add(worstTeamIndex);
     }
   }
   
-  return matches;
+  return pairs;
 }
 
 /**
- * Gera bracket eliminatório com BYE automático
- * BYEs vão para as duplas melhor rankeadas quando número ímpar
+ * Encontra o melhor oponente para uma dupla (preferindo grupos diferentes)
  */
-export function generateEliminationBracketWithByes(qualifiedTeams: OverallRanking[]): Match[] {
-  const sortedTeams = [...qualifiedTeams].sort((a, b) => a.rank - b.rank);
-  const totalTeams = sortedTeams.length;
+function findOptimalOpponent(teams: OverallRanking[], currentIndex: number, used: Set<number>): number {
+  const currentTeam = teams[currentIndex];
   
-  // Calcular próxima potência de 2
-  const nextPowerOf2 = Math.pow(2, Math.ceil(Math.log2(totalTeams)));
-  const byesNeeded = nextPowerOf2 - totalTeams;
-  
-  const matches: Match[] = [];
-  const teamsWithByes = sortedTeams.slice(0, byesNeeded);
-  const teamsWithoutByes = sortedTeams.slice(byesNeeded);
-  
-  // Criar partidas BYE para melhores duplas
-  teamsWithByes.forEach((team, index) => {
-    matches.push({
-      id: generateUUID(),
-      team1: team.teamId,
-      team2: null, // BYE
-      score1: null,
-      score2: null,
-      completed: true,
-      round: 1,
-      groupNumber: null,
-      winnerId: 'team1',
-      stage: 'ELIMINATION',
-      eventId: '',
-      tournamentId: '',
-      position: index + 1,
-      scheduledTime: null
-    });
-  });
-  
-  // Gerar confrontos para duplas restantes
-  const regularPairings = generateEliminationPairings(teamsWithoutByes);
-  matches.push(...regularPairings);
-  
-  return matches;
-}
-
-/**
- * Verifica se uma partida é BYE
- */
-export function hasBye(match: Match): boolean {
-  return match.team2 === null;
-}
-
-/**
- * Obtém o nome da dupla que avança em partida BYE
- */
-export function getByeAdvancingTeam(match: Match): string[] | null {
-  if (!hasBye(match)) return null;
-  return match.team1;
-}
-
-/**
- * Gera o bracket eliminatório considerando BYEs manuais.
- * @param qualifiedTeams - Array de duplas classificadas (ordenadas por ranking)
- * @param byeTeams - Array de teamId[] das duplas que devem avançar direto para a próxima fase
- * @returns Array de partidas (Match[])
- */
-export function generateEliminationBracketWithManualByes(
-  qualifiedTeams: OverallRanking[],
-  byeTeams: string[][]
-): Match[] {
-  // Helper para comparar arrays de teamId
-  const isSameTeam = (a: string[], b: string[]) =>
-  a.slice().sort().join('|') === b.slice().sort().join('|');
-
-  // Separe as duplas BYE das demais
-  const teamsWithByes = qualifiedTeams.filter(team =>
-    byeTeams.some(bye => isSameTeam(bye, team.teamId))
-  );
-  const teamsWithoutByes = qualifiedTeams.filter(team =>
-    !byeTeams.some(bye => isSameTeam(bye, team.teamId))
-  );
-
-  // Calcule o tamanho do chaveamento (potência de 2)
-  const totalTeams = qualifiedTeams.length;
-  const nextPowerOf2 = Math.pow(2, Math.ceil(Math.log2(totalTeams)));
-  const firstRoundTeamsCount = teamsWithoutByes.length;
-  const firstRoundMatchesCount = Math.floor(firstRoundTeamsCount / 2);
-
-  const matches: Match[] = [];
-  let idx = 0;
-
-  // 1. Crie as partidas da primeira rodada (apenas times SEM BYE)
-  for (let i = 0; i < firstRoundMatchesCount; i++) {
-    const team1 = teamsWithoutByes[idx++]?.teamId || [];
-    const team2 = teamsWithoutByes[idx++]?.teamId || [];
-    matches.push({
-      id: generateUUID(),
-      team1,
-      team2,
-      round: 1,
-      position: i + 1,
-      score1: null,
-      score2: null,
-      completed: false,
-      winnerId: null,
-      courtId: null,
-      scheduledTime: null,
-      stage: 'ELIMINATION',
-      groupNumber: null,
-      eventId: '',
-      tournamentId: '',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  // 2. Descubra quantas vagas já estão ocupadas na próxima rodada (BYEs)
-  const secondRoundTeams: string[][] = [];
-
-  // Adicione todos os vencedores da primeira rodada (um para cada partida)
-  for (let i = 0; i < firstRoundMatchesCount; i++) {
-    secondRoundTeams.push([]); // TBD, será preenchido pelo vencedor
-  }
-  // Adicione os times BYE diretamente na próxima rodada
-  for (const byeTeam of teamsWithByes) {
-    secondRoundTeams.push(byeTeam.teamId);
-  }
-
-  // 3. Crie as partidas da segunda rodada (ex: quartas ou semifinais)
-  const secondRoundMatchesCount = Math.floor(secondRoundTeams.length / 2);
-  let pos = 1;
-  for (let i = 0; i < secondRoundMatchesCount; i++) {
-    const team1 = secondRoundTeams[i * 2];
-    const team2 = secondRoundTeams[i * 2 + 1];
-    matches.push({
-      id: generateUUID(),
-      team1,
-      team2,
-      round: 2,
-      position: pos++,
-      score1: null,
-      score2: null,
-      completed: false,
-      winnerId: null,
-      courtId: null,
-      scheduledTime: null,
-      stage: 'ELIMINATION',
-      groupNumber: null,
-      eventId: '',
-      tournamentId: '',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  // 4. Gere rodadas seguintes (semifinal, final, etc.) normalmente, sempre com "TBD"
-  let prevRoundTeams = secondRoundTeams.length;
-  let round = 3;
-  while (prevRoundTeams > 1) {
-    const matchesInRound = Math.floor(prevRoundTeams / 2);
-    for (let i = 0; i < matchesInRound; i++) {
-      matches.push({
-        id: generateUUID(),
-        team1: [],
-        team2: [],
-        round,
-        position: i + 1,
-        score1: null,
-        score2: null,
-        completed: false,
-        winnerId: null,
-        courtId: null,
-        scheduledTime: null,
-        stage: 'ELIMINATION',
-        groupNumber: null,
-        eventId: '',
-        tournamentId: '',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
+  // Primeiro: tentar encontrar do final da lista (afunilamento) de grupo diferente
+  for (let i = teams.length - 1; i > currentIndex; i--) {
+    if (!used.has(i) && teams[i].groupNumber !== currentTeam.groupNumber) {
+      return i;
     }
-    prevRoundTeams = matchesInRound;
+  }
+  
+  // Segundo: qualquer disponível do final (afunilamento)
+  for (let i = teams.length - 1; i > currentIndex; i--) {
+    if (!used.has(i)) {
+      return i;
+    }
+  }
+  
+  // Terceiro: próximo disponível
+  for (let i = currentIndex + 1; i < teams.length; i++) {
+    if (!used.has(i)) {
+      return i;
+    }
+  }
+  
+  return -1;
+}
+
+/**
+ * Cria uma partida com estrutura padrão
+ */
+function createMatch(team1: string[], team2: string[], round: number, position: number): Match {
+  return {
+    id: generateUUID(),
+    team1,
+    team2,
+    round,
+    position,
+    score1: null,
+    score2: null,
+    completed: false,
+    winnerId: null,
+    courtId: null,
+    scheduledTime: null,
+    stage: 'ELIMINATION',
+    groupNumber: null,
+    eventId: '',
+    tournamentId: '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Gera rodadas vazias subsequentes
+ */
+function generateEmptyRounds(matches: Match[], currentRoundTeams: number, startRound: number = 2): void {
+  let round = startRound;
+  let teamsInRound = currentRoundTeams;
+  
+  while (teamsInRound > 1) {
+    const matchesInRound = Math.floor(teamsInRound / 2);
+    
+    for (let i = 0; i < matchesInRound; i++) {
+      matches.push(createMatch([], [], round, i + 1));
+    }
+    
+    teamsInRound = matchesInRound;
     round++;
   }
+}
 
-  return matches;
+/**
+ * Detecta empates no ranking geral que podem impactar a classificação
+ */
+export function detectTieBreaksInRanking(
+  rankings: OverallRanking[],
+  qualificationCutoff: number
+): { 
+  hasTieBreaks: boolean; 
+  tiedTeams: OverallRanking[]; 
+  affectsQualification: boolean 
+} {
+  const tiedTeams: OverallRanking[] = [];
+  
+  // Procurar por empates que afetam a linha de classificação
+  for (let i = 0; i < rankings.length - 1; i++) {
+    const current = rankings[i];
+    const next = rankings[i + 1];
+    
+    // Verificar se estão empatados pelos critérios principais
+    const areTied = (
+      current.stats.gameDifference === next.stats.gameDifference &&
+      current.stats.gamesWon === next.stats.gamesWon &&
+      current.stats.gamesLost === next.stats.gamesLost &&
+      current.stats.wins === next.stats.wins
+    );
+    
+    if (areTied) {
+      // Adicionar ambos os times empatados se ainda não estão na lista
+      if (!tiedTeams.some(t => t.teamId.join('|') === current.teamId.join('|'))) {
+        tiedTeams.push(current);
+      }
+      if (!tiedTeams.some(t => t.teamId.join('|') === next.teamId.join('|'))) {
+        tiedTeams.push(next);
+      }
+    }
+  }
+  
+  // Verificar se o empate afeta a classificação
+  const affectsQualification = tiedTeams.some((team) => {
+    const teamPosition = rankings.findIndex(r => r.teamId.join('|') === team.teamId.join('|')) + 1;
+    return teamPosition <= qualificationCutoff + 1 && teamPosition >= qualificationCutoff - 1;
+  });
+  
+  return {
+    hasTieBreaks: tiedTeams.length > 0,
+    tiedTeams: tiedTeams.sort((a, b) => a.rank - b.rank),
+    affectsQualification
+  };
+}
+
+/**
+ * Remove uma dupla do ranking geral e recalcula as posições
+ */
+export function removeTeamFromRanking(
+  rankings: OverallRanking[],
+  teamToRemove: OverallRanking
+): OverallRanking[] {
+  const updatedRankings = rankings.filter(
+    team => team.teamId.join('|') !== teamToRemove.teamId.join('|')
+  );
+  
+  // Recalcular ranks
+  updatedRankings.forEach((team, index) => {
+    team.rank = index + 1;
+  });
+  
+  return updatedRankings;
 }
