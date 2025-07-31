@@ -36,7 +36,7 @@ const generateUUID = (): string => {
   return `${timestamp}-${randomPart}-${moreRandom}-${Math.random().toString(36).substring(2, 9)}`;
 };
 
-const transformMatch = (data: any): Match => {
+export const transformMatch = (data: any): Match => {
   // Determinar stage baseado nos dados disponíveis
   // LÓGICA CORRIGIDA: group_number determina se é GROUP ou ELIMINATION
   let stage: 'GROUP' | 'ELIMINATION' = 'GROUP';
@@ -225,9 +225,13 @@ export const TournamentService = {
       
       console.log(`📊 JSONB data - standings: ${standingsData.length}, elimination: ${typeof tournamentData.elimination_bracket === 'object' ? 'object' : eliminationData.length}, matches: ${matchesData.length}`);
       
-      // Sempre usar matches_data que contém todas as partidas (grupo + eliminatória)
-      allMatchesData = Array.isArray(matchesData) ? matchesData : [];
-      console.log(`📊 Using matches_data: ${allMatchesData.length} total matches`);
+      // CORRIGIDO: Combinar partidas de grupo (standings_data) e eliminação (elimination_bracket)
+      // porque matches_data pode estar desatualizado
+      const groupMatches = standingsData.filter((m: any) => m.stage !== 'ELIMINATION');
+      const eliminationMatches = eliminationData;
+      allMatchesData = [...groupMatches, ...eliminationMatches];
+      
+      console.log(`📊 [DEBUG] Group matches: ${groupMatches.length}, Elimination matches: ${eliminationMatches.length}, Total: ${allMatchesData.length}`);
 
       // Transform matches using the existing transformMatch function
       const allMatches = allMatchesData.map((match: any) => {
@@ -399,8 +403,32 @@ export const TournamentService = {
     try {
       console.log(`🔄 JSONB-ONLY: Updating match results for ${matchId}: ${score1}-${score2}`);
       
-      // Determine winner based on scores
-      const winnerId: 'team1' | 'team2' = score1 > score2 ? 'team1' : 'team2';
+      // CORREÇÃO: Aplicar as mesmas regras de validação que transformMatch usa
+      // Uma partida só está realmente completada se:
+      // 1. Tem scores definidos (não null/undefined)
+      // 2. Pelo menos um dos scores é maior que 0 (não aceitar 0x0)
+      // 3. Os scores são diferentes (não aceitar empate)
+      const hasValidScores = score1 !== null && score2 !== null && 
+                            score1 !== undefined && score2 !== undefined;
+      const hasNonZeroScores = (score1 > 0 || score2 > 0);
+      const isDifferentScores = score1 !== score2;
+      
+      let completed = false;
+      let winnerId: 'team1' | 'team2' | null = null;
+      
+      if (hasValidScores && hasNonZeroScores && isDifferentScores) {
+        completed = true;
+        winnerId = score1 > score2 ? 'team1' : 'team2';
+        console.log(`✅ Match ${matchId} has valid scores (${score1}x${score2}) and marked as completed with winner: ${winnerId}`);
+      } else {
+        if (hasValidScores && !hasNonZeroScores) {
+          console.log(`⚠️ Match ${matchId} has 0x0 scores, marking as not completed`);
+        } else if (hasValidScores && !isDifferentScores) {
+          console.log(`⚠️ Match ${matchId} has tied scores (${score1}x${score2}), marking as not completed`);
+        } else {
+          console.log(`⚠️ Match ${matchId} has invalid scores, marking as not completed`);
+        }
+      }
       
       // Get current tournament from store
       const currentTournament = useTournamentStore.getState().tournament;
@@ -426,7 +454,7 @@ export const TournamentService = {
         score1: score1,
         score2: score2,
         winnerId: winnerId,
-        completed: true,
+        completed: completed,
         stage: stage,
         updatedAt: new Date().toISOString()
       };
@@ -472,10 +500,27 @@ export const TournamentService = {
       // Se a partida foi completada, verificar se o torneio pode ser finalizado
       if (transformedMatch.completed) {
         try {
-          // NOVO: Verificar se devemos gerar a próxima rodada eliminatória automaticamente
+          console.log('🔍 [updateMatchResults] Match completed, checking if elimination bracket needs update...');
+          console.log('🔍 [updateMatchResults] Match stage:', transformedMatch.stage);
+          console.log('🔍 [updateMatchResults] Match data:', {
+            id: transformedMatch.id,
+            stage: transformedMatch.stage,
+            round: transformedMatch.round,
+            position: transformedMatch.position,
+            team1: transformedMatch.team1,
+            team2: transformedMatch.team2,
+            winnerId: transformedMatch.winnerId,
+            score1: transformedMatch.score1,
+            score2: transformedMatch.score2
+          });
+          
+          // NOVO: Atualizar o bracket eliminatório se for uma partida eliminatória
           if (transformedMatch.stage === 'ELIMINATION') {
-            console.log('🔄 Checking if next elimination round should be generated...');
-            await TournamentService.checkAndGenerateNextEliminationRound(matchId, transformedMatch.tournamentId);
+            console.log('🔄 [updateMatchResults] Match is ELIMINATION stage, updating bracket...');
+            await TournamentService.updateEliminationBracket(transformedMatch.tournamentId, matchId);
+            console.log('✅ [updateMatchResults] Elimination bracket updated successfully');
+          } else {
+            console.log('ℹ️ [updateMatchResults] Match is not ELIMINATION stage, skipping bracket update');
           }
           
           // Verificar se o torneio pode ser finalizado
@@ -483,7 +528,7 @@ export const TournamentService = {
           // const completedTournament = await checkAndCompleteTournament(currentTournament);
           // console.log('Tournament completion check completed:', completedTournament?.status);
         } catch (error) {
-          console.warn('Could not check tournament completion or generate next round:', error);
+          console.warn('Could not check tournament completion or update bracket:', error);
           // Não falhar a atualização da partida por causa disso
         }
       }
@@ -892,18 +937,48 @@ export const TournamentService = {
         return acc;
       }, {} as Record<number, Match[]>);
       
+      // Calculate group rankings using Beach Tennis rules
       const groupRankings: Record<number, GroupRanking[]> = {};
       for (const [groupNum, matches] of Object.entries(matchesByGroup)) {
-        groupRankings[parseInt(groupNum)] = calculateGroupRankings(matches);
-        console.log(`Group ${groupNum} rankings:`, groupRankings[parseInt(groupNum)]);
+        if (useBeachTennisRules) {
+          // Import the Beach Tennis ranking function
+          const { calculateBeachTennisGroupRankings } = await import('../../utils/beachTennisRules');
+          groupRankings[parseInt(groupNum)] = calculateBeachTennisGroupRankings(matches);
+        } else {
+          groupRankings[parseInt(groupNum)] = calculateGroupRankings(matches);
+        }
+        console.log(`Group ${groupNum} rankings (Beach Tennis: ${useBeachTennisRules}):`, groupRankings[parseInt(groupNum)]);
       }
       
-      // Generate elimination matches
-      const eliminationMatches = generateEliminationBracket(groupRankings, 2);
+      console.log('🏆 Calculating group-based qualification (2 per group)...');
+      
+      // Calculate correct number of qualified teams: 2 qualifiers per group
+      const numberOfGroups = Object.keys(groupRankings).length;
+      const qualifiersPerGroup = 2; // Standard Beach Tennis: top 2 from each group
+      const totalQualified = numberOfGroups * qualifiersPerGroup;
+      
+      console.log(`📊 Qualification: ${numberOfGroups} groups × ${qualifiersPerGroup} qualifiers = ${totalQualified} total qualified teams`);
+      
+      // Use getRankedQualifiers to get exactly 2 teams from each group
+      const { getRankedQualifiers } = await import('../../utils/rankingUtils');
+      const qualifiedTeams = getRankedQualifiers(groupRankings, qualifiersPerGroup);
+      
+      console.log('✅ Qualified teams for elimination (by group):', qualifiedTeams.map((t: any) => `${t.rank}º - ${t.teamId.join(' & ')} (Grupo ${t.groupNumber}, SG: ${t.stats.gameDifference})`));
+      
+      // Generate elimination matches using smart BYE logic
+      let eliminationMatches: Match[];
+      let eliminationMetadata: any;
       
       if (useBeachTennisRules) {
-        console.log('✅ Using Beach Tennis rules for elimination bracket generation');
-        // Note: Beach Tennis rules logic should be implemented separately
+        console.log('✅ Using Beach Tennis rules with smart BYE logic for elimination bracket');
+        const { generateEliminationBracketWithSmartBye } = await import('../../utils/bracketFix');
+        const bracketResult = generateEliminationBracketWithSmartBye(qualifiedTeams);
+        eliminationMatches = bracketResult.matches;
+        eliminationMetadata = bracketResult.metadata;
+      } else {
+        console.log('⚠️ Using traditional elimination bracket generation');
+        eliminationMatches = generateEliminationBracket(groupRankings, 2);
+        eliminationMetadata = null;
       }
       
       // Set tournament and event IDs for all matches
@@ -931,18 +1006,42 @@ export const TournamentService = {
         const existingEliminationBracket = Array.isArray(tournament.elimination_bracket) 
           ? tournament.elimination_bracket 
           : [];
-        const allEliminationMatches = [...existingEliminationBracket, ...eliminationMatches];
+        
+        console.log(`🔍 [DEBUG] Existing elimination matches: ${existingEliminationBracket.length}`);
+        console.log(`🔍 [DEBUG] New elimination matches: ${eliminationMatches.length}`);
+        
+        // CORRIGIDO: Se já existem partidas de eliminação, limpar antes de adicionar novas
+        // Isso evita partidas duplicadas ou obsoletas
+        const allEliminationMatches = eliminationMatches; // Usar apenas as novas partidas
         const uniqueEliminationMatches = removeDuplicateMatches(allEliminationMatches);
         
+        console.log(`🔍 [DEBUG] Unique elimination matches: ${uniqueEliminationMatches.length}`);
+        
         // Também manter todas as partidas (grupos + eliminação) em matches_data
-        const allMatches = [...currentTournament.matches, ...eliminationMatches];
+        const groupMatches = currentTournament.matches.filter(m => m.stage !== 'ELIMINATION');
+        const allMatches = [...groupMatches, ...eliminationMatches];
         const uniqueAllMatches = removeDuplicateMatches(allMatches);
+        
+        console.log(`🔍 [DEBUG] Group matches: ${groupMatches.length}, Total unique matches: ${uniqueAllMatches.length}`);
+        
+        // Create bracket data with metadata for Beach Tennis rules
+        const bracketData = eliminationMetadata ? {
+          matches: uniqueEliminationMatches,
+          metadata: eliminationMetadata,
+          qualifiedTeams: qualifiedTeams.map((team: any) => ({
+            teamId: team.teamId,
+            rank: team.rank,
+            groupNumber: team.groupNumber
+          })),
+          generatedAt: new Date().toISOString(),
+          useBeachTennisRules
+        } : uniqueEliminationMatches;
         
         // Atualizar o torneio com os novos dados
         const { error: updateError } = await supabase
           .from('tournaments')
           .update({
-            elimination_bracket: uniqueEliminationMatches,
+            elimination_bracket: bracketData,
             matches_data: uniqueAllMatches,
             stage: 'ELIMINATION', // Atualizar stage do torneio
             status: 'STARTED',
@@ -1017,12 +1116,15 @@ export const TournamentService = {
       }
       
       // ✅ NOVA IMPLEMENTAÇÃO: Atualizar próxima partida eliminatória
-      const updatedMatches = await updateEliminationBracket(
+      console.log(`🎯 [updateEliminationBracket] Starting bracket update process...`);
+      const updatedMatches = updateEliminationBracket(
         currentTournament.matches,
         completedMatchId,
         completedMatch.winnerId,
         winnerTeamId
       );
+      
+      console.log(`📊 [updateEliminationBracket] Bracket update completed, checking for changes...`);
       
       // Find matches that were updated
       const matchesToUpdate = updatedMatches.filter(match => {
@@ -1033,15 +1135,27 @@ export const TournamentService = {
         );
       });
       
+      console.log(`🔍 [updateEliminationBracket] Found ${matchesToUpdate.length} matches to update:`, 
+        matchesToUpdate.map(m => ({
+          id: m.id,
+          round: m.round,
+          position: m.position,
+          team1: m.team1,
+          team2: m.team2
+        }))
+      );
+      
       // Update matches in database
       for (const match of matchesToUpdate) {
         try {
+          console.log(`💾 [updateEliminationBracket] Updating match ${match.id} in database...`);
           await TournamentService.updateMatch(match.id, {
             team1: match.team1,
             team2: match.team2
           });
+          console.log(`✅ [updateEliminationBracket] Match ${match.id} updated successfully`);
         } catch (updateError) {
-          console.warn(`Could not update match ${match.id}:`, updateError);
+          console.warn(`❌ [updateEliminationBracket] Could not update match ${match.id}:`, updateError);
         }
       }
       
@@ -1050,6 +1164,14 @@ export const TournamentService = {
         ...currentTournament,
         matches: updatedMatches
       };
+      
+      // Atualizar o store com os dados atualizados
+      try {
+        useTournamentStore.setState({ tournament: updatedTournament });
+        console.log('✅ Tournament store updated with new bracket data');
+      } catch (storeError) {
+        console.warn('⚠️ Could not update tournament store:', storeError);
+      }
       
       console.log(`Elimination bracket updated, ${matchesToUpdate.length} matches modified`);
       return updatedTournament;
@@ -1277,9 +1399,63 @@ export const TournamentService = {
       const existingMatchIds = new Set(existingMatches?.map(m => m.id) || []);
       
       // Find matches that exist in memory but not in database
-      const matchesToInsert = currentTournament.matches.filter(match => 
-        !existingMatchIds.has(match.id)
-      );
+      // CORREÇÃO: Filtrar matches com placeholders que não devem ser inseridos no banco
+      const matchesToInsert = currentTournament.matches.filter(match => {
+        // Skip if already exists in database
+        if (existingMatchIds.has(match.id)) {
+          return false;
+        }
+        
+        // Função para verificar se um teamId é um placeholder inválido
+        const isPlaceholder = (teamId: string): boolean => {
+          return typeof teamId === 'string' && (
+            teamId.includes('WINNER_') ||
+            teamId.includes('TBD') ||
+            teamId.includes('Vencedor') ||
+            teamId === 'Desconhecido' ||
+            teamId.length < 36 // UUIDs têm 36 caracteres
+          );
+        };
+        
+        // Skip matches with placeholder teams (como WINNER_QF1, etc)
+        const hasPlaceholderTeam1 = match.team1 && match.team1.some(teamId => isPlaceholder(teamId));
+        const hasPlaceholderTeam2 = match.team2 && match.team2.some(teamId => isPlaceholder(teamId));
+        
+        // Skip matches com teams vazios ou nulos
+        const hasEmptyTeam1 = !match.team1 || match.team1.length === 0;
+        const hasEmptyTeam2 = !match.team2 || match.team2.length === 0;
+        
+        if (hasPlaceholderTeam1 || hasPlaceholderTeam2 || hasEmptyTeam1 || hasEmptyTeam2) {
+          console.log(`🚫 Skipping match ${match.id} with invalid teams:`, {
+            team1: match.team1,
+            team2: match.team2,
+            reason: hasPlaceholderTeam1 ? 'placeholder team1' : 
+                   hasPlaceholderTeam2 ? 'placeholder team2' :
+                   hasEmptyTeam1 ? 'empty team1' : 'empty team2'
+          });
+          return false;
+        }
+        
+        // Verificar se todos os UUIDs são válidos
+        const allTeamIds = [...(match.team1 || []), ...(match.team2 || [])];
+        const hasInvalidUUIDs = allTeamIds.some(teamId => {
+          return typeof teamId !== 'string' || 
+                 teamId.length !== 36 || 
+                 !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(teamId);
+        });
+        
+        if (hasInvalidUUIDs) {
+          console.log(`🚫 Skipping match ${match.id} with invalid UUIDs:`, {
+            team1: match.team1,
+            team2: match.team2
+          });
+          return false;
+        }
+        
+        // Only sync matches with real participant UUIDs
+        console.log(`✅ Match ${match.id} is valid for database sync`);
+        return true;
+      });
       
       if (matchesToInsert.length > 0) {
         console.log(`Inserting ${matchesToInsert.length} missing matches into database`);

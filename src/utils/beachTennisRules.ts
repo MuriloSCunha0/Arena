@@ -176,8 +176,10 @@ export function calculateBeachTennisGroupRankings(matches: Match[]): GroupRankin
           h2h.wins > 0
         ])
       ), // Converter para formato esperado { [opponentTeamKey: string]: boolean }
-      headToHead: stats.headToHead // Add the Map version
-    }
+      headToHead: stats.headToHead, // Add the Map version
+      groupNumber: stats.groupNumber // Adicionar groupNumber ao stats
+    },
+    groupNumber: stats.groupNumber // Adicionar groupNumber ao ranking
   }));
 
   // Ordenar seguindo as regras oficiais do Beach Tennis

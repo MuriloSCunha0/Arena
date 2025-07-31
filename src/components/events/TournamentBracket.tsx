@@ -27,11 +27,11 @@ import {
   GroupRanking, 
   calculateOverallGroupStageRankings, 
   OverallRanking,
-  generateEliminationBracketWithSmartBye,
   detectTieBreaksInRanking,
   removeTeamFromRanking,
   updateEliminationBracket
 } from '../../utils/rankingUtils';
+import { generateEliminationBracketWithSmartBye } from '../../utils/bracketFix';
 import TournamentRankings from '../TournamentRankings'; // Import the new component
 import EliminationRankings from '../EliminationRankings';
 import TournamentWinner from '../TournamentWinner';

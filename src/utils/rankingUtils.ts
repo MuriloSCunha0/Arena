@@ -365,7 +365,7 @@ export function generateEliminationBracket(
  * Extrai as duplas qualificadas de cada grupo e as ordena por ranking geral
  * Seguindo as regras do Beach Tennis
  */
-function getRankedQualifiers(
+export function getRankedQualifiers(
   groupRankings: Record<number, GroupRanking[]>,
   qualifiersPerGroup: number = 2
 ): OverallRanking[] {
@@ -606,6 +606,8 @@ export function updateEliminationBracket(
 ): Match[] {
   try {
     console.log(`🔄 [updateEliminationBracket] Updating bracket after match ${completedMatchId}`);
+    console.log(`🔄 [updateEliminationBracket] Winner team:`, winnerTeam);
+    console.log(`🔄 [updateEliminationBracket] Total matches:`, matches.length);
     
     // Find the completed match
     const completedMatch = matches.find(m => m.id === completedMatchId);
@@ -637,15 +639,32 @@ export function updateEliminationBracket(
     
     if (nextMatchIndex === -1) {
       console.log(`🏆 [updateEliminationBracket] No next match found - this might be the final match`);
+      console.log(`🔍 [updateEliminationBracket] Available elimination matches:`, 
+        matches.filter(m => m.stage === 'ELIMINATION').map(m => ({
+          id: m.id,
+          round: m.round,
+          position: m.position,
+          team1: m.team1,
+          team2: m.team2
+        }))
+      );
       return matches; // No next match to update (probably final)
     }
     
     const nextMatch = matches[nextMatchIndex];
     console.log(`📝 [updateEliminationBracket] Found next match: ${nextMatch.id}`);
+    console.log(`📝 [updateEliminationBracket] Next match current state:`, {
+      team1: nextMatch.team1,
+      team2: nextMatch.team2,
+      round: nextMatch.round,
+      position: nextMatch.position
+    });
     
     // Determine which team slot to update in the next match
     // If current match position is odd, winner goes to team1, if even goes to team2
     const isTeam1Slot = completedMatch.position % 2 === 1;
+    
+    console.log(`📋 [updateEliminationBracket] Position ${completedMatch.position} is ${isTeam1Slot ? 'odd' : 'even'}, will update ${isTeam1Slot ? 'team1' : 'team2'}`);
     
     // Create updated matches array
     const updatedMatches = [...matches];
@@ -663,6 +682,12 @@ export function updateEliminationBracket(
     }
     
     updatedMatches[nextMatchIndex] = updatedNextMatch;
+    
+    console.log(`🔄 [updateEliminationBracket] Match ${updatedNextMatch.id} updated successfully`);
+    console.log(`🔄 [updateEliminationBracket] New state:`, {
+      team1: updatedNextMatch.team1,
+      team2: updatedNextMatch.team2
+    });
     
     return updatedMatches;
     
@@ -682,7 +707,7 @@ export function generateEliminationBracketWithSmartBye(
   const sortedTeams = [...qualifiedTeams].sort((a, b) => a.rank - b.rank);
   const totalTeams = sortedTeams.length;
   
-  console.log(`🎾 [NEW BYE LOGIC] Gerando bracket com ${totalTeams} duplas`);
+  console.log(`🎾 [SMART BYE] Gerando bracket com ${totalTeams} duplas`);
   
   // Determinar estrutura do bracket
   const nextPowerOf2 = Math.pow(2, Math.ceil(Math.log2(totalTeams)));
@@ -694,73 +719,65 @@ export function generateEliminationBracketWithSmartBye(
     bracketSize: nextPowerOf2,
     byesNeeded,
     teamsWithByes: sortedTeams.slice(0, byesNeeded),
-    bracketStructure: `${totalTeams} teams → ${nextPowerOf2} bracket (${byesNeeded} BYEs)`
+    bracketStructure: `${totalTeams} teams → ${nextPowerOf2} bracket (${byesNeeded} BYEs)`,
+    byeStrategy: 'Os melhores times recebem BYE na primeira rodada disponível'
   };
   
+  console.log(`📊 [SMART BYE] Bracket ${nextPowerOf2} - ${byesNeeded} BYEs para as melhores duplas`);
+  
   if (byesNeeded === 0) {
-    // Bracket simples sem BYEs
-    console.log(`📊 Bracket completo sem BYEs`);
+    // Bracket completo sem BYEs
+    console.log(`✅ [SMART BYE] Bracket completo sem BYEs necessários`);
     const pairings = generateOptimalPairings(sortedTeams);
     
     pairings.forEach((pair, index) => {
       matches.push(createMatch(pair[0].teamId, pair[1].teamId, 1, index + 1));
     });
     
-    generateEmptyRounds(matches, pairings.length);
+    // 3. Gerar rodadas subsequentes com estrutura correta
+    generateAdvancementRounds(matches, pairings.length);
     
   } else {
-    // Bracket com BYEs posicionados inteligentemente
-    console.log(`📊 Bracket com ${byesNeeded} BYEs para as ${byesNeeded} melhores duplas`);
+    // NOVA ESTRATÉGIA: BYEs na primeira rodada
+    console.log(`� [SMART BYE] Implementando ${byesNeeded} BYEs na primeira rodada`);
     
     const teamsWithByes = sortedTeams.slice(0, byesNeeded);
     const teamsWithoutByes = sortedTeams.slice(byesNeeded);
     
     // Log das duplas com BYE
-    teamsWithByes.forEach((team, index) => {
-      console.log(`👑 BYE ${index + 1}: ${team.rank}º lugar (Grupo ${team.groupNumber})`);
+    teamsWithByes.forEach((team, teamIndex) => {
+      console.log(`👑 [SMART BYE] BYE ${teamIndex + 1}: ${team.rank}º lugar - ${team.teamId.join(' & ')} (Grupo ${team.groupNumber})`);
     });
     
-    // Primeira rodada: apenas duplas sem BYE
-    if (teamsWithoutByes.length > 0) {
-      const firstRoundPairs = generateOptimalPairings(teamsWithoutByes);
+    // Calcular times que avançam para segunda rodada
+    const teamsInSecondRound = byesNeeded + Math.floor(teamsWithoutByes.length / 2);
+    console.log(`📊 Times na 2ª rodada: ${teamsInSecondRound} (${byesNeeded} BYEs + ${Math.floor(teamsWithoutByes.length / 2)} vencedores)`);
+    
+    // Primeira rodada: Criar apenas partidas reais (sem BYEs explícitos)
+    let position = 1;
+    
+    // Criar partidas normais para times sem BYE
+    if (teamsWithoutByes.length >= 2) {
+      const normalPairs = generateOptimalPairings(teamsWithoutByes);
       
-      firstRoundPairs.forEach((pair, index) => {
-        matches.push(createMatch(pair[0].teamId, pair[1].teamId, 1, index + 1));
-        console.log(`🥊 Round 1-${index + 1}: ${pair[0].rank}º vs ${pair[1].rank}º`);
+      normalPairs.forEach((pair) => {
+        const match = createMatch(pair[0].teamId, pair[1].teamId, 1, position++);
+        matches.push(match);
+        console.log(`⚔️ [FIRST] R1-${match.position}: ${pair[0].rank}º vs ${pair[1].rank}º`);
       });
     }
     
-    // Segunda rodada: incluir duplas com BYE em posições estratégicas
-    const winnersFromRound1 = Math.floor(teamsWithoutByes.length / 2);
-    const totalInRound2 = winnersFromRound1 + teamsWithByes.length;
-    const matchesInRound2 = Math.floor(totalInRound2 / 2);
+    // 3. Gerar rodadas subsequentes com estrutura correta
+    generateAdvancementRounds(matches, teamsInSecondRound, 2);
     
-    // Posicionar BYEs em lados opostos
-    for (let i = 0; i < matchesInRound2; i++) {
-      const match = createMatch([], [], 2, i + 1);
-      
-      // Estratégia: alternar BYEs nos primeiros slots
-      if (i < teamsWithByes.length) {
-        if (i % 2 === 0) {
-          match.team1 = teamsWithByes[i].teamId; // BYE na posição 1
-          console.log(`🚀 Round 2-${i + 1}: ${teamsWithByes[i].rank}º lugar (BYE) vs vencedor`);
-        } else {
-          match.team2 = teamsWithByes[i].teamId; // BYE na posição 2  
-          console.log(`🚀 Round 2-${i + 1}: vencedor vs ${teamsWithByes[i].rank}º lugar (BYE)`);
-        }
-      } else {
-        console.log(`⚔️ Round 2-${i + 1}: vencedor vs vencedor`);
-      }
-      
-      matches.push(match);
-    }
+    // 4. Pré-alocar times com BYE na segunda rodada (EVITA TBDs)
+    populateByeAdvancements(matches, teamsWithByes);
     
-    // Rodadas subsequentes
-    generateEmptyRounds(matches, matchesInRound2, 3);
+    console.log(`✅ [SMART BYE] Bracket otimizado criado sem TBDs desnecessários`);
   }
   
-  console.log(`✅ [NEW BYE LOGIC] Bracket gerado: ${matches.length} partidas`);
-  console.log(`📋 Metadata:`, metadata);
+  console.log(`🏆 [SMART BYE] Bracket finalizado: ${matches.length} partidas total`);
+  console.log(`📋 [SMART BYE] Metadata:`, metadata);
   
   return { matches, metadata };
 }
@@ -846,9 +863,33 @@ function createMatch(team1: string[], team2: string[], round: number, position: 
 }
 
 /**
- * Gera rodadas vazias subsequentes
+ * Pré-popula times que receberam BYE na segunda rodada
+ * Evita TBDs desnecessários ao alocar diretamente os times beneficiados
  */
-function generateEmptyRounds(matches: Match[], currentRoundTeams: number, startRound: number = 2): void {
+function populateByeAdvancements(matches: Match[], teamsWithByes: OverallRanking[]): void {
+  const secondRoundMatches = matches.filter(m => m.round === 2);
+  
+  teamsWithByes.forEach((team, index) => {
+    if (index < secondRoundMatches.length) {
+      const targetMatch = secondRoundMatches[index];
+      
+      // Preencher primeiro slot disponível, verificando se não é null
+      if (targetMatch.team1 && targetMatch.team1.includes('TBD')) {
+        targetMatch.team1 = team.teamId;
+        console.log(`🎯 [BYE_ADVANCE] ${team.teamId.join(' & ')} pré-alocado na R2-${targetMatch.position} (team1)`);
+      } else if (targetMatch.team2 && targetMatch.team2.includes('TBD')) {
+        targetMatch.team2 = team.teamId;
+        console.log(`🎯 [BYE_ADVANCE] ${team.teamId.join(' & ')} pré-alocado na R2-${targetMatch.position} (team2)`);
+      }
+    }
+  });
+}
+
+/**
+ * Gera rodadas de avanço com estrutura correta (substitui generateEmptyRounds)
+ * CORRIGIDO: Usa placeholders específicos ao invés de arrays vazios
+ */
+function generateAdvancementRounds(matches: Match[], currentRoundTeams: number, startRound: number = 2): void {
   let round = startRound;
   let teamsInRound = currentRoundTeams;
   
@@ -856,7 +897,10 @@ function generateEmptyRounds(matches: Match[], currentRoundTeams: number, startR
     const matchesInRound = Math.floor(teamsInRound / 2);
     
     for (let i = 0; i < matchesInRound; i++) {
-      matches.push(createMatch([], [], round, i + 1));
+      // CORRIGIDO: Criar partidas com placeholders específicos ao invés de arrays vazios
+      const match = createMatch(['TBD'], ['TBD'], round, i + 1);
+      matches.push(match);
+      console.log(`🔄 [ADVANCE] R${round}-${i + 1}: Aguardando definição de confronto`);
     }
     
     teamsInRound = matchesInRound;
@@ -931,4 +975,208 @@ export function removeTeamFromRanking(
   });
   
   return updatedRankings;
+}
+
+/**
+ * Verifica se uma partida é um BYE (um dos times está ausente/null)
+ */
+export function hasBye(match: Match): boolean {
+  return !match.team1 || !match.team2 || 
+         match.team1.length === 0 || match.team2.length === 0 ||
+         match.team1.includes('BYE') || match.team2.includes('BYE');
+}
+
+/**
+ * Retorna o time que avança automaticamente em uma partida BYE
+ */
+export function getByeAdvancingTeam(match: Match): string[] | null {
+  if (!hasBye(match)) {
+    return null;
+  }
+  
+  // Se team1 está presente e team2 não, team1 avança
+  if (match.team1 && match.team1.length > 0 && !match.team1.includes('BYE')) {
+    if (!match.team2 || match.team2.length === 0 || match.team2.includes('BYE')) {
+      return match.team1;
+    }
+  }
+  
+  // Se team2 está presente e team1 não, team2 avança
+  if (match.team2 && match.team2.length > 0 && !match.team2.includes('BYE')) {
+    if (!match.team1 || match.team1.length === 0 || match.team1.includes('BYE')) {
+      return match.team2;
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Processa automaticamente todas as partidas BYE e avança os times qualificados
+ * @param matches Array de partidas do torneio
+ * @returns Array atualizado com BYEs processados
+ */
+export function processAllByes(matches: Match[]): Match[] {
+  const updatedMatches = [...matches];
+  let hasChanges = true;
+  
+  // Loop até que não haja mais BYEs para processar
+  while (hasChanges) {
+    hasChanges = false;
+    
+    for (let i = 0; i < updatedMatches.length; i++) {
+      const match = updatedMatches[i];
+      
+      // Verificar se é um BYE não processado
+      if (hasBye(match) && !match.completed) {
+        const advancingTeam = getByeAdvancingTeam(match);
+        
+        if (advancingTeam) {
+          console.log(`🚀 [BYE] Processando BYE - ${advancingTeam.join(' & ')} avança automaticamente`);
+          
+          // Marcar partida como completada
+          updatedMatches[i] = {
+            ...match,
+            completed: true,
+            winnerId: match.team1 && match.team1.length > 0 && !match.team1.includes('BYE') ? 'team1' : 'team2',
+            score1: match.team1 && match.team1.length > 0 && !match.team1.includes('BYE') ? 1 : 0,
+            score2: match.team2 && match.team2.length > 0 && !match.team2.includes('BYE') ? 1 : 0,
+            updatedAt: new Date().toISOString()
+          };
+          
+          // Avançar time para próxima rodada
+          const updatedMatchesAfterAdvance = updateEliminationBracket(
+            updatedMatches,
+            match.id,
+            match.team1 && match.team1.length > 0 && !match.team1.includes('BYE') ? 'team1' : 'team2',
+            advancingTeam
+          );
+          
+          // Atualizar array se houve mudanças
+          if (updatedMatchesAfterAdvance !== updatedMatches) {
+            updatedMatches.splice(0, updatedMatches.length, ...updatedMatchesAfterAdvance);
+            hasChanges = true;
+            break; // Reiniciar loop para verificar novos BYEs
+          }
+        }
+      }
+    }
+  }
+  
+  return updatedMatches;
+}
+
+/**
+ * Cria uma partida BYE explícita com time beneficiado
+ * @param benefitedTeam Time que recebe o BYE
+ * @param round Rodada da partida
+ * @param position Posição na rodada
+ * @returns Partida configurada como BYE
+ */
+export function createByeMatch(
+  benefitedTeam: string[],
+  round: number,
+  position: number
+): Match {
+  return {
+    id: generateUUID(),
+    team1: benefitedTeam,
+    team2: [], // Array vazio indica BYE
+    round,
+    position,
+    score1: null,
+    score2: null,
+    completed: false,
+    winnerId: null,
+    courtId: null,
+    scheduledTime: null,
+    stage: 'ELIMINATION',
+    groupNumber: null,
+    eventId: '',
+    tournamentId: '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Verifica se um bracket tem BYEs pendentes de processamento
+ * @param matches Array de partidas
+ * @returns True se há BYEs não processados
+ */
+export function hasPendingByes(matches: Match[]): boolean {
+  return matches.some(match => hasBye(match) && !match.completed);
+}
+
+/**
+ * Obtém estatísticas detalhadas sobre BYEs em um bracket
+ * @param matches Array de partidas do torneio
+ * @returns Informações detalhadas sobre BYEs
+ */
+export function getByeStatistics(matches: Match[]): {
+  totalByes: number;
+  processedByes: number;
+  pendingByes: number;
+  byeMatches: Match[];
+  teamsWithByes: string[][];
+} {
+  const byeMatches = matches.filter(match => hasBye(match));
+  const processedByes = byeMatches.filter(match => match.completed);
+  const pendingByes = byeMatches.filter(match => !match.completed);
+  
+  const teamsWithByes: string[][] = [];
+  byeMatches.forEach(match => {
+    const advancingTeam = getByeAdvancingTeam(match);
+    if (advancingTeam && !teamsWithByes.some(team => 
+      team.join('|') === advancingTeam.join('|')
+    )) {
+      teamsWithByes.push(advancingTeam);
+    }
+  });
+  
+  return {
+    totalByes: byeMatches.length,
+    processedByes: processedByes.length,
+    pendingByes: pendingByes.length,
+    byeMatches,
+    teamsWithByes
+  };
+}
+
+/**
+ * Função utilitária para debug - mostra estrutura do bracket com BYEs
+ * @param matches Array de partidas
+ */
+export function debugBracketStructure(matches: Match[]): void {
+  console.log('\n🔍 [DEBUG] Estrutura do Bracket:');
+  
+  const rounds = new Map<number, Match[]>();
+  matches.forEach(match => {
+    if (!rounds.has(match.round)) {
+      rounds.set(match.round, []);
+    }
+    rounds.get(match.round)!.push(match);
+  });
+  
+  rounds.forEach((roundMatches, roundNumber) => {
+    console.log(`\n📋 Rodada ${roundNumber}:`);
+    roundMatches
+      .sort((a, b) => a.position - b.position)
+      .forEach(match => {
+        const team1 = match.team1?.join(' & ') || 'TBD';
+        const team2 = match.team2?.join(' & ') || 'TBD';
+        const isBye = hasBye(match);
+        const status = match.completed ? '✅' : '⏳';
+        const byeFlag = isBye ? '🚀 BYE' : '';
+        
+        console.log(`  ${status} R${roundNumber}-${match.position}: ${team1} vs ${team2} ${byeFlag}`);
+      });
+  });
+  
+  const byeStats = getByeStatistics(matches);
+  console.log(`\n📊 Estatísticas BYE:`);
+  console.log(`  Total: ${byeStats.totalByes}`);
+  console.log(`  Processados: ${byeStats.processedByes}`);
+  console.log(`  Pendentes: ${byeStats.pendingByes}`);
+  console.log(`  Times beneficiados: ${byeStats.teamsWithByes.map(t => t.join(' & ')).join(', ')}`);
 }

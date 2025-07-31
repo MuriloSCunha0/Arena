@@ -267,6 +267,7 @@ export interface GroupTeamStats {
   proportionalWins?: number;
   proportionalGameDifference?: number;
   proportionalGamesWon?: number;
+  groupNumber?: number; // Add group number for compatibility
   headToHead?: Map<string, { wins: number; gamesWon: number; gamesLost: number }>; // Make properties required, not optional
 }
 

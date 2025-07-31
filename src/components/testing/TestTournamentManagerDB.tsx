@@ -52,8 +52,6 @@ const TestTournamentManager: React.FC = () => {
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [showMatchModal, setShowMatchModal] = useState(false);
   const [showMigrateModal, setShowMigrateModal] = useState(false);
-  const [showGroupModal, setShowGroupModal] = useState(false);
-  const [showAddTeamToGroupModal, setShowAddTeamToGroupModal] = useState(false);
   
   // Loading states
   const [isLoading, setIsLoading] = useState(false);
@@ -69,12 +67,6 @@ const TestTournamentManager: React.FC = () => {
   const [selectedMatch, setSelectedMatch] = useState<TestMatch | null>(null);
   const [matchScore1, setMatchScore1] = useState('');
   const [matchScore2, setMatchScore2] = useState('');
-  
-  // Group management states
-  const [groupName, setGroupName] = useState('');
-  const [groupMaxTeams, setGroupMaxTeams] = useState(4);
-  const [selectedGroupForTeam, setSelectedGroupForTeam] = useState<string>('');
-  const [selectedTeamsForGroup, setSelectedTeamsForGroup] = useState<string[]>([]);
 
   // Load tournaments from database
   useEffect(() => {
@@ -272,71 +264,6 @@ const TestTournamentManager: React.FC = () => {
     } catch (error) {
       console.error('❌ [DEBUG] Erro ao criar grupos:', error);
       setSaveToDbMessage(`❌ Erro ao criar grupos: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const createManualGroup = async () => {
-    if (!selectedTournament || !groupName.trim()) return;
-
-    try {
-      setIsLoading(true);
-      const groupNumber = groups.length + 1;
-      console.log('📋 [DEBUG] Criando grupo manual:', groupName);
-      
-      await TestTournamentService.createGroup(selectedTournament.id, {
-        group_number: groupNumber,
-        group_name: groupName.trim(),
-        max_teams: groupMaxTeams,
-      });
-
-      console.log('✅ [DEBUG] Grupo manual criado');
-      
-      setGroupName('');
-      setGroupMaxTeams(4);
-      setShowGroupModal(false);
-      
-      await loadTournamentData(selectedTournament);
-      setSaveToDbMessage(`✅ Grupo "${groupName}" criado!`);
-      
-    } catch (error) {
-      console.error('❌ [DEBUG] Erro ao criar grupo:', error);
-      setSaveToDbMessage(`❌ Erro ao criar grupo: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const addTeamsToGroup = async () => {
-    if (!selectedGroupForTeam || selectedTeamsForGroup.length === 0) return;
-
-    try {
-      setIsLoading(true);
-      console.log('👥 [DEBUG] Adicionando duplas ao grupo:', selectedTeamsForGroup.length);
-      
-      for (let i = 0; i < selectedTeamsForGroup.length; i++) {
-        await TestTournamentService.addTeamToGroup(
-          selectedGroupForTeam, 
-          selectedTeamsForGroup[i], 
-          i + 1
-        );
-      }
-
-      console.log('✅ [DEBUG] Duplas adicionadas ao grupo');
-      
-      setSelectedGroupForTeam('');
-      setSelectedTeamsForGroup([]);
-      setShowAddTeamToGroupModal(false);
-      
-      if (selectedTournament) {
-        await loadTournamentData(selectedTournament);
-      }
-      setSaveToDbMessage(`✅ ${selectedTeamsForGroup.length} duplas adicionadas ao grupo!`);
-      
-    } catch (error) {
-      console.error('❌ [DEBUG] Erro ao adicionar duplas ao grupo:', error);
-      setSaveToDbMessage(`❌ Erro ao adicionar duplas: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
     } finally {
       setIsLoading(false);
     }
@@ -756,27 +683,6 @@ const TestTournamentManager: React.FC = () => {
                   <CardHeader>
                     <CardTitle className="flex items-center justify-between">
                       <span>Grupos ({groups.length})</span>
-                      <div className="flex gap-1">
-                        <Button 
-                          onClick={() => setShowGroupModal(true)}
-                          size="sm"
-                          variant="outline"
-                          disabled={isLoading}
-                        >
-                          <Plus size={14} />
-                        </Button>
-                        {groups.length > 0 && teams.length > 0 && (
-                          <Button 
-                            onClick={() => setShowAddTeamToGroupModal(true)}
-                            size="sm"
-                            variant="outline"
-                            disabled={isLoading}
-                            title="Adicionar duplas a grupos"
-                          >
-                            👥
-                          </Button>
-                        )}
-                      </div>
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -992,125 +898,6 @@ const TestTournamentManager: React.FC = () => {
                 </div>
               </div>
             )}
-          </Modal>
-
-          {/* Create Group Modal */}
-          <Modal 
-            isOpen={showGroupModal} 
-            onClose={() => {
-              setShowGroupModal(false);
-              setGroupName('');
-              setGroupMaxTeams(4);
-            }}
-            title="Criar Grupo"
-          >
-            <div className="space-y-4">
-              <Input
-                label="Nome do Grupo"
-                value={groupName}
-                onChange={(e) => setGroupName(e.target.value)}
-                placeholder="Ex: Grupo A, Grupo 1"
-                required
-              />
-              <Input
-                label="Máximo de Duplas"
-                type="number"
-                value={groupMaxTeams.toString()}
-                onChange={(e) => setGroupMaxTeams(parseInt(e.target.value) || 4)}
-                placeholder="4"
-                min="2"
-                max="8"
-              />
-              <div className="flex gap-2">
-                <Button 
-                  onClick={createManualGroup} 
-                  className="flex-1" 
-                  disabled={!groupName.trim() || isLoading}
-                >
-                  {isLoading ? 'Criando...' : 'Criar Grupo'}
-                </Button>
-                <Button onClick={() => {
-                  setShowGroupModal(false);
-                  setGroupName('');
-                  setGroupMaxTeams(4);
-                }} variant="outline">
-                  Cancelar
-                </Button>
-              </div>
-            </div>
-          </Modal>
-
-          {/* Add Teams to Group Modal */}
-          <Modal 
-            isOpen={showAddTeamToGroupModal} 
-            onClose={() => {
-              setShowAddTeamToGroupModal(false);
-              setSelectedGroupForTeam('');
-              setSelectedTeamsForGroup([]);
-            }}
-            title="Adicionar Duplas ao Grupo"
-          >
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Selecionar Grupo
-                </label>
-                <select
-                  value={selectedGroupForTeam}
-                  onChange={(e) => setSelectedGroupForTeam(e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded-md"
-                >
-                  <option value="">Selecione um grupo</option>
-                  {groups.map(group => (
-                    <option key={group.id} value={group.id}>
-                      {group.group_name || `Grupo ${group.group_number}`} (máx: {group.max_teams})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Selecionar Duplas
-                </label>
-                <div className="space-y-2 max-h-60 overflow-y-auto border border-gray-300 rounded-md p-2">
-                  {teams.map(team => (
-                    <label key={team.id} className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedTeamsForGroup.includes(team.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedTeamsForGroup([...selectedTeamsForGroup, team.id]);
-                          } else {
-                            setSelectedTeamsForGroup(selectedTeamsForGroup.filter(id => id !== team.id));
-                          }
-                        }}
-                        className="rounded border-gray-300"
-                      />
-                      <span className="text-sm">{getTeamName(team)}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-              
-              <div className="flex gap-2">
-                <Button 
-                  onClick={addTeamsToGroup} 
-                  className="flex-1" 
-                  disabled={!selectedGroupForTeam || selectedTeamsForGroup.length === 0 || isLoading}
-                >
-                  {isLoading ? 'Adicionando...' : `Adicionar ${selectedTeamsForGroup.length} Duplas`}
-                </Button>
-                <Button onClick={() => {
-                  setShowAddTeamToGroupModal(false);
-                  setSelectedGroupForTeam('');
-                  setSelectedTeamsForGroup([]);
-                }} variant="outline">
-                  Cancelar
-                </Button>
-              </div>
-            </div>
           </Modal>
         </div>
       </div>

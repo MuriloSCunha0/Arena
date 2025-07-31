@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Match, GroupRanking, Tournament } from '../../types';
-import { calculateGroupRankings } from '../../utils/rankingUtils';
+import { calculateOverallGroupStageRankings } from '../../utils/rankingUtils';
+import { generateEliminationBracketWithSmartBye } from '../../utils/bracketFix';
+import { calculateBeachTennisGroupRankings } from '../../utils/beachTennisRules';
 import { Button } from '../ui/Button';
 import { calculateBracketSize, createSeededBracket, BracketPosition, getSeedDescription, BracketSeedingOptions } from '../../utils/bracketUtils';
 import { Check, RefreshCw, AlertCircle } from 'lucide-react';
@@ -38,7 +40,7 @@ export const ElimBracketBuilder: React.FC<ElimBracketBuilderProps> = ({
   
   // Update total qualifiers when settings change
   useEffect(() => {
-    const groupCount = tournament.groups?.length || 0;
+    const groupCount = tournament.groupsCount || 0;
     const calculatedTotal = Math.min(
       groupCount * qualifiersPerGroup,
       maxTeams || Number.MAX_SAFE_INTEGER
@@ -50,13 +52,13 @@ export const ElimBracketBuilder: React.FC<ElimBracketBuilderProps> = ({
       const qualifiers = getTopTeams(groupRankings, qualifiersPerGroup);
       createBracket(qualifiers);
     }
-  }, [qualifiersPerGroup, groupRankings, maxTeams]);
+  }, [qualifiersPerGroup, groupRankings, maxTeams, tournament.groupsCount]);
   
   /**
-   * Calculate rankings for all groups
+   * Calculate rankings for all groups using Beach Tennis rules
    */
   const calculateRankings = () => {
-    if (!tournament.groups || !tournament.matches) {
+    if (!tournament.groupsData || !tournament.matches) {
       setError('Não foram encontrados grupos ou partidas no torneio.');
       return;
     }
@@ -71,15 +73,19 @@ export const ElimBracketBuilder: React.FC<ElimBracketBuilderProps> = ({
         return;
       }
       
-      // Calculate rankings for each group
+      // Calculate rankings for each group using Beach Tennis rules
       const allGroupRankings: GroupRanking[] = [];
       
-      tournament.groups.forEach(group => {
+      // Get group numbers from completed matches
+      const groupNumbers = [...new Set(completedGroupMatches.map(m => m.groupNumber))].filter(g => g !== null && g !== undefined);
+      
+      groupNumbers.forEach(groupNumber => {
         const groupMatches = completedGroupMatches
-          .filter(m => m.groupNumber === parseInt(group.name.replace(/\D/g, '')));
+          .filter(m => m.groupNumber === groupNumber);
         
         if (groupMatches.length > 0) {
-          const rankings = calculateGroupRankings(groupMatches, true);
+          // Use Beach Tennis specific ranking calculation
+          const rankings = calculateBeachTennisGroupRankings(groupMatches);
           allGroupRankings.push(...rankings);
         }
       });
@@ -87,7 +93,7 @@ export const ElimBracketBuilder: React.FC<ElimBracketBuilderProps> = ({
       setGroupRankings(allGroupRankings);
       setError(null);
       
-      // Create initial bracket
+      // Create initial bracket using Beach Tennis logic
       const qualifiers = getTopTeams(allGroupRankings, qualifiersPerGroup);
       createBracket(qualifiers);
       
@@ -151,65 +157,41 @@ export const ElimBracketBuilder: React.FC<ElimBracketBuilderProps> = ({
   };
   
   /**
-   * Build the elimination matches based on bracket
+   * Build the elimination matches using Beach Tennis smart BYE logic
    */
   const buildEliminationMatches = async () => {
     try {
       setLoading(true);
       
-      const bracketSize = calculateBracketSize(totalQualifiers);
-      const elimMatches: Match[] = [];
+      // Get qualified teams from group rankings
+      const qualifiers = getTopTeams(groupRankings, qualifiersPerGroup);
       
-      // First round matches
-      for (let i = 0; i < bracketSize / 2; i++) {
-        const team1Pos = bracketPositions[i * 2];
-        const team2Pos = bracketPositions[i * 2 + 1];
-        
-        elimMatches.push({
-          id: `elim_${tournament.id}_r1_${i}`,
-          eventId: tournament.eventId,
-          tournamentId: tournament.id,
-          round: 1,
-          position: i,
-          team1: team1Pos.teamId,
-          team2: team2Pos.teamId,
-          score1: null,
-          score2: null,
-          winnerId: null,
-          completed: false,
-          scheduledTime: null,
-          stage: 'ELIMINATION',
-          groupNumber: null
-        });
-      }
+      // Calculate overall rankings to determine seeding
+      const allGroupMatches = tournament.matches.filter(m => m.stage === 'GROUP' && m.completed);
+      const overallRankings = calculateOverallGroupStageRankings(allGroupMatches);
       
-      // Second round and beyond - empty matches to be filled as tournament progresses
-      let currentRound = 2;
-      let matchesInRound = bracketSize / 4;
+      // Filter to only include qualified teams
+      const qualifiedOverallRankings = overallRankings.filter(team => 
+        qualifiers.some(q => 
+          q.teamId.length === team.teamId.length && 
+          q.teamId.every((id, i) => id === team.teamId[i])
+        )
+      );
       
-      while (matchesInRound >= 1) {
-        for (let i = 0; i < matchesInRound; i++) {
-          elimMatches.push({
-            id: `elim_${tournament.id}_r${currentRound}_${i}`,
-            eventId: tournament.eventId,
-            tournamentId: tournament.id,
-            round: currentRound,
-            position: i,
-            team1: null,
-            team2: null,
-            score1: null,
-            score2: null,
-            winnerId: null,
-            completed: false,
-            scheduledTime: null,
-            stage: 'ELIMINATION',
-            groupNumber: null
-          });
-        }
-        
-        currentRound++;
-        matchesInRound /= 2;
-      }
+      console.log('🏆 Generating elimination bracket with Beach Tennis BYE logic');
+      console.log('📊 Qualified teams:', qualifiedOverallRankings);
+      
+      // Use smart BYE logic
+      const bracketResult = generateEliminationBracketWithSmartBye(qualifiedOverallRankings);
+      const elimMatches = bracketResult.matches;
+      
+      // Set tournament and event IDs for all matches
+      elimMatches.forEach(match => {
+        match.eventId = tournament.eventId;
+        match.tournamentId = tournament.id;
+      });
+      
+      console.log(`✅ Generated ${elimMatches.length} elimination matches with metadata:`, bracketResult.metadata);
       
       // Submit to parent component
       await onCreateBracket(elimMatches);
@@ -235,7 +217,7 @@ export const ElimBracketBuilder: React.FC<ElimBracketBuilderProps> = ({
     
     if (!team) return 'Time não identificado';
     
-    return `Grupo ${team.stats.groupNumber} - ${team.rank}º lugar`;
+    return `Grupo ${team.groupNumber || team.stats.groupNumber || 'N/A'} - ${team.rank}º lugar`;
   };
   
   if (error) {
@@ -280,10 +262,10 @@ export const ElimBracketBuilder: React.FC<ElimBracketBuilderProps> = ({
           >
             <option value={1}>1 por grupo (apenas o 1º colocado)</option>
             <option value={2}>2 por grupo (1º e 2º colocados)</option>
-            {tournament.groups && tournament.groups.length <= 2 && (
+            {tournament.groupsCount && tournament.groupsCount <= 2 && (
               <option value={3}>3 por grupo (1º, 2º e 3º colocados)</option>
             )}
-            {tournament.groups && tournament.groups.length === 1 && (
+            {tournament.groupsCount && tournament.groupsCount === 1 && (
               <option value={4}>4 por grupo (1º ao 4º colocado)</option>
             )}
           </select>

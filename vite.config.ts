@@ -23,6 +23,17 @@ export default defineConfig(({ mode }) => {
         '@': path.resolve(__dirname, './src')
       }
     },
+    server: {
+      // Allow ngrok and other external hosts
+      allowedHosts: [
+        'localhost',
+        '.ngrok.io',
+        '.ngrok-free.app',
+        '.ngrok.app'
+      ],
+      host: true, // Allow external connections
+      port: 5173, // Default Vite port
+    },
     // Ensure environment variables are properly loaded
     define: {
       // Make sure Vite replaces these at build time
