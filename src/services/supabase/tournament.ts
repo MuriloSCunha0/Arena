@@ -13,8 +13,11 @@ import {
   calculateGroupRankings, 
   GroupRanking, 
   generateEliminationBracket,
-  updateEliminationBracket
-  
+  updateEliminationBracket,
+  getRankedQualifiers, // Nova função para qualificação
+  generateEliminationBracketWithSmartBye, // Nova lógica de BYE inteligente
+  processAllByesAdvanced, // Processamento automático de BYEs
+  cleanPhantomMatchesAdvanced // Limpeza de partidas fantasma
 } from '../../utils/rankingUtils';
 import { handleSupabaseError } from '../../utils/supabase-error-handler';
 import { distributeTeamsIntoGroups, createTournamentStructure } from '../../utils/groupFormationUtils';
@@ -216,7 +219,7 @@ export const TournamentService = {
       
       // Combinar dados de standings_data e elimination_bracket
       const standingsData = tournamentData.standings_data || [];
-      const eliminationData = tournamentData.elimination_bracket 
+      let eliminationData = tournamentData.elimination_bracket 
         ? (Array.isArray(tournamentData.elimination_bracket) 
             ? tournamentData.elimination_bracket 
             : tournamentData.elimination_bracket.matches || []) // Novo formato com metadados
@@ -225,10 +228,75 @@ export const TournamentService = {
       
       console.log(`📊 JSONB data - standings: ${standingsData.length}, elimination: ${typeof tournamentData.elimination_bracket === 'object' ? 'object' : eliminationData.length}, matches: ${matchesData.length}`);
       
-      // CORRIGIDO: Combinar partidas de grupo (standings_data) e eliminação (elimination_bracket)
-      // porque matches_data pode estar desatualizado
+      // FUNÇÃO AUXILIAR para detectar placeholder
+      const isPlaceholderId = (id: any) => typeof id === 'string' && (
+        id.includes('WINNER_') || id.includes('TBD') || id.includes('Vencedor') || id === 'Desconhecido' || id.length < 36
+      );
+
+      // CORRIGIDO / APRIMORADO: Combinar partidas de grupo (standings_data) e eliminação (elimination_bracket)
+      // e aplicar melhoria de dados usando matches_data quando possuir versões mais completas
       const groupMatches = standingsData.filter((m: any) => m.stage !== 'ELIMINATION');
-      const eliminationMatches = eliminationData;
+      let eliminationMatches = eliminationData;
+
+      console.log(`🔍 [DEBUG MERGE] Dados antes do merge:`);
+      console.log(`- elimination_bracket tem ${eliminationMatches.length} partidas`);
+      console.log(`- matches_data tem ${matchesData.length} partidas`);
+
+      if (matchesData && matchesData.length) {
+        const matchesDataMap = new Map<string, any>();
+        matchesData.forEach((m: any) => matchesDataMap.set(m.id, m));
+        
+        eliminationMatches = eliminationMatches.map((em: any) => {
+          const md = matchesDataMap.get(em.id);
+          if (!md) {
+            console.log(`🔍 [DEBUG MERGE] Sem match em matches_data para ${em.id}`);
+            return em;
+          }
+          
+          // Debug detalhado dos teams
+          console.log(`🔍 [DEBUG MERGE] Match ${em.id}:`);
+          console.log(`  - elimination_bracket: team1=${JSON.stringify(em.team1)}, team2=${JSON.stringify(em.team2)}`);
+          console.log(`  - matches_data: team1=${JSON.stringify(md.team1)}, team2=${JSON.stringify(md.team2)}`);
+          
+          // CORRIGIDO: Sempre usar a versão que tem MENOS placeholders
+          const emPlaceholders = ((em.team1 || []).filter((x: any) => isPlaceholderId(x)).length + 
+                                 (em.team2 || []).filter((x: any) => isPlaceholderId(x)).length);
+          const mdPlaceholders = ((md.team1 || []).filter((x: any) => isPlaceholderId(x)).length + 
+                                 (md.team2 || []).filter((x: any) => isPlaceholderId(x)).length);
+          
+          console.log(`  - elimination_bracket placeholders: ${emPlaceholders}, matches_data placeholders: ${mdPlaceholders}`);
+          
+          // Sempre preferir a versão com MENOS placeholders (mais completa)
+          if (mdPlaceholders < emPlaceholders) {
+            console.log(`♻️ [MERGE] Usando matches_data (menos placeholders) para ${em.id}`);
+            return { 
+              ...em, // manter metadados do elimination_bracket
+              team1: md.team1, // mas usar teams mais atualizados
+              team2: md.team2,
+              score1: md.score1,
+              score2: md.score2,
+              winnerId: md.winnerId,
+              completed: md.completed,
+              updatedAt: md.updatedAt || new Date().toISOString()
+            };
+          } else if (emPlaceholders < mdPlaceholders) {
+            console.log(`♻️ [MERGE] Usando elimination_bracket (menos placeholders) para ${em.id}`);
+            return em;
+          } else {
+            console.log(`📊 [MERGE] Mesmo número de placeholders, mesclando dados para ${em.id}`);
+            return {
+              ...em,
+              // Preferir dados atualizados se existirem
+              score1: md.score1 !== undefined ? md.score1 : em.score1,
+              score2: md.score2 !== undefined ? md.score2 : em.score2,
+              winnerId: md.winnerId || em.winnerId,
+              completed: md.completed !== undefined ? md.completed : em.completed,
+              updatedAt: md.updatedAt || em.updatedAt || new Date().toISOString()
+            };
+          }
+        });
+      }
+
       allMatchesData = [...groupMatches, ...eliminationMatches];
       
       console.log(`📊 [DEBUG] Group matches: ${groupMatches.length}, Elimination matches: ${eliminationMatches.length}, Total: ${allMatchesData.length}`);
@@ -373,7 +441,8 @@ export const TournamentService = {
         createdAt: matchInMemory.createdAt
       };
       
-      // NOVA LÓGICA: Salvar na coluna JSONB apropriada baseado no stage
+      // NOVA LÓGICA ROBUSTA: Usar saveMatchByStage para garantir salvamento correto
+      const { saveMatchByStage } = await import('../../utils/rankingUtils');
       await saveMatchByStage(updatedMatch);
       
       console.log('✅ Match updated successfully in appropriate JSONB column');
@@ -478,7 +547,8 @@ export const TournamentService = {
         createdAt: matchInMemory.createdAt
       };
       
-      // NOVA LÓGICA: Salvar na coluna JSONB apropriada baseado no stage
+      // NOVA LÓGICA ROBUSTA: Usar saveMatchByStage para garantir salvamento correto
+      const { saveMatchByStage } = await import('../../utils/rankingUtils');
       await saveMatchByStage(transformedMatch);
       
       console.log('✅ Match updated successfully in appropriate JSONB column');
@@ -517,7 +587,9 @@ export const TournamentService = {
           // NOVO: Atualizar o bracket eliminatório se for uma partida eliminatória
           if (transformedMatch.stage === 'ELIMINATION') {
             console.log('🔄 [updateMatchResults] Match is ELIMINATION stage, updating bracket...');
-            await TournamentService.updateEliminationBracket(transformedMatch.tournamentId, matchId);
+            
+            // CORREÇÃO: Passar a partida completada diretamente para evitar problemas de sincronia
+            await TournamentService.updateEliminationBracketWithMatch(transformedMatch.tournamentId, transformedMatch);
             console.log('✅ [updateMatchResults] Elimination bracket updated successfully');
           } else {
             console.log('ℹ️ [updateMatchResults] Match is not ELIMINATION stage, skipping bracket update');
@@ -965,21 +1037,14 @@ export const TournamentService = {
       
       console.log('✅ Qualified teams for elimination (by group):', qualifiedTeams.map((t: any) => `${t.rank}º - ${t.teamId.join(' & ')} (Grupo ${t.groupNumber}, SG: ${t.stats.gameDifference})`));
       
-      // Generate elimination matches using smart BYE logic
+      // Generate elimination matches using NEW smart BYE logic
       let eliminationMatches: Match[];
       let eliminationMetadata: any;
       
-      if (useBeachTennisRules) {
-        console.log('✅ Using Beach Tennis rules with smart BYE logic for elimination bracket');
-        const { generateEliminationBracketWithSmartBye } = await import('../../utils/bracketFix');
-        const bracketResult = generateEliminationBracketWithSmartBye(qualifiedTeams);
-        eliminationMatches = bracketResult.matches;
-        eliminationMetadata = bracketResult.metadata;
-      } else {
-        console.log('⚠️ Using traditional elimination bracket generation');
-        eliminationMatches = generateEliminationBracket(groupRankings, 2);
-        eliminationMetadata = null;
-      }
+      console.log('✅ Using NEW robust Beach Tennis BYE logic for elimination bracket');
+      const bracketResult = generateEliminationBracketWithSmartBye(qualifiedTeams);
+      eliminationMatches = bracketResult.matches;
+      eliminationMetadata = bracketResult.metadata;
       
       // Set tournament and event IDs for all matches
       eliminationMatches.forEach(match => {
@@ -988,7 +1053,20 @@ export const TournamentService = {
         match.stage = 'ELIMINATION'; // Garantir que o stage está correto
       });
       
-      console.log(`Generated ${eliminationMatches.length} elimination matches`);
+      console.log(`Generated ${eliminationMatches.length} elimination matches with robust logic`);
+      
+      // [NOVO] Processar automaticamente os BYEs
+      console.log('🔄 Processando BYEs automaticamente após geração...');
+      const processedMatches = processAllByesAdvanced(eliminationMatches);
+      console.log(`✅ BYEs processados automaticamente`);
+      
+      // [NOVO] Limpar partidas fantasma
+      console.log('🧹 Limpando partidas fantasma...');
+      const cleanMatches = cleanPhantomMatchesAdvanced(processedMatches);
+      console.log(`✅ Partidas fantasma removidas`);
+      
+      // Usar as partidas limpas como partidas finais
+      eliminationMatches = cleanMatches;
       
       // NOVA LÓGICA: Salvar partidas de eliminação em elimination_bracket
       try {
@@ -1092,92 +1170,231 @@ export const TournamentService = {
   // Add method to update elimination bracket after match completion
   updateEliminationBracket: async (tournamentId: string, completedMatchId: string): Promise<Tournament> => {
     try {
-      console.log(`Updating elimination bracket for tournament ${tournamentId} after match ${completedMatchId}`);
+      console.log(`[NOVO] Atualizando chaveamento para a partida ${completedMatchId} com lógica robusta`);
       
-      // Fetch current tournament
-      const currentTournament = await TournamentService.fetchTournament(tournamentId);
-      
+      // PASSO 1: Obter estado atual do torneio
+      const currentTournament = useTournamentStore.getState().tournament;
       if (!currentTournament) {
-        throw new Error('Torneio não encontrado');
+        throw new Error('Torneio não encontrado no estado');
+      }
+
+      // PASSO 2: Aplicar lógica robusta de atualização de chaveamento
+      console.log('🔄 Aplicando lógica updateEliminationBracket...');
+      
+      // Debug: Mostrar todas as partidas disponíveis
+      console.log(`🔍 [DEBUG] Total de partidas no torneio: ${currentTournament.matches?.length || 0}`);
+      console.log(`🔍 [DEBUG] Buscando partida completada: ${completedMatchId}`);
+      
+      // Encontrar a partida completada para obter dados do vencedor
+      const completedMatch = currentTournament.matches?.find(m => m.id === completedMatchId);
+      
+      if (!completedMatch) {
+        console.error(`❌ [DEBUG] Partida ${completedMatchId} não encontrada`);
+        console.log(`🔍 [DEBUG] Partidas disponíveis:`, currentTournament.matches?.map(m => ({ 
+          id: m.id, 
+          stage: m.stage, 
+          completed: m.completed, 
+          winnerId: m.winnerId,
+          scores: `${m.score1}x${m.score2}`
+        })));
+        throw new Error('Partida completada não encontrada');
       }
       
-      // Find the completed match
-      const completedMatch = currentTournament.matches.find(m => m.id === completedMatchId);
-      
-      if (!completedMatch || !completedMatch.completed || !completedMatch.winnerId) {
-        throw new Error('Partida não encontrada ou não concluída');
-      }
-      
-      // Determine winner team
-      const winnerTeamId = completedMatch.winnerId === 'team1' ? completedMatch.team1 : completedMatch.team2;
-      
-      if (!winnerTeamId) {
-        throw new Error('Vencedor não identificado');
-      }
-      
-      // ✅ NOVA IMPLEMENTAÇÃO: Atualizar próxima partida eliminatória
-      console.log(`🎯 [updateEliminationBracket] Starting bracket update process...`);
-      const updatedMatches = updateEliminationBracket(
-        currentTournament.matches,
-        completedMatchId,
-        completedMatch.winnerId,
-        winnerTeamId
-      );
-      
-      console.log(`📊 [updateEliminationBracket] Bracket update completed, checking for changes...`);
-      
-      // Find matches that were updated
-      const matchesToUpdate = updatedMatches.filter(match => {
-        const originalMatch = currentTournament.matches.find(m => m.id === match.id);
-        return originalMatch && (
-          JSON.stringify(originalMatch.team1) !== JSON.stringify(match.team1) ||
-          JSON.stringify(originalMatch.team2) !== JSON.stringify(match.team2)
-        );
+      console.log(`✅ [DEBUG] Partida encontrada:`, {
+        id: completedMatch.id,
+        stage: completedMatch.stage,
+        completed: completedMatch.completed,
+        winnerId: completedMatch.winnerId,
+        scores: `${completedMatch.score1}x${completedMatch.score2}`,
+        team1: completedMatch.team1,
+        team2: completedMatch.team2
       });
       
-      console.log(`🔍 [updateEliminationBracket] Found ${matchesToUpdate.length} matches to update:`, 
-        matchesToUpdate.map(m => ({
-          id: m.id,
-          round: m.round,
-          position: m.position,
-          team1: m.team1,
-          team2: m.team2
-        }))
+      if (!completedMatch.winnerId) {
+        console.error(`❌ [DEBUG] Partida ${completedMatchId} encontrada mas sem winnerId`);
+        console.log(`🔍 [DEBUG] Dados completos da partida:`, completedMatch);
+        throw new Error('Partida completada não encontrada ou sem vencedor definido');
+      }
+      
+      const winnerTeam = completedMatch.winnerId === 'team1' ? completedMatch.team1 : completedMatch.team2;
+      if (!winnerTeam) {
+        throw new Error('Time vencedor não identificado');
+      }
+      
+      let updatedMatches = updateEliminationBracket(
+        currentTournament.matches || [], 
+        completedMatchId, 
+        completedMatch.winnerId, 
+        winnerTeam
       );
       
-      // Update matches in database
-      for (const match of matchesToUpdate) {
-        try {
-          console.log(`💾 [updateEliminationBracket] Updating match ${match.id} in database...`);
-          await TournamentService.updateMatch(match.id, {
-            team1: match.team1,
-            team2: match.team2
-          });
-          console.log(`✅ [updateEliminationBracket] Match ${match.id} updated successfully`);
-        } catch (updateError) {
-          console.warn(`❌ [updateEliminationBracket] Could not update match ${match.id}:`, updateError);
-        }
-      }
+      // PASSO 3: Processar BYEs automaticamente
+      console.log('🔄 Processando BYEs automaticamente...');
+      updatedMatches = processAllByesAdvanced(updatedMatches);
       
-      // Return updated tournament
-      const updatedTournament: Tournament = {
-        ...currentTournament,
-        matches: updatedMatches
+      // PASSO 4: Limpar partidas fantasma
+      console.log('🧹 Limpando partidas fantasma...');
+      updatedMatches = cleanPhantomMatchesAdvanced(updatedMatches);
+
+      // PASSO 5: Sincronizar com o banco de dados usando saveMatchByStage
+      console.log('� Sincronizando com banco de dados...');
+      
+      // Separar partidas por stage e salvar nas colunas apropriadas
+      const groupMatches = updatedMatches.filter(m => m.stage === 'GROUP');
+      const eliminationMatches = updatedMatches.filter(m => m.stage === 'ELIMINATION');
+      
+      // Preparar dados para update
+      const updateData: any = {
+        matches_data: updatedMatches,
+        standings_data: groupMatches,
+        elimination_bracket: {
+          matches: eliminationMatches,
+          metadata: {
+            lastUpdated: new Date().toISOString(),
+            updatedByMatch: completedMatchId
+          }
+        },
+        updated_at: new Date().toISOString()
       };
-      
-      // Atualizar o store com os dados atualizados
-      try {
-        useTournamentStore.setState({ tournament: updatedTournament });
-        console.log('✅ Tournament store updated with new bracket data');
-      } catch (storeError) {
-        console.warn('⚠️ Could not update tournament store:', storeError);
+
+      const { error: updateError } = await supabase
+        .from('tournaments')
+        .update(updateData)
+        .eq('id', tournamentId);
+
+      if (updateError) {
+        throw new Error(`Erro ao atualizar chaveamento: ${updateError.message}`);
       }
+
+      // PASSO 6: Recarregar estado do torneio
+      const tournament = await TournamentService.getByEventId(currentTournament.eventId);
       
-      console.log(`Elimination bracket updated, ${matchesToUpdate.length} matches modified`);
-      return updatedTournament;
+      if (!tournament) {
+        throw new Error('Não foi possível recarregar o torneio após a atualização.');
+      }
+
+      // PASSO 7: Atualizar estado da UI
+      useTournamentStore.setState({ tournament });
+      console.log(`✅ [NOVO] Chaveamento atualizado com sucesso usando lógica robusta`);
+      
+      return tournament;
       
     } catch (error) {
-      console.error('Error updating elimination bracket:', error);
+      console.error('❌ [NOVO] Erro ao atualizar chaveamento eliminatório:', error);
+      throw error;
+    }
+  },
+
+  // Add method to update elimination bracket with completed match (avoid sync issues)
+  updateEliminationBracketWithMatch: async (tournamentId: string, completedMatch: Match): Promise<Tournament> => {
+    try {
+      console.log(`[NOVO] Atualizando chaveamento com partida completada: ${completedMatch.id}`);
+      
+      // PASSO 1: Obter estado atual do torneio
+      const currentTournament = useTournamentStore.getState().tournament;
+      if (!currentTournament) {
+        throw new Error('Torneio não encontrado no estado');
+      }
+
+      console.log(`✅ [DEBUG] Partida completada recebida diretamente:`, {
+        id: completedMatch.id,
+        stage: completedMatch.stage,
+        completed: completedMatch.completed,
+        winnerId: completedMatch.winnerId,
+        scores: `${completedMatch.score1}x${completedMatch.score2}`,
+        team1: completedMatch.team1,
+        team2: completedMatch.team2
+      });
+      
+      if (!completedMatch.winnerId) {
+        throw new Error('Partida completada não possui vencedor definido');
+      }
+      
+      const winnerTeam = completedMatch.winnerId === 'team1' ? completedMatch.team1 : completedMatch.team2;
+      if (!winnerTeam) {
+        throw new Error('Time vencedor não identificado');
+      }
+      
+      // PASSO 2: Criar lista de partidas atualizada
+      const updatedMatches = currentTournament.matches?.map(m => 
+        m.id === completedMatch.id ? completedMatch : m
+      ) || [];
+      
+      // PASSO 3: Aplicar lógica robusta de atualização de chaveamento
+      let finalMatches = updateEliminationBracket(
+        updatedMatches, 
+        completedMatch.id, 
+        completedMatch.winnerId, 
+        winnerTeam
+      );
+      
+      // PASSO 4: Processar BYEs automaticamente
+      console.log('🔄 Processando BYEs automaticamente...');
+      finalMatches = processAllByesAdvanced(finalMatches);
+      
+      // PASSO 5: Limpar partidas fantasma
+      console.log('🧹 Limpando partidas fantasma...');
+      finalMatches = cleanPhantomMatchesAdvanced(finalMatches);
+      
+      // PASSO 6: Preparar dados para persistência garantindo que elimination_bracket seja atualizado
+  const eliminationMatchesToSave = finalMatches.filter(m => m.stage === 'ELIMINATION');
+
+      // Tentar preservar metadata existente (se houver)
+      let existingElim = currentTournament.eliminationBracket as any;
+      let eliminationBracketPayload: any;
+      if (existingElim && !Array.isArray(existingElim) && existingElim.metadata) {
+        eliminationBracketPayload = {
+          matches: eliminationMatchesToSave,
+            metadata: existingElim.metadata,
+            generatedAt: new Date().toISOString()
+        };
+      } else {
+        eliminationBracketPayload = eliminationMatchesToSave;
+      }
+
+      const updatePayload: any = {
+        matches_data: finalMatches,
+        elimination_bracket: eliminationBracketPayload,
+        updated_at: new Date().toISOString()
+      };
+
+      // NÃO sobrescrever standings_data aqui, exceto se quisermos manter sincronizado (opcional)
+      // Apenas se standings_data vier vazio mas temos groupMatchesToSave
+      // (Evita perder dados existentes de grupos)
+      // if (!currentTournament.standingsData || (currentTournament.standingsData as any).length === 0) {
+      //   updatePayload.standings_data = groupMatchesToSave;
+      // }
+
+      const { error: updateError } = await supabase
+        .from('tournaments')
+        .update(updatePayload)
+        .eq('id', tournamentId);
+
+      if (updateError) {
+        throw new Error(`Erro ao atualizar chaveamento: ${updateError.message}`);
+      }
+
+      // PASSO 7: Recarregar estado do torneio
+      const tournament = await TournamentService.getByEventId(currentTournament.eventId);
+      
+      if (!tournament) {
+        throw new Error('Não foi possível recarregar o torneio após a atualização.');
+      }
+
+      // PASSO 8: Atualizar estado da UI com refresh forçado
+      const refreshedTournament = {
+        ...tournament,
+        lastUpdated: new Date().toISOString(),
+        forceRefresh: Date.now() // Timestamp para forçar re-render
+      };
+      
+      useTournamentStore.setState({ tournament: refreshedTournament });
+      console.log(`✅ [NOVO] Chaveamento atualizado com sucesso usando partida completada diretamente`);
+      
+      return tournament;
+      
+    } catch (error) {
+      console.error('❌ [NOVO] Erro ao atualizar chaveamento eliminatório com partida:', error);
       throw error;
     }
   },
@@ -1399,8 +1616,18 @@ export const TournamentService = {
       const existingMatchIds = new Set(existingMatches?.map(m => m.id) || []);
       
       // Find matches that exist in memory but not in database
-      // CORREÇÃO: Filtrar matches com placeholders que não devem ser inseridos no banco
+      // CORREÇÃO: Filtrar matches com placeholders e IDs inválidos que não devem ser inseridos no banco
       const matchesToInsert = currentTournament.matches.filter(match => {
+        // PRIMEIRO: Verificar se o ID do match é um UUID válido
+        const isValidMatchId = typeof match.id === 'string' && 
+                               match.id.length === 36 && 
+                               /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(match.id);
+        
+        if (!isValidMatchId) {
+          console.log(`🚫 Skipping match with non-UUID ID: ${match.id}`);
+          return false;
+        }
+        
         // Skip if already exists in database
         if (existingMatchIds.has(match.id)) {
           return false;
@@ -1425,13 +1652,24 @@ export const TournamentService = {
         const hasEmptyTeam1 = !match.team1 || match.team1.length === 0;
         const hasEmptyTeam2 = !match.team2 || match.team2.length === 0;
         
-        if (hasPlaceholderTeam1 || hasPlaceholderTeam2 || hasEmptyTeam1 || hasEmptyTeam2) {
-          console.log(`🚫 Skipping match ${match.id} with invalid teams:`, {
+        // CORREÇÃO: Permitir partidas onde pelo menos um lado tem UUIDs válidos (para semifinais com BYE)
+        // Só skip se AMBOS os lados tiverem placeholders ou se algum lado estiver vazio
+        if (hasEmptyTeam1 || hasEmptyTeam2) {
+          console.log(`🚫 Skipping match ${match.id} with empty teams:`, {
             team1: match.team1,
             team2: match.team2,
-            reason: hasPlaceholderTeam1 ? 'placeholder team1' : 
-                   hasPlaceholderTeam2 ? 'placeholder team2' :
-                   hasEmptyTeam1 ? 'empty team1' : 'empty team2'
+            reason: hasEmptyTeam1 ? 'empty team1' : 'empty team2'
+          });
+          return false;
+        }
+        
+        if (hasPlaceholderTeam1 && hasPlaceholderTeam2) {
+          console.log(`🚫 Skipping match ${match.id} with both teams having placeholders:`, {
+            team1: match.team1,
+            team2: match.team2,
+            team1Details: match.team1?.map(t => ({ value: t, isPlaceholder: isPlaceholder(t), length: t?.length })),
+            team2Details: match.team2?.map(t => ({ value: t, isPlaceholder: isPlaceholder(t), length: t?.length })),
+            reason: 'both teams have placeholders'
           });
           return false;
         }

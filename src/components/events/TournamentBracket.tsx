@@ -39,6 +39,8 @@ import BracketEditor from '../BracketEditor';// Import da versão completa e cor
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip';
 import { TournamentService } from '../../services/supabase/tournament'; // Add this import
 import { EventsService } from '../../services/supabase/events'; // Add EventsService import
+import { BeachTennisService } from '../../services/supabase/beachTennisService'; // Add Beach Tennis service
+import BeachTennisMatchEditor from '../tournament/BeachTennisMatchEditor';
 
 interface TournamentBracketProps {
   eventId: string;
@@ -407,6 +409,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
   const { courts, loading: loadingCourts, fetchCourts } = useCourtsStore();
   const addNotification = useNotificationStore((state) => state.addNotification);
   const [showMatchEditor, setShowMatchEditor] = useState(false);
+  const [showBeachTennisEditor, setShowBeachTennisEditor] = useState(false);
   const [generatingStructure, setGeneratingStructure] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [skipTeamIds, setSkipTeamIds] = useState<string[]>([]);
@@ -743,18 +746,36 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       setShowResetConfirmModal(false);
     }
   };
+  // Check if this is a Beach Tennis event
+  const isBeachTennisEvent = () => {
+    // For now, we'll assume it's Beach Tennis based on the presence of Beach Tennis logic
+    // You can customize this logic based on currentEvent properties
+    return true; // Assuming all events are Beach Tennis for now
+  };
+
   const handleMatchClick = (match: Match) => {
     if (match.team1 && match.team2) {
       // Permitir edição se a partida não foi completada ou se ela é editável
       if (!match.completed || match.editable) {
         selectMatch(match);
-        setShowMatchEditor(true);
+        
+        // Check if it's a Beach Tennis event
+        if (isBeachTennisEvent()) {
+          setShowBeachTennisEditor(true);
+        } else {
+          setShowMatchEditor(true);
+        }
       } else {
         // Perguntar se o usuário quer editar o resultado, mesmo concluído
         if (confirm("Esta partida já foi concluída. Deseja editar o resultado?")) {
           match.editable = true; // Marca como editável para esta sessão
           selectMatch(match);
-          setShowMatchEditor(true);
+          
+          if (isBeachTennisEvent()) {
+            setShowBeachTennisEditor(true);
+          } else {
+            setShowMatchEditor(true);
+          }
         }
       }
     } else if (!match.completed) {
@@ -762,6 +783,58 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       setShowScheduleModal(true);
     } else {
       addNotification({ type: 'info', message: 'Esta partida já foi concluída.' });
+    }
+  };
+
+  // Handle Beach Tennis match save with simple games + tiebreak format
+  const handleSaveBeachTennisMatch = async (
+    matchId: string, 
+    team1Games: number, 
+    team2Games: number, 
+    tiebreakT1?: number, 
+    tiebreakT2?: number
+  ) => {
+    try {
+      if (!tournament) {
+        throw new Error('Tournament data not available');
+      }
+
+      // Convert to BeachTennisScore format for the service
+      const beachTennisScore = {
+        sets: [{
+          team1Games,
+          team2Games,
+          ...(tiebreakT1 !== undefined && tiebreakT2 !== undefined && {
+            tiebreak: {
+              team1Points: tiebreakT1,
+              team2Points: tiebreakT2
+            }
+          })
+        }],
+        completed: true,
+        winnerId: (tiebreakT1 !== undefined && tiebreakT2 !== undefined 
+          ? (tiebreakT1 > tiebreakT2 ? 'team1' : 'team2')
+          : (team1Games > team2Games ? 'team1' : 'team2')) as 'team1' | 'team2'
+      };
+
+      // Use BeachTennisService to save the match
+      await BeachTennisService.saveMatchResult(matchId, beachTennisScore);
+      
+      // Force refresh tournament data to show updated state
+      await fetchTournament(eventId);
+      
+      // Close modal
+      setShowBeachTennisEditor(false);
+      
+      addNotification({ 
+        type: 'success', 
+        message: 'Resultado de Beach Tennis salvo com sucesso!' 
+      });
+    } catch (err) {
+      console.error('Error saving Beach Tennis match results:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Erro ao salvar resultado de Beach Tennis.';
+      addNotification({ type: 'error', message: errorMessage });
+      throw err;
     }
   };
 
@@ -2187,6 +2260,18 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
               match={selectedMatch}
               onSave={handleSaveMatchResults}
               onClose={() => setShowMatchEditor(false)}
+              participantMap={participantMap}
+            />
+          </Modal>
+        )}
+
+        {/* Beach Tennis Match Editor Modal */}
+        {showBeachTennisEditor && selectedMatch && (
+          <Modal isOpen={showBeachTennisEditor} onClose={() => setShowBeachTennisEditor(false)} title="Beach Tennis">
+            <BeachTennisMatchEditor
+              match={selectedMatch}
+              onSave={handleSaveBeachTennisMatch}
+              onClose={() => setShowBeachTennisEditor(false)}
               participantMap={participantMap}
             />
           </Modal>

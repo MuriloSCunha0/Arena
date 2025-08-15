@@ -624,9 +624,22 @@ export function updateEliminationBracket(
     
     console.log(`📊 [updateEliminationBracket] Processing elimination match - Round: ${completedMatch.round}, Position: ${completedMatch.position}`);
     
-    // Determine next round and position
-    const nextRound = completedMatch.round + 1;
-    const nextPosition = Math.ceil(completedMatch.position / 2);
+    // CORREÇÃO: Lógica específica para Beach Tennis (6 duplas)
+    let nextRound: number;
+    let nextPosition: number;
+    
+    if (completedMatch.round === 1) {
+      // Quartas de final → Semifinais
+      nextRound = 2;
+      // QF1 (pos=1) → SF1 (pos=1), QF2 (pos=2) → SF2 (pos=2)
+      nextPosition = completedMatch.position;
+      console.log(`🎯 [Beach Tennis] QF${completedMatch.position} → SF${nextPosition}`);
+    } else {
+      // Lógica padrão para outras rodadas
+      nextRound = completedMatch.round + 1;
+      nextPosition = Math.ceil(completedMatch.position / 2);
+      console.log(`🎯 [Standard] R${completedMatch.round}-${completedMatch.position} → R${nextRound}-${nextPosition}`);
+    }
     
     console.log(`🎯 [updateEliminationBracket] Looking for next match - Round: ${nextRound}, Position: ${nextPosition}`);
     
@@ -661,10 +674,24 @@ export function updateEliminationBracket(
     });
     
     // Determine which team slot to update in the next match
-    // If current match position is odd, winner goes to team1, if even goes to team2
-    const isTeam1Slot = completedMatch.position % 2 === 1;
+    let isTeam1Slot: boolean;
     
-    console.log(`📋 [updateEliminationBracket] Position ${completedMatch.position} is ${isTeam1Slot ? 'odd' : 'even'}, will update ${isTeam1Slot ? 'team1' : 'team2'}`);
+    if (completedMatch.round === 1 && nextRound === 2) {
+      // BEACH TENNIS: Vencedores das quartas sempre vão para team2 das semifinais
+      // SF1: team1=1º(BYE), team2=Vencedor QF1
+      // SF2: team1=2º(BYE), team2=Vencedor QF2
+      isTeam1Slot = false;
+      console.log(`🏐 [Beach Tennis] QF${completedMatch.position} winner → SF${nextPosition} team2`);
+    } else if (completedMatch.round === 2 && nextRound === 3) {
+      // BEACH TENNIS: Semifinais → Final
+      // SF1 (pos=1) → Final team1, SF2 (pos=2) → Final team2
+      isTeam1Slot = completedMatch.position === 1;
+      console.log(`🏐 [Beach Tennis] SF${completedMatch.position} winner → Final ${isTeam1Slot ? 'team1' : 'team2'}`);
+    } else {
+      // Lógica padrão: posição ímpar vai para team1, par vai para team2
+      isTeam1Slot = completedMatch.position % 2 === 1;
+      console.log(`📋 [Standard] Position ${completedMatch.position} is ${isTeam1Slot ? 'odd' : 'even'}, will update ${isTeam1Slot ? 'team1' : 'team2'}`);
+    }
     
     // Create updated matches array
     const updatedMatches = [...matches];
@@ -699,7 +726,7 @@ export function updateEliminationBracket(
 
 /**
  * Gera bracket eliminatório com BYE inteligente
- * Nova lógica que posiciona BYEs em lados opostos da chave
+ * VERSÃO CORRIGIDA: Implementa corretamente as regras do Beach Tennis
  */
 export function generateEliminationBracketWithSmartBye(
   qualifiedTeams: OverallRanking[]
@@ -707,79 +734,223 @@ export function generateEliminationBracketWithSmartBye(
   const sortedTeams = [...qualifiedTeams].sort((a, b) => a.rank - b.rank);
   const totalTeams = sortedTeams.length;
   
-  console.log(`🎾 [SMART BYE] Gerando bracket com ${totalTeams} duplas`);
-  
-  // Determinar estrutura do bracket
-  const nextPowerOf2 = Math.pow(2, Math.ceil(Math.log2(totalTeams)));
-  const byesNeeded = nextPowerOf2 - totalTeams;
+  console.log(`🎾 [BEACH TENNIS BRACKET] Gerando bracket para ${totalTeams} duplas qualificadas`);
+  sortedTeams.forEach((team, index) => {
+    console.log(`   ${index + 1}. ${team.rank}º lugar - ${team.teamId.join(' & ')} (Grupo ${team.groupNumber}, SG: ${team.stats?.gameDifference || 0})`);
+  });
   
   const matches: Match[] = [];
   const metadata = {
     totalTeams,
-    bracketSize: nextPowerOf2,
-    byesNeeded,
-    teamsWithByes: sortedTeams.slice(0, byesNeeded),
-    bracketStructure: `${totalTeams} teams → ${nextPowerOf2} bracket (${byesNeeded} BYEs)`,
-    byeStrategy: 'Os melhores times recebem BYE na primeira rodada disponível'
+    bracketStrategy: 'Beach Tennis Rules',
+    byeTeams: [] as OverallRanking[],
+    description: `Bracket eliminatório para ${totalTeams} duplas seguindo regras do Beach Tennis`
   };
   
-  console.log(`📊 [SMART BYE] Bracket ${nextPowerOf2} - ${byesNeeded} BYEs para as melhores duplas`);
-  
-  if (byesNeeded === 0) {
-    // Bracket completo sem BYEs
-    console.log(`✅ [SMART BYE] Bracket completo sem BYEs necessários`);
-    const pairings = generateOptimalPairings(sortedTeams);
+  // Generate UUIDs for semifinals and final (shared across all scenarios)
+  const sf1Id = generateUUID();
+  const sf2Id = generateUUID();
+  const finalId = generateUUID();
+
+  if (totalTeams === 6) {
+    // CASO ESPECÍFICO: 6 duplas classificadas (mais comum no Beach Tennis)
+    console.log(`🏆 [BEACH TENNIS] Implementando bracket para 6 duplas:`);
+    console.log(`   - 1º e 2º colocados: BYE direto para SEMIFINAL`);
+    console.log(`   - 3º ao 6º colocados: QUARTAS DE FINAL`);
     
-    pairings.forEach((pair, index) => {
-      matches.push(createMatch(pair[0].teamId, pair[1].teamId, 1, index + 1));
-    });
+    const bestTwo = sortedTeams.slice(0, 2);      // 1º e 2º = BYE para semifinal
+    const remainingFour = sortedTeams.slice(2, 6); // 3º ao 6º = jogam quartas
     
-    // 3. Gerar rodadas subsequentes com estrutura correta
-    generateAdvancementRounds(matches, pairings.length);
+    metadata.byeTeams = bestTwo;
+    
+    // QUARTAS DE FINAL (Round 1): 3º vs 6º, 4º vs 5º
+    console.log(`⚔️ [QUARTAS] Criando quartas de final:`);
+    
+    // QF1: 3º vs 6º colocado
+    const qf1 = createMatchWithNextMatch(
+      remainingFour[0].teamId,  // 3º colocado
+      remainingFour[3].teamId,  // 6º colocado  
+      1, 1, sf1Id
+    );
+    matches.push(qf1);
+    console.log(`   QF1: ${remainingFour[0].rank}º vs ${remainingFour[3].rank}º → SF1`);
+    
+    // QF2: 4º vs 5º colocado  
+    const qf2 = createMatchWithNextMatch(
+      remainingFour[1].teamId,  // 4º colocado
+      remainingFour[2].teamId,  // 5º colocado
+      1, 2, sf2Id
+    );
+    matches.push(qf2);
+    console.log(`   QF2: ${remainingFour[1].rank}º vs ${remainingFour[2].rank}º → SF2`);
+    
+    // SEMIFINAIS (Round 2): 1º vs Vencedor QF1, 2º vs Vencedor QF2
+    console.log(`🏆 [SEMIFINAIS] Criando semifinais com BYEs pré-alocados:`);
+    
+    // SF1: 1º colocado (BYE) vs Vencedor QF1
+    const sf1 = createMatchWithNextMatch(
+      bestTwo[0].teamId,        // 1º colocado (BYE)
+      ['WINNER_QF1', 'WINNER_QF1_PARTNER'],           // Vencedor da QF1 (2 elementos)
+      2, 1, finalId
+    );
+    sf1.id = sf1Id;
+    matches.push(sf1);
+    console.log(`   SF1: ${bestTwo[0].rank}º (BYE) vs Vencedor QF1 → FINAL`);
+    
+    // SF2: 2º colocado (BYE) vs Vencedor QF2
+    const sf2 = createMatchWithNextMatch(
+      bestTwo[1].teamId,        // 2º colocado (BYE)
+      ['WINNER_QF2', 'WINNER_QF2_PARTNER'],           // Vencedor da QF2 (2 elementos)
+      2, 2, finalId
+    );
+    sf2.id = sf2Id;
+    matches.push(sf2);
+    console.log(`   SF2: ${bestTwo[1].rank}º (BYE) vs Vencedor QF2 → FINAL`);
+    
+    // FINAL (Round 3): Vencedor SF1 vs Vencedor SF2
+    const final = createMatch(['WINNER_SF1', 'WINNER_SF1_PARTNER'], ['WINNER_SF2', 'WINNER_SF2_PARTNER'], 3, 1);
+    final.id = finalId;
+    matches.push(final);
+    console.log(`🥇 [FINAL] Vencedor SF1 vs Vencedor SF2`);
+    
+  } else if (totalTeams === 8) {
+    // CASO: 8 duplas classificadas (bracket completo)
+    console.log(`⚔️ [BEACH TENNIS] Implementando bracket completo para 8 duplas (sem BYEs)`);
+    
+    // QUARTAS DE FINAL (Round 1): 1º vs 8º, 2º vs 7º, 3º vs 6º, 4º vs 5º
+    for (let i = 0; i < 4; i++) {
+      const topTeam = sortedTeams[i];
+      const bottomTeam = sortedTeams[7 - i];
+      
+      const qf = createMatchWithNextMatch(
+        topTeam.teamId,
+        bottomTeam.teamId,
+        1, i + 1, `${Math.floor(i / 2) === 0 ? sf1Id : sf2Id}`
+      );
+      matches.push(qf);
+      console.log(`   QF${i + 1}: ${topTeam.rank}º vs ${bottomTeam.rank}º → SF${Math.floor(i / 2) + 1}`);
+    }
+    
+    // SEMIFINAIS (Round 2)
+    const sf1 = createMatchWithNextMatch(['WINNER_QF1'], ['WINNER_QF2'], 2, 1, finalId);
+    sf1.id = sf1Id;
+    matches.push(sf1);
+    
+    const sf2 = createMatchWithNextMatch(['WINNER_QF3'], ['WINNER_QF4'], 2, 2, finalId);
+    sf2.id = sf2Id;
+    matches.push(sf2);
+    
+    // FINAL (Round 3)
+    const final = createMatch(['WINNER_SF1'], ['WINNER_SF2'], 3, 1);
+    final.id = finalId;
+    matches.push(final);
     
   } else {
-    // NOVA ESTRATÉGIA: BYEs na primeira rodada
-    console.log(`� [SMART BYE] Implementando ${byesNeeded} BYEs na primeira rodada`);
+    // OUTROS CASOS: Implementar lógica genérica mantendo princípios do Beach Tennis
+    console.log(`🎾 [BEACH TENNIS] Implementando bracket genérico para ${totalTeams} duplas`);
     
+    const nextPowerOf2 = Math.pow(2, Math.ceil(Math.log2(totalTeams)));
+    const byesNeeded = nextPowerOf2 - totalTeams;
     const teamsWithByes = sortedTeams.slice(0, byesNeeded);
     const teamsWithoutByes = sortedTeams.slice(byesNeeded);
     
-    // Log das duplas com BYE
-    teamsWithByes.forEach((team, teamIndex) => {
-      console.log(`👑 [SMART BYE] BYE ${teamIndex + 1}: ${team.rank}º lugar - ${team.teamId.join(' & ')} (Grupo ${team.groupNumber})`);
-    });
+    metadata.byeTeams = teamsWithByes;
     
-    // Calcular times que avançam para segunda rodada
-    const teamsInSecondRound = byesNeeded + Math.floor(teamsWithoutByes.length / 2);
-    console.log(`📊 Times na 2ª rodada: ${teamsInSecondRound} (${byesNeeded} BYEs + ${Math.floor(teamsWithoutByes.length / 2)} vencedores)`);
-    
-    // Primeira rodada: Criar apenas partidas reais (sem BYEs explícitos)
-    let position = 1;
-    
-    // Criar partidas normais para times sem BYE
+    // Primeira rodada: apenas times sem BYE
     if (teamsWithoutByes.length >= 2) {
-      const normalPairs = generateOptimalPairings(teamsWithoutByes);
+      const pairings = generateOptimalPairings(teamsWithoutByes);
+      let position = 1;
       
-      normalPairs.forEach((pair) => {
+      pairings.forEach((pair) => {
         const match = createMatch(pair[0].teamId, pair[1].teamId, 1, position++);
         matches.push(match);
-        console.log(`⚔️ [FIRST] R1-${match.position}: ${pair[0].rank}º vs ${pair[1].rank}º`);
+        console.log(`⚔️ R1-${match.position}: ${pair[0].rank}º vs ${pair[1].rank}º`);
       });
     }
     
-    // 3. Gerar rodadas subsequentes com estrutura correta
-    generateAdvancementRounds(matches, teamsInSecondRound, 2);
+    // Gerar rodadas subsequentes com BYEs pré-alocados
+    // Gerar as próximas rodadas (Semifinal e Final)
+    generateAdvancementRounds(matches, teamsWithByes.length + Math.floor(teamsWithoutByes.length / 2), 2);
     
-    // 4. Pré-alocar times com BYE na segunda rodada (EVITA TBDs)
-    populateByeAdvancements(matches, teamsWithByes);
-    
-    console.log(`✅ [SMART BYE] Bracket otimizado criado sem TBDs desnecessários`);
+    // Pré-alocar times com BYE nas semifinais
+    populateByeAdvancements(matches.filter(m => m.round === 2), teamsWithByes);
   }
   
-  console.log(`🏆 [SMART BYE] Bracket finalizado: ${matches.length} partidas total`);
-  console.log(`📋 [SMART BYE] Metadata:`, metadata);
+  console.log(`🏆 [BEACH TENNIS BRACKET] Finalizado: ${matches.length} partidas total`);
+  console.log(`📋 Estrutura: ${matches.filter(m => m.round === 1).length} QF + ${matches.filter(m => m.round === 2).length} SF + ${matches.filter(m => m.round === 3).length} Final`);
   
   return { matches, metadata };
+}
+
+/**
+ * Cria uma partida com referência para a próxima partida (nextMatchId)
+ */
+function createMatchWithNextMatch(
+  team1: string[], 
+  team2: string[], 
+  round: number, 
+  position: number, 
+  nextMatchId: string
+): Match {
+  return {
+    id: generateUUID(),
+    team1,
+    team2,
+    round,
+    position,
+    score1: null,
+    score2: null,
+    completed: false,
+    winnerId: null,
+    courtId: null,
+    scheduledTime: null,
+    stage: 'ELIMINATION',
+    groupNumber: null,
+    eventId: '',
+    tournamentId: '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    nextMatchId
+  } as Match & { nextMatchId: string };
+}
+
+/**
+ * Pré-popula times que receberam BYE na segunda rodada
+ */
+function populateByeAdvancements(matches: Match[], teamsWithByes: OverallRanking[]): void {
+  teamsWithByes.forEach((team, index) => {
+    if (index < matches.length) {
+      const targetMatch = matches[index];
+      
+      if (targetMatch.team1 && targetMatch.team1.includes('TBD')) {
+        targetMatch.team1 = team.teamId;
+        console.log(`🎯 [BYE_ADVANCE] ${team.teamId.join(' & ')} pré-alocado na R2-${targetMatch.position} (team1)`);
+      } else if (targetMatch.team2 && targetMatch.team2.includes('TBD')) {
+        targetMatch.team2 = team.teamId;
+        console.log(`🎯 [BYE_ADVANCE] ${team.teamId.join(' & ')} pré-alocado na R2-${targetMatch.position} (team2)`);
+      }
+    }
+  });
+}
+
+/**
+ * Gera rodadas de avanço com número correto de partidas
+ */
+function generateAdvancementRounds(matches: Match[], currentRoundTeams: number, startRound: number = 2): void {
+  let round = startRound;
+  let teamsInRound = currentRoundTeams;
+  
+  while (teamsInRound > 1) {
+    const matchesInRound = Math.floor(teamsInRound / 2);
+    
+    for (let i = 0; i < matchesInRound; i++) {
+      const match = createMatch(['TBD'], ['TBD'], round, i + 1);
+      matches.push(match);
+    }
+    
+    teamsInRound = matchesInRound;
+    round++;
+  }
 }
 
 /**
@@ -860,52 +1031,6 @@ function createMatch(team1: string[], team2: string[], round: number, position: 
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
-}
-
-/**
- * Pré-popula times que receberam BYE na segunda rodada
- * Evita TBDs desnecessários ao alocar diretamente os times beneficiados
- */
-function populateByeAdvancements(matches: Match[], teamsWithByes: OverallRanking[]): void {
-  const secondRoundMatches = matches.filter(m => m.round === 2);
-  
-  teamsWithByes.forEach((team, index) => {
-    if (index < secondRoundMatches.length) {
-      const targetMatch = secondRoundMatches[index];
-      
-      // Preencher primeiro slot disponível, verificando se não é null
-      if (targetMatch.team1 && targetMatch.team1.includes('TBD')) {
-        targetMatch.team1 = team.teamId;
-        console.log(`🎯 [BYE_ADVANCE] ${team.teamId.join(' & ')} pré-alocado na R2-${targetMatch.position} (team1)`);
-      } else if (targetMatch.team2 && targetMatch.team2.includes('TBD')) {
-        targetMatch.team2 = team.teamId;
-        console.log(`🎯 [BYE_ADVANCE] ${team.teamId.join(' & ')} pré-alocado na R2-${targetMatch.position} (team2)`);
-      }
-    }
-  });
-}
-
-/**
- * Gera rodadas de avanço com estrutura correta (substitui generateEmptyRounds)
- * CORRIGIDO: Usa placeholders específicos ao invés de arrays vazios
- */
-function generateAdvancementRounds(matches: Match[], currentRoundTeams: number, startRound: number = 2): void {
-  let round = startRound;
-  let teamsInRound = currentRoundTeams;
-  
-  while (teamsInRound > 1) {
-    const matchesInRound = Math.floor(teamsInRound / 2);
-    
-    for (let i = 0; i < matchesInRound; i++) {
-      // CORRIGIDO: Criar partidas com placeholders específicos ao invés de arrays vazios
-      const match = createMatch(['TBD'], ['TBD'], round, i + 1);
-      matches.push(match);
-      console.log(`🔄 [ADVANCE] R${round}-${i + 1}: Aguardando definição de confronto`);
-    }
-    
-    teamsInRound = matchesInRound;
-    round++;
-  }
 }
 
 /**
@@ -1179,4 +1304,224 @@ export function debugBracketStructure(matches: Match[]): void {
   console.log(`  Processados: ${byeStats.processedByes}`);
   console.log(`  Pendentes: ${byeStats.pendingByes}`);
   console.log(`  Times beneficiados: ${byeStats.teamsWithByes.map(t => t.join(' & ')).join(', ')}`);
+}
+
+// ===================================================================
+// FUNÇÕES ADICIONAIS PARA LÓGICA ROBUSTA DE TORNEIO
+// ===================================================================
+
+// Função para processar automaticamente todos os BYEs
+export function processAllByesAdvanced(matches: Match[]): Match[] {
+  console.log('🔄 Processando BYEs automaticamente...');
+  let updatedMatches = [...matches];
+  let processedCount = 0;
+  
+  // Continuar processando BYEs até que não haja mais para processar
+  let foundBye = true;
+  while (foundBye) {
+    foundBye = false;
+    
+    for (const match of updatedMatches) {
+      if (hasBye(match) && !match.completed) {
+        const winnerTeam = match.team1 || match.team2;
+        if (winnerTeam) {
+          match.completed = true;
+          match.winnerId = match.team1 ? 'team1' : 'team2';
+          match.score1 = match.team1 ? 1 : 0;
+          match.score2 = match.team2 ? 1 : 0;
+          
+          // Avançar o vencedor para a próxima rodada
+          const nextMatch = findNextMatch(updatedMatches, match);
+          if (nextMatch) {
+            const isOddPosition = match.position % 2 === 1;
+            if (isOddPosition) {
+              nextMatch.team1 = winnerTeam;
+            } else {
+              nextMatch.team2 = winnerTeam;
+            }
+          }
+          
+          processedCount++;
+          foundBye = true;
+          console.log(`✅ BYE processado: ${winnerTeam.join(' & ')} avança automaticamente`);
+        }
+      }
+    }
+  }
+  
+  console.log(`✅ ${processedCount} BYEs processados automaticamente`);
+  return updatedMatches;
+}
+
+// Função para limpar partidas fantasma (TBD vs TBD)
+export function cleanPhantomMatchesAdvanced(matches: Match[]): Match[] {
+  console.log('🧹 Limpando partidas fantasma...');
+  
+  const validMatches = matches.filter(match => {
+    // Manter partidas que têm pelo menos um time válido
+    const hasValidTeam1 = match.team1 && match.team1.length > 0 && !match.team1.some(id => id.includes('TBD'));
+    const hasValidTeam2 = match.team2 && match.team2.length > 0 && !match.team2.some(id => id.includes('TBD'));
+    
+    // Manter se tem pelo menos um time válido OU se já foi completada
+    const shouldKeep = hasValidTeam1 || hasValidTeam2 || match.completed;
+    
+    if (!shouldKeep) {
+      console.log(`🗑️ Removendo partida fantasma: ${match.team1} vs ${match.team2}`);
+    }
+    
+    return shouldKeep;
+  });
+  
+  console.log(`✅ ${matches.length - validMatches.length} partidas fantasma removidas`);
+  return validMatches;
+}
+
+// Função auxiliar para encontrar a próxima partida (removida nextMatchId por ora)
+function findNextMatch(matches: Match[], currentMatch: Match): Match | null {
+  // Lógica para encontrar próxima partida baseada na posição e rodada
+  const nextRound = currentMatch.round + 1;
+  const nextPosition = Math.ceil(currentMatch.position / 2);
+  
+  return matches.find(m => m.round === nextRound && m.position === nextPosition) || null;
+}
+
+// Função para determinar o stage de uma partida baseado em suas propriedades
+export function determineMatchStage(match: any): 'GROUP' | 'ELIMINATION' {
+  // Se tem group_number válido (>0), é fase de grupos
+  if (match.groupNumber > 0 || (match.group_number && match.group_number > 0)) {
+    return 'GROUP';
+  }
+  
+  // Se tem round > 0 mas não tem group_number, é eliminação
+  if ((match.round > 0 || match.round_number > 0) && !match.groupNumber && !match.group_number) {
+    return 'ELIMINATION';
+  }
+  
+  // Se já tem stage definido, usar
+  if (match.stage === 'ELIMINATION' || match.stage === 'GROUP') {
+    return match.stage;
+  }
+  
+  // Padrão: GROUP
+  return 'GROUP';
+}
+
+// Função para salvar partida na coluna JSONB apropriada
+export async function saveMatchByStage(match: Match): Promise<void> {
+  const { supabase } = await import('../lib/supabase');
+  
+  try {
+    console.log(`💾 Salvando partida ${match.id} (stage: ${match.stage}) no banco de dados...`);
+    
+    // Buscar dados atuais do torneio
+    const { data: tournament, error: fetchError } = await supabase
+      .from('tournaments')
+      .select('matches_data, standings_data, elimination_bracket')
+      .eq('id', match.tournamentId)
+      .single();
+    
+    if (fetchError) {
+      throw new Error(`Erro ao buscar torneio: ${fetchError.message}`);
+    }
+    
+    if (!tournament) {
+      throw new Error('Torneio não encontrado');
+    }
+    
+    // Preparar dados atualizados baseado no stage
+    let updateData: any = {};
+    
+    if (match.stage === 'GROUP') {
+      // Atualizar standings_data (partidas de grupo)
+      const standingsData = Array.isArray(tournament.standings_data) ? tournament.standings_data : [];
+      const matchIndex = standingsData.findIndex((m: any) => m.id === match.id);
+      
+      if (matchIndex >= 0) {
+        standingsData[matchIndex] = match;
+      } else {
+        standingsData.push(match);
+      }
+      
+      updateData.standings_data = standingsData;
+      
+      // Também atualizar matches_data para compatibilidade
+      const matchesData = Array.isArray(tournament.matches_data) ? tournament.matches_data : [];
+      const allMatchIndex = matchesData.findIndex((m: any) => m.id === match.id);
+      
+      if (allMatchIndex >= 0) {
+        matchesData[allMatchIndex] = match;
+      } else {
+        matchesData.push(match);
+      }
+      
+      updateData.matches_data = matchesData;
+      
+    } else if (match.stage === 'ELIMINATION') {
+      // Atualizar elimination_bracket (partidas eliminatórias)
+      let eliminationBracket = tournament.elimination_bracket;
+      
+      // Verificar se é formato com metadata ou array simples
+      let eliminationMatches: Match[];
+      let metadata: any = null;
+      
+      if (Array.isArray(eliminationBracket)) {
+        eliminationMatches = eliminationBracket;
+      } else if (eliminationBracket && typeof eliminationBracket === 'object' && eliminationBracket.matches) {
+        eliminationMatches = eliminationBracket.matches;
+        metadata = eliminationBracket.metadata;
+      } else {
+        eliminationMatches = [];
+      }
+      
+      const matchIndex = eliminationMatches.findIndex((m: any) => m.id === match.id);
+      
+      if (matchIndex >= 0) {
+        eliminationMatches[matchIndex] = match;
+      } else {
+        eliminationMatches.push(match);
+      }
+      
+      // Manter formato original
+      if (metadata) {
+        updateData.elimination_bracket = {
+          matches: eliminationMatches,
+          metadata: metadata,
+          generatedAt: new Date().toISOString()
+        };
+      } else {
+        updateData.elimination_bracket = eliminationMatches;
+      }
+      
+      // Também atualizar matches_data para compatibilidade
+      const matchesData = Array.isArray(tournament.matches_data) ? tournament.matches_data : [];
+      const allMatchIndex = matchesData.findIndex((m: any) => m.id === match.id);
+      
+      if (allMatchIndex >= 0) {
+        matchesData[allMatchIndex] = match;
+      } else {
+        matchesData.push(match);
+      }
+      
+      updateData.matches_data = matchesData;
+    }
+    
+    // Adicionar timestamp de atualização
+    updateData.updated_at = new Date().toISOString();
+    
+    // Executar update no banco
+    const { error: updateError } = await supabase
+      .from('tournaments')
+      .update(updateData)
+      .eq('id', match.tournamentId);
+    
+    if (updateError) {
+      throw new Error(`Erro ao salvar partida: ${updateError.message}`);
+    }
+    
+    console.log(`✅ Partida ${match.id} salva com sucesso na coluna ${match.stage === 'GROUP' ? 'standings_data' : 'elimination_bracket'}`);
+    
+  } catch (error) {
+    console.error(`❌ Erro ao salvar partida ${match.id}:`, error);
+    throw error;
+  }
 }

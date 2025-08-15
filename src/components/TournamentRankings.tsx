@@ -8,7 +8,8 @@ import {
   calculateRankingsForPlacement,
   hasBye,
   getByeAdvancingTeam,
-  detectTieBreaksInRanking
+  detectTieBreaksInRanking,
+  cleanPhantomMatchesAdvanced
 } from '../utils/rankingUtils';
 import { validateBeachTennisRules } from '../utils/beachTennisRules';
 import { Match } from '../types';
@@ -158,6 +159,12 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({
           matchesByStage.ELIMINATION.push(match);
         }
       });
+
+      // [NOVO] Limpar partidas fantasma das partidas de eliminação
+      console.log('🧹 Aplicando limpeza de partidas fantasma...');
+      const cleanedEliminationMatches = cleanPhantomMatchesAdvanced(matchesByStage.ELIMINATION);
+      matchesByStage.ELIMINATION = cleanedEliminationMatches;
+      console.log(`✅ Partidas de eliminação limpas: ${matchesByStage.ELIMINATION.length} partidas válidas`);
 
       // Verificar se a fase de grupos está completa
       let allGroupMatchesComplete = true;
