@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Participant, Court } from '../../types';
-import { CornerDownLeft, Pause, PlayCircle, RotateCw, Trophy, Check } from 'lucide-react';
+import { Participant, Court, Team, Group } from '../../types';
+import { Pause, PlayCircle, RotateCw, Trophy, Check, Database } from 'lucide-react';
 import { Button } from '../ui/Button';
 import confetti from 'canvas-confetti';
+import { saveRandomTeamsAndGroups } from '../../services/teamRandomDrawService';
 
 interface TournamentWheelProps {
   participants: Participant[];
   courts: Court[];
+  tournamentId: string; // Nova prop obrigatória para identificar o torneio
   onComplete: (matches: Array<[string, string]>, courtAssignments: Record<string, string>) => void;
+  onTeamsSaved?: (teams: Team[], groups: Group[]) => void; // Callback quando salvar no banco
   autoPlay?: boolean;
   speed?: number;
 }
@@ -15,7 +18,9 @@ interface TournamentWheelProps {
 export const TournamentWheel: React.FC<TournamentWheelProps> = ({
   participants,
   courts,
+  tournamentId,
   onComplete,
+  onTeamsSaved,
   autoPlay = true,
   speed = 1.2
 }) => {
@@ -26,9 +31,10 @@ export const TournamentWheel: React.FC<TournamentWheelProps> = ({
   const [currentPair, setCurrentPair] = useState<Participant[]>([]);
   const [courtAssignments, setCourtAssignments] = useState<Record<string, string>>({});
   const [completed, setCompleted] = useState(false);
-  const [step, setStep] = useState<'teams' | 'courts'>('teams');
+  const [step, setStep] = useState<'teams' | 'courts' | 'saving'>('teams');
   const [currentCourt, setCurrentCourt] = useState<Court | null>(null);
-  const [processingStage, setProcessingStage] = useState(0); // 0: not started, 1: selecting participants, 2: selecting courts, 3: finished
+  const [processingStage, setProcessingStage] = useState(0); // 0: not started, 1: selecting participants, 2: selecting courts, 3: saving to database, 4: finished
+  const [savingProgress, setSavingProgress] = useState<string>(''); // Progresso do salvamento
   
   const wheelRef = useRef<HTMLDivElement>(null);
   const spinTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -194,9 +200,9 @@ export const TournamentWheel: React.FC<TournamentWheelProps> = ({
           origin: { y: 0.6 }
         });
         
-        // Chamar o callback de conclusão
+        // Chamar o callback de conclusão e salvar no banco
         setTimeout(() => {
-          onComplete(matches, courtAssignments);
+          handleFinalize();
         }, 1500);
         
         return;
@@ -246,10 +252,61 @@ export const TournamentWheel: React.FC<TournamentWheelProps> = ({
     }
   };
   
-  // Função para finalizar manualmente
-  const handleFinalize = () => {
-    setCompleted(true);
-    onComplete(matches, courtAssignments);
+  // Função para finalizar e salvar no banco de dados
+  const handleFinalize = async () => {
+    setProcessingStage(3);
+    setStep('saving');
+    setSavingProgress('Salvando times no banco de dados...');
+
+    try {
+      // Prepare teams data for saving
+      const teamsData = matches.map((match, index) => {
+        const courtKey = `${match[0]}|${match[1]}`;
+        const assignedCourtId = courtAssignments[courtKey];
+        const assignedCourt = courts.find(court => court.id === assignedCourtId);
+        
+        return {
+          participant1_name: match[0],
+          participant2_name: match[1],
+          court_name: assignedCourt?.name || `Quadra ${index + 1}`
+        };
+      });
+
+      // Save teams and groups to database
+      setSavingProgress('Salvando times e grupos...');
+      await saveRandomTeamsAndGroups(tournamentId, teamsData);
+      
+      setSavingProgress('Salvamento concluído!');
+      
+      // Convert teamsData to Team format for callback
+      const teams: Team[] = teamsData.map((team, index) => ({
+        id: `team-${index}`,
+        participants: [team.participant1_name, team.participant2_name],
+        name: `${team.participant1_name} & ${team.participant2_name}`
+      }));
+
+      // Call the completion callbacks
+      if (onTeamsSaved) {
+        onTeamsSaved(teams, []); // Empty groups array for now
+      }
+      
+      if (onComplete) {
+        onComplete(matches, courtAssignments);
+      }
+
+      setProcessingStage(4);
+      setCompleted(true);
+
+    } catch (error) {
+      console.error('Erro ao salvar times:', error);
+      setSavingProgress('Erro ao salvar times. Tente novamente.');
+      // Reset to previous state after showing error
+      setTimeout(() => {
+        setProcessingStage(2);
+        setStep('courts');
+        setSavingProgress('');
+      }, 3000);
+    }
   };
   
   // Renderização da roleta
@@ -265,6 +322,12 @@ export const TournamentWheel: React.FC<TournamentWheelProps> = ({
         {step === 'courts' && !completed && (
           <h3 className="text-lg font-medium text-brand-green mb-2">
             Atribuição de Quadras
+          </h3>
+        )}
+
+        {step === 'saving' && (
+          <h3 className="text-lg font-medium text-brand-orange mb-2">
+            Salvando Resultados...
           </h3>
         )}
         
@@ -527,6 +590,18 @@ export const TournamentWheel: React.FC<TournamentWheelProps> = ({
           <Check size={16} className="mr-1" /> Concluir
         </Button>
       </div>
+
+      {/* Progresso do salvamento */}
+      {step === 'saving' && savingProgress && (
+        <div className="mt-4 text-center">
+          <div className="bg-gradient-to-r from-brand-orange/20 to-brand-purple/20 p-4 rounded-lg inline-block shadow-sm border border-brand-orange/20">
+            <p className="text-sm font-medium text-brand-orange flex items-center justify-center">
+              <Database size={16} className="mr-2 animate-pulse" />
+              {savingProgress}
+            </p>
+          </div>
+        </div>
+      )}
       
       {/* Resumo das duplas formadas - design aprimorado */}
       {matches.length > 0 && (

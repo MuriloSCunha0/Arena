@@ -41,6 +41,7 @@ import { TournamentService } from '../../services/supabase/tournament'; // Add t
 import { EventsService } from '../../services/supabase/events'; // Add EventsService import
 import { BeachTennisService } from '../../services/supabase/beachTennisService'; // Add Beach Tennis service
 import BeachTennisMatchEditor from '../tournament/BeachTennisMatchEditor';
+import { TournamentWheel } from './TournamentWheel'; // Import do componente de sorteio
 
 interface TournamentBracketProps {
   eventId: string;
@@ -426,6 +427,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
   const [showOverallRankingsModal, setShowOverallRankingsModal] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false); // Add state for full-screen mode
   const [showByeAssignment, setShowByeAssignment] = useState(false); // Estado para modal de atribuição de BYE
+  const [showTournamentWheel, setShowTournamentWheel] = useState(false); // Estado para modal de sorteio
   
   // Estados para configuração de grupos automáticos
   const [showGroupConfigModal, setShowGroupConfigModal] = useState(false);
@@ -654,6 +656,14 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
 
   const handleStartTournament = async () => {
     if (!tournament) return;
+    
+    // Se for evento de duplas aleatórias e não há partidas ainda, abrir tela de sorteio
+    if (currentEvent?.team_formation === 'RANDOM' && tournament.matches.length === 0) {
+      console.log('🎲 [DEBUG] Evento de duplas aleatórias detectado. Abrindo tela de sorteio...');
+      setShowTournamentWheel(true);
+      return;
+    }
+    
     try {
       await startTournament(tournament.id);
       addNotification({ type: 'success', message: 'Torneio iniciado com sucesso!' });
@@ -662,6 +672,22 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       const errorMessage = err instanceof Error ? err.message : 'Erro ao iniciar torneio';
       addNotification({ type: 'error', message: errorMessage });
     }
+  };
+
+  // Função para lidar com a conclusão do sorteio
+  const handleTournamentWheelComplete = async (matches: Array<[string, string]>, courtAssignments: Record<string, string>) => {
+    console.log('🎲 [DEBUG] Sorteio concluído!', { matches, courtAssignments });
+    addNotification({ type: 'success', message: 'Sorteio de duplas concluído!' });
+    setShowTournamentWheel(false);
+    
+    // Recarregar dados do torneio para mostrar as duplas sorteadas
+    await fetchTournament(eventId);
+  };
+
+  // Função para lidar quando as duplas são salvas no banco
+  const handleTeamsSaved = (teams: any[], groups: any[]) => {
+    console.log('💾 [DEBUG] Times salvos no banco de dados!', { teams, groups });
+    addNotification({ type: 'success', message: 'Duplas salvas no banco de dados!' });
   };
 
   const handleResetTournament = () => {
@@ -2656,6 +2682,28 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
             onClose={() => setShowBracketEditor(false)}
           />
         )}
+
+        {/* Modal do Sorteio de Duplas */}
+        {showTournamentWheel && (
+          <Modal 
+            isOpen={showTournamentWheel} 
+            onClose={() => setShowTournamentWheel(false)} 
+            title="Sorteio de Duplas"
+            size="large"
+          >
+            <div className="p-4">
+              <TournamentWheel
+                participants={eventParticipants}
+                courts={courts}
+                tournamentId={eventId}
+                onComplete={handleTournamentWheelComplete}
+                onTeamsSaved={handleTeamsSaved}
+                autoPlay={true}
+                speed={1.2}
+              />
+            </div>
+          </Modal>
+        )}
       </div>
     );
   } else if (tournament && tournament.matches.length === 0) {
@@ -2912,41 +2960,15 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
           
           {(!currentEvent || currentEvent.team_formation === 'RANDOM') && (
             <Button
-              onClick={async () => {
-                console.log('🔥 [DEBUG] Botão Sorteio Aleatório clicado na seção nenhum torneio criado!');
-                console.log('🔥 [DEBUG] Gerando diretamente duplas aleatórias e partidas...');
-                
-                try {
-                  setGeneratingStructure(true);
-                  
-                  console.log('🔥 [DEBUG] Gerando estrutura aleatória...');
-                  await generateRandomStructure(eventId, eventParticipants as any[], {
-                    groupSize: 3,
-                    maxTeamsPerGroup: 4,
-                    autoCalculateGroups: false
-                  });
-                  console.log('🔥 [DEBUG] Estrutura aleatória gerada com sucesso!');
-                  
-                  addNotification({
-                    type: 'success',
-                    message: 'Duplas aleatórias e partidas geradas com sucesso!'
-                  });
-                } catch (error) {
-                  console.error('🔥 [DEBUG] Erro ao gerar duplas aleatórias:', error);
-                  addNotification({
-                    type: 'error',
-                    message: `Erro ao gerar duplas aleatórias: ${error instanceof Error ? error.message : 'Erro desconhecido'}`
-                  });
-                } finally {
-                  setGeneratingStructure(false);
-                }
+              onClick={() => {
+                console.log('🎲 [DEBUG] Abrindo tela de sorteio...');
+                setShowTournamentWheel(true);
               }}
-              loading={generatingStructure}
               disabled={eventParticipants.length < 2}
               variant={currentEvent?.team_formation === 'RANDOM' ? 'primary' : 'outline'}
             >
               <Shuffle size={16} className="mr-2" />
-              Sorteio Aleatório
+              Sorteio de Duplas
             </Button>
           )}
         </div>
