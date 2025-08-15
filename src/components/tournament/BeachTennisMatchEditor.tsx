@@ -7,7 +7,7 @@ interface BeachTennisMatchEditorProps {
   match: Match;
   onSave: (matchId: string, team1Games: number, team2Games: number, tiebreakT1?: number, tiebreakT2?: number) => Promise<void>;
   onClose: () => void;
-  participantMap: Map<string, string>;
+  participantMap: Record<string, string>; // Objeto simples: ID -> Nome
 }
 
 const BeachTennisMatchEditor: React.FC<BeachTennisMatchEditorProps> = ({ 
@@ -25,11 +25,11 @@ const BeachTennisMatchEditor: React.FC<BeachTennisMatchEditorProps> = ({
 
   // Get team names
   const team1Name = match.team1 && match.team1.length > 0 
-    ? match.team1.map(id => participantMap.get(id) || 'Desconhecido').join(' & ')
+    ? match.team1.map(id => participantMap[id] || 'Participante não encontrado').join(' & ')
     : 'Time 1';
     
   const team2Name = match.team2 && match.team2.length > 0 
-    ? match.team2.map(id => participantMap.get(id) || 'Desconhecido').join(' & ')
+    ? match.team2.map(id => participantMap[id] || 'Participante não encontrado').join(' & ')
     : 'Time 2';
 
   // Check if tiebreak is needed (games are 6-6)
@@ -155,7 +155,7 @@ const BeachTennisMatchEditor: React.FC<BeachTennisMatchEditorProps> = ({
             <div className="flex items-center gap-3">
               <button
                 onClick={() => decrementGames('team1')}
-                className="w-8 h-8 rounded-full bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center font-bold"
+                className="w-6 h-6 rounded-full bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center font-bold text-sm"
                 disabled={saving || team1Games === 0}
               >
                 -
@@ -171,12 +171,12 @@ const BeachTennisMatchEditor: React.FC<BeachTennisMatchEditorProps> = ({
                     setTeam1Games(value);
                   }
                 }}
-                className="text-3xl font-bold text-blue-600 w-16 text-center border-2 border-blue-200 rounded-lg focus:border-blue-500 focus:outline-none"
+                className="text-2xl font-bold text-blue-600 w-12 text-center border-2 border-blue-200 rounded-lg focus:border-blue-500 focus:outline-none"
                 disabled={saving}
               />
               <button
                 onClick={() => incrementGames('team1')}
-                className="w-8 h-8 rounded-full bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center font-bold"
+                className="w-6 h-6 rounded-full bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center font-bold text-sm"
                 disabled={saving || team1Games === 7}
               >
                 +
@@ -206,7 +206,7 @@ const BeachTennisMatchEditor: React.FC<BeachTennisMatchEditorProps> = ({
             <div className="flex items-center gap-3">
               <button
                 onClick={() => decrementGames('team2')}
-                className="w-8 h-8 rounded-full bg-green-600 text-white hover:bg-green-700 flex items-center justify-center font-bold"
+                className="w-6 h-6 rounded-full bg-green-600 text-white hover:bg-green-700 flex items-center justify-center font-bold text-sm"
                 disabled={saving || team2Games === 0}
               >
                 -
@@ -222,12 +222,12 @@ const BeachTennisMatchEditor: React.FC<BeachTennisMatchEditorProps> = ({
                     setTeam2Games(value);
                   }
                 }}
-                className="text-3xl font-bold text-green-600 w-16 text-center border-2 border-green-200 rounded-lg focus:border-green-500 focus:outline-none"
+                className="text-2xl font-bold text-green-600 w-12 text-center border-2 border-green-200 rounded-lg focus:border-green-500 focus:outline-none"
                 disabled={saving}
               />
               <button
                 onClick={() => incrementGames('team2')}
-                className="w-8 h-8 rounded-full bg-green-600 text-white hover:bg-green-700 flex items-center justify-center font-bold"
+                className="w-6 h-6 rounded-full bg-green-600 text-white hover:bg-green-700 flex items-center justify-center font-bold text-sm"
                 disabled={saving || team2Games === 7}
               >
                 +
@@ -250,7 +250,7 @@ const BeachTennisMatchEditor: React.FC<BeachTennisMatchEditorProps> = ({
               <div className="flex items-center justify-center gap-2">
                 <button
                   onClick={() => decrementTiebreak('team1')}
-                  className="w-6 h-6 rounded-full bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center text-sm"
+                  className="w-5 h-5 rounded-full bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center text-xs"
                   disabled={saving || team1Tiebreak === 0}
                 >
                   -
@@ -265,12 +265,12 @@ const BeachTennisMatchEditor: React.FC<BeachTennisMatchEditorProps> = ({
                       setTeam1Tiebreak(value);
                     }
                   }}
-                  className="text-2xl font-bold text-blue-600 w-12 text-center border-2 border-blue-200 rounded focus:border-blue-500 focus:outline-none"
+                  className="text-xl font-bold text-blue-600 w-10 text-center border-2 border-blue-200 rounded focus:border-blue-500 focus:outline-none"
                   disabled={saving}
                 />
                 <button
                   onClick={() => incrementTiebreak('team1')}
-                  className="w-6 h-6 rounded-full bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center text-sm"
+                  className="w-5 h-5 rounded-full bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center text-xs"
                   disabled={saving}
                 >
                   +
@@ -283,7 +283,7 @@ const BeachTennisMatchEditor: React.FC<BeachTennisMatchEditorProps> = ({
               <div className="flex items-center justify-center gap-2">
                 <button
                   onClick={() => decrementTiebreak('team2')}
-                  className="w-6 h-6 rounded-full bg-green-600 text-white hover:bg-green-700 flex items-center justify-center text-sm"
+                  className="w-5 h-5 rounded-full bg-green-600 text-white hover:bg-green-700 flex items-center justify-center text-xs"
                   disabled={saving || team2Tiebreak === 0}
                 >
                   -
@@ -298,12 +298,12 @@ const BeachTennisMatchEditor: React.FC<BeachTennisMatchEditorProps> = ({
                       setTeam2Tiebreak(value);
                     }
                   }}
-                  className="text-2xl font-bold text-green-600 w-12 text-center border-2 border-green-200 rounded focus:border-green-500 focus:outline-none"
+                  className="text-xl font-bold text-green-600 w-10 text-center border-2 border-green-200 rounded focus:border-green-500 focus:outline-none"
                   disabled={saving}
                 />
                 <button
                   onClick={() => incrementTiebreak('team2')}
-                  className="w-6 h-6 rounded-full bg-green-600 text-white hover:bg-green-700 flex items-center justify-center text-sm"
+                  className="w-5 h-5 rounded-full bg-green-600 text-white hover:bg-green-700 flex items-center justify-center text-xs"
                   disabled={saving}
                 >
                   +

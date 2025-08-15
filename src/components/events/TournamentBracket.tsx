@@ -759,11 +759,24 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       if (!match.completed || match.editable) {
         selectMatch(match);
         
-        // Check if it's a Beach Tennis event
-        if (isBeachTennisEvent()) {
-          setShowBeachTennisEditor(true);
+        // Verificar se os participantes estão carregados antes de abrir o modal
+        if (eventParticipants.length === 0) {
+          console.warn('⚠️ Participantes ainda não carregados, tentando carregar...');
+          fetchParticipantsByEvent(eventId).then(() => {
+            // Check if it's a Beach Tennis event
+            if (isBeachTennisEvent()) {
+              setShowBeachTennisEditor(true);
+            } else {
+              setShowMatchEditor(true);
+            }
+          });
         } else {
-          setShowMatchEditor(true);
+          // Check if it's a Beach Tennis event
+          if (isBeachTennisEvent()) {
+            setShowBeachTennisEditor(true);
+          } else {
+            setShowMatchEditor(true);
+          }
         }
       } else {
         // Perguntar se o usuário quer editar o resultado, mesmo concluído
@@ -771,10 +784,22 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
           match.editable = true; // Marca como editável para esta sessão
           selectMatch(match);
           
-          if (isBeachTennisEvent()) {
-            setShowBeachTennisEditor(true);
+          // Verificar se os participantes estão carregados antes de abrir o modal
+          if (eventParticipants.length === 0) {
+            console.warn('⚠️ Participantes ainda não carregados, tentando carregar...');
+            fetchParticipantsByEvent(eventId).then(() => {
+              if (isBeachTennisEvent()) {
+                setShowBeachTennisEditor(true);
+              } else {
+                setShowMatchEditor(true);
+              }
+            });
           } else {
-            setShowMatchEditor(true);
+            if (isBeachTennisEvent()) {
+              setShowBeachTennisEditor(true);
+            } else {
+              setShowMatchEditor(true);
+            }
           }
         }
       }
@@ -1820,6 +1845,16 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                   <List size={16} className="mr-1" />
                   Ver Rankings dos Grupos                </Button>
 
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={openTransmission}
+                  className="flex items-center bg-gradient-to-r from-red-500 to-red-600 text-white border-red-500 hover:from-red-600 hover:to-red-700"
+                >
+                  <Monitor size={16} className="mr-1" />
+                  🔴 Transmitir Ao Vivo
+                </Button>
+
                 {eliminationMatches.length > 0 && (
                   <>
                     <Button
@@ -2135,10 +2170,10 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                   variant="outline"
                   size="sm"
                   onClick={openTransmission}
-                  className="flex items-center"
+                  className="flex items-center bg-gradient-to-r from-red-500 to-red-600 text-white border-red-500 hover:from-red-600 hover:to-red-700"
                 >
                   <Monitor size={16} className="mr-1" />
-                  Transmitir
+                  🔴 Transmitir Ao Vivo
                 </Button>
               </div>
             </div>
@@ -2268,12 +2303,18 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
         {/* Beach Tennis Match Editor Modal */}
         {showBeachTennisEditor && selectedMatch && (
           <Modal isOpen={showBeachTennisEditor} onClose={() => setShowBeachTennisEditor(false)} title="Beach Tennis">
-            <BeachTennisMatchEditor
-              match={selectedMatch}
-              onSave={handleSaveBeachTennisMatch}
-              onClose={() => setShowBeachTennisEditor(false)}
-              participantMap={participantMap}
-            />
+            {eventParticipants.length > 0 ? (
+              <BeachTennisMatchEditor
+                match={selectedMatch}
+                onSave={handleSaveBeachTennisMatch}
+                onClose={() => setShowBeachTennisEditor(false)}
+                participantMap={Object.fromEntries(participantMap)}
+              />
+            ) : (
+              <div className="p-6 text-center">
+                <p className="text-gray-600">Carregando participantes...</p>
+              </div>
+            )}
           </Modal>
         )}
 
