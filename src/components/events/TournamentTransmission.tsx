@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { Trophy } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import type { Match, Event, Participant } from '../../types';
+import { calculateGroupRankings, isMatchCompleted } from '../../utils/rankingUtils';
 import './TournamentTransmission.css';
 
 interface TournamentData {
@@ -10,6 +11,7 @@ interface TournamentData {
   title: string;
   status: string;
   matches: Match[];
+  elimination_bracket?: Match[];
 }
 
 interface TeamRanking {
@@ -25,7 +27,23 @@ interface TeamRanking {
   setsDiff: number;
   winRate: number;
   groupNumber?: number;
+  isQualified?: boolean;
 }
+
+interface EliminationMatchDisplay {
+  id: string;
+  round: number;
+  position: number;
+  team1Name: string;
+  team2Name: string;
+  score1?: number;
+  score2?: number;
+  completed: boolean;
+  winner?: string;
+  isLive?: boolean;
+}
+
+type TournamentPhase = 'GROUP' | 'ELIMINATION' | 'COMPLETED';
 
 interface TournamentTransmissionProps {
   eventId?: string;
@@ -40,6 +58,43 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentPhase, setCurrentPhase] = useState<TournamentPhase>('GROUP');
+  const [eliminationMatches, setEliminationMatches] = useState<EliminationMatchDisplay[]>([]);
+
+  // Detectar fase atual do torneio
+  const detectTournamentPhase = (matches: Match[]): TournamentPhase => {
+    console.log('🔍 Detectando fase do torneio:', { 
+      matchesLength: matches?.length || 0, 
+      matches: matches?.slice(0, 3) // Primeiras 3 partidas para debug
+    });
+    
+    if (!matches || matches.length === 0) {
+      console.log('📝 Fase detectada: GROUP (sem partidas)');
+      return 'GROUP';
+    }
+    
+    const hasEliminationMatches = matches.some(m => m.stage === 'ELIMINATION');
+    console.log('🏆 Tem partidas eliminatórias?', hasEliminationMatches);
+    
+    // Verificar se há uma final completada
+    const finalMatch = matches.find(m => 
+      m.stage === 'ELIMINATION' && 
+      m.round === Math.max(...matches.filter(match => match.stage === 'ELIMINATION').map(match => match.round || 0))
+    );
+    
+    if (finalMatch && finalMatch.completed) {
+      console.log('🏁 Fase detectada: COMPLETED (final concluída)');
+      return 'COMPLETED';
+    }
+    
+    if (hasEliminationMatches) {
+      console.log('⚔️ Fase detectada: ELIMINATION');
+      return 'ELIMINATION';
+    }
+    
+    console.log('👥 Fase detectada: GROUP');
+    return 'GROUP';
+  };
 
   // Função para buscar participantes
   const fetchParticipants = async (eventId: string) => {
@@ -57,6 +112,45 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
     }
   };
 
+  // Função para mapear dados do Supabase para o formato interno
+  const mapSupabaseMatchesToInternal = (supabaseMatches: any[]): Match[] => {
+    return supabaseMatches.map((match: any) => {
+      // Corrigir a lógica de fase: se group_number existir e for > 0, é GROUP, senão ELIMINATION
+      let stage: 'GROUP' | 'ELIMINATION' = 'ELIMINATION';
+      if (typeof match.group_number !== 'undefined' && match.group_number !== null && match.group_number > 0) {
+        stage = 'GROUP';
+      }
+      // Se existir campo phase, usar ele
+      if (match.phase && (match.phase === 'GROUP' || match.phase === 'ELIMINATION')) {
+        stage = match.phase;
+      }
+
+      // Corrigir score: se for null ou undefined, manter null, se for número, usar o número
+      const score1 = (match.team1_score === null || typeof match.team1_score === 'undefined') ? null : Number(match.team1_score);
+      const score2 = (match.team2_score === null || typeof match.team2_score === 'undefined') ? null : Number(match.team2_score);
+
+  // completed é true se scores não forem null (ignora status)
+  const completed = score1 !== null && score2 !== null;
+
+      return {
+        id: match.id,
+        eventId: match.event_id,
+        tournamentId: match.tournament_id,
+        team1: match.team1_ids || [],
+        team2: match.team2_ids || [],
+        score1,
+        score2,
+        round: match.round_number || 0,
+        position: match.match_number || 0,
+        groupNumber: match.group_number || 0,
+        stage,
+        completed,
+        winnerId: match.winner_team || null,
+        scheduledTime: match.scheduled_at
+      };
+    });
+  };
+
   // Função para buscar dados do torneio
   const fetchTournamentData = async () => {
     if (!eventId) {
@@ -66,6 +160,7 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
     }
 
     try {
+      console.log('📡 Iniciando busca de dados do torneio para evento:', eventId);
       setLoading(true);
       setError(null);
 
@@ -77,9 +172,11 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
         .single();
 
       if (eventError) {
+        console.error('❌ Erro ao buscar evento:', eventError);
         throw new Error(`Erro ao buscar evento: ${eventError.message}`);
       }
 
+      console.log('✅ Evento encontrado:', eventData?.title || eventData?.name);
       setEvent(eventData);
 
       // Buscar torneio
@@ -90,150 +187,248 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
         .single();
 
       if (tournamentError && tournamentError.code !== 'PGRST116') {
+        console.error('❌ Erro ao buscar torneio:', tournamentError);
         throw new Error(`Erro ao buscar torneio: ${tournamentError.message}`);
       }
 
+      console.log('🏆 Torneio encontrado:', tournamentData ? 'Sim' : 'Não');
+
       // Buscar participantes
       const participantsData = await fetchParticipants(eventId);
+      console.log('👥 Participantes encontrados:', participantsData.length);
       setParticipants(participantsData);
 
-      // Buscar matches se o torneio existir
-      let matches: Match[] = [];
+      // Buscar matches do campo matches_data do torneio, igual ao ranking
       if (tournamentData) {
-        const { data: matchesData, error: matchesError } = await supabase
-          .from('matches')
-          .select('*')
-          .eq('event_id', eventId)
-          .order('round', { ascending: true });
-
-        if (matchesError) {
-          console.error('Erro ao buscar matches:', matchesError);
+        let matches: Match[] = [];
+        if (tournamentData.matches_data && Array.isArray(tournamentData.matches_data)) {
+          matches = tournamentData.matches_data;
+          console.log('⚽ Partidas carregadas de matches_data:', matches.length);
+        } else if (tournamentData.matches && Array.isArray(tournamentData.matches)) {
+          matches = tournamentData.matches;
+          console.log('⚽ Partidas carregadas de matches:', matches.length);
         } else {
-          matches = matchesData || [];
+          console.log('⚠️ Nenhum campo matches_data ou matches encontrado no torneio');
+        }
+
+        // Se existir elimination_bracket, use como fonte das eliminatórias
+        let eliminationBracket: Match[] = [];
+        if (tournamentData.elimination_bracket && Array.isArray(tournamentData.elimination_bracket)) {
+          eliminationBracket = tournamentData.elimination_bracket;
+          console.log('🏆 Bracket eliminatório carregado:', eliminationBracket.length);
+        } else {
+          eliminationBracket = matches.filter(m => m.stage === 'ELIMINATION');
         }
 
         setTournament({
           ...tournamentData,
-          matches
+          matches,
+          elimination_bracket: eliminationBracket
         });
+
+        // Detectar fase atual e processar dados conforme necessário
+        const phase = detectTournamentPhase(matches);
+        console.log('🎯 Fase atual do torneio:', phase);
+        setCurrentPhase(phase);
+
+        if (phase === 'ELIMINATION') {
+          // Processar partidas eliminatórias para exibição
+          const elimMatches = eliminationBracket
+            .map(match => ({
+              id: match.id,
+              round: match.round || 0,
+              position: match.position || 0,
+              team1Name: getTeamDisplayName(match.team1),
+              team2Name: getTeamDisplayName(match.team2),
+              score1: match.score1 || undefined,
+              score2: match.score2 || undefined,
+              completed: match.completed || false,
+              winner: match.winnerId || undefined,
+              isLive: Boolean(!match.completed && match.team1 && match.team2)
+            }))
+            .sort((a, b) => {
+              if (a.round !== b.round) return a.round - b.round;
+              return a.position - b.position;
+            });
+
+          setEliminationMatches(elimMatches);
+        }
+      } else {
+        console.log('⚠️ Nenhum torneio encontrado para este evento');
       }
 
     } catch (error) {
-      console.error('Erro ao carregar dados do torneio:', error);
+      console.error('💥 Erro geral ao carregar dados do torneio:', error);
       setError(error instanceof Error ? error.message : 'Erro desconhecido');
     } finally {
       setLoading(false);
     }
   };
 
-  // Função para obter nome da dupla
-  const getTeamDisplayName = (teamIds: string[] | null | undefined): string => {
-    if (!teamIds || teamIds.length === 0) return 'Equipe Desconhecida';
-    
-    const names = teamIds.map(id => {
-      const participant = participants.find(p => p.id === id);
-      return participant?.name || 'Desconhecido';
+  // Função para renderizar o bracket eliminatório
+  const renderEliminationBracket = () => {
+    if (!eliminationMatches.length) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <p className="text-gray-500 text-lg">Chaveamento não iniciado</p>
+        </div>
+      );
+    }
+
+    // Agrupar partidas por round
+    const rounds: { [round: number]: EliminationMatchDisplay[] } = {};
+    eliminationMatches.forEach(match => {
+      if (!rounds[match.round]) {
+        rounds[match.round] = [];
+      }
+      rounds[match.round].push(match);
     });
+
+    const roundNumbers = Object.keys(rounds).map(Number).sort((a, b) => a - b);
     
-    return names.join(' & ');
+    return (
+      <div className="bracket-container">
+        <div className="bracket-grid">
+          {roundNumbers.map(roundNum => (
+            <div key={roundNum} className="bracket-round">
+              <h3 className="round-title">
+                {getRoundName(roundNum, roundNumbers.length)}
+              </h3>
+              <div className="matches-column">
+                {rounds[roundNum].map(match => (
+                  <div 
+                    key={match.id} 
+                    className={`bracket-match ${match.isLive ? 'live-match' : ''} ${match.completed ? 'completed-match' : ''}`}
+                  >
+                    <div className={`team ${match.winner === 'team1' ? 'winner' : ''}`}>
+                      <span className="team-name">{match.team1Name}</span>
+                      {match.score1 !== undefined && (
+                        <span className="score">{match.score1}</span>
+                      )}
+                    </div>
+                    <div className="vs-separator">vs</div>
+                    <div className={`team ${match.winner === 'team2' ? 'winner' : ''}`}>
+                      <span className="team-name">{match.team2Name}</span>
+                      {match.score2 !== undefined && (
+                        <span className="score">{match.score2}</span>
+                      )}
+                    </div>
+                    {match.isLive && (
+                      <div className="live-indicator">
+                        <div className="live-dot"></div>
+                        AO VIVO
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   };
 
-  // Calcular rankings baseado nas partidas
+  // Função para obter nome do round
+  const getRoundName = (roundNum: number, totalRounds: number): string => {
+    const roundsFromEnd = totalRounds - roundNum;
+    switch (roundsFromEnd) {
+      case 0: return 'FINAL';
+      case 1: return 'SEMIFINAL';
+      case 2: return 'QUARTAS';
+      case 3: return 'OITAVAS';
+      default: return `${roundNum}ª FASE`;
+    }
+  };
+
+  // Função para obter nome da dupla
+  const getTeamDisplayName = (teamIds: string[] | string | null | undefined): string => {
+    if (!teamIds) return 'TBD';
+    
+    if (typeof teamIds === 'string') {
+      const participant = participants.find(p => p.id === teamIds);
+      return participant?.name || 'Desconhecido';
+    }
+    
+    if (Array.isArray(teamIds)) {
+      if (teamIds.length === 0) return 'TBD';
+      const names = teamIds.map(id => {
+        const participant = participants.find(p => p.id === id);
+        return participant?.name || 'Desconhecido';
+      });
+      return names.join(' & ');
+    }
+    
+    return 'TBD';
+  };
+
+  // Calcular rankings usando a mesma lógica do TournamentBracket
   const rankings = useMemo(() => {
-    if (!tournament?.matches || participants.length === 0) return [];
-
-    const teamStats = new Map<string, TeamRanking>();
-    const completedMatches = tournament.matches.filter(match => match.completed);
-
-    // Processar cada partida finalizada
-    completedMatches.forEach(match => {
-      if (!match.team1 || !match.team2) return;
-
-      const team1Key = match.team1.join('|');
-      const team2Key = match.team2.join('|');
-      const team1Name = getTeamDisplayName(match.team1);
-      const team2Name = getTeamDisplayName(match.team2);
-
-      // Inicializar estatísticas se não existirem
-      if (!teamStats.has(team1Key)) {
-        teamStats.set(team1Key, {
-          teamId: team1Key,
-          teamName: team1Name,
-          players: match.team1,
-          position: 0,
-          points: 0,
-          wins: 0,
-          losses: 0,
-          setsWon: 0,
-          setsLost: 0,
-          setsDiff: 0,
-          winRate: 0,
-          groupNumber: match.groupNumber || 0
-        });
-      }
-
-      if (!teamStats.has(team2Key)) {
-        teamStats.set(team2Key, {
-          teamId: team2Key,
-          teamName: team2Name,
-          players: match.team2,
-          position: 0,
-          points: 0,
-          wins: 0,
-          losses: 0,
-          setsWon: 0,
-          setsLost: 0,
-          setsDiff: 0,
-          winRate: 0,
-          groupNumber: match.groupNumber || 0
-        });
-      }
-
-      const team1Stats = teamStats.get(team1Key)!;
-      const team2Stats = teamStats.get(team2Key)!;
-
-      // Calcular sets
-      const score1 = match.score1 || 0;
-      const score2 = match.score2 || 0;
-
-      team1Stats.setsWon += score1;
-      team1Stats.setsLost += score2;
-      team2Stats.setsWon += score2;
-      team2Stats.setsLost += score1;
-
-      // Determinar vencedor e atribuir pontos
-      if (match.winnerId === 'team1') {
-        team1Stats.wins++;
-        team1Stats.points += 3;
-        team2Stats.losses++;
-      } else if (match.winnerId === 'team2') {
-        team2Stats.wins++;
-        team2Stats.points += 3;
-        team1Stats.losses++;
-      }
+    console.log('📊 Calculando rankings:', { 
+      hasTournament: !!tournament, 
+      hasMatches: !!tournament?.matches,
+      matchesLength: tournament?.matches?.length || 0,
+      participantsLength: participants.length,
+      completedMatches: tournament?.matches?.filter(match => match.completed).length || 0
     });
 
-    // Calcular estatísticas finais e ordenar
-    const rankingArray = Array.from(teamStats.values()).map(team => ({
-      ...team,
-      setsDiff: team.setsWon - team.setsLost,
-      winRate: team.wins + team.losses > 0 ? (team.wins / (team.wins + team.losses)) * 100 : 0
-    }));
+    if (!tournament?.matches || participants.length === 0) {
+      console.log('❌ Sem dados para calcular rankings');
+      return [];
+    }
 
-    // Ordenar por: pontos, vitórias, saldo de sets, sets ganhos
-    rankingArray.sort((a, b) => {
-      if (a.points !== b.points) return b.points - a.points;
-      if (a.wins !== b.wins) return b.wins - a.wins;
-      if (a.setsDiff !== b.setsDiff) return b.setsDiff - a.setsDiff;
-      return b.setsWon - a.setsWon;
+  const completedMatches = tournament.matches.filter(isMatchCompleted);
+
+    console.log('⚽ Partidas para processar:', completedMatches.length);
+
+    if (completedMatches.length === 0) {
+      console.log('⏳ Nenhuma partida finalizada ainda');
+      return [];
+    }
+
+    // Usar a mesma lógica oficial do TournamentBracket
+    const groupRankings = calculateGroupRankings(completedMatches, true); // true para usar regras Beach Tennis
+    // Descobrir quantos classificam por grupo (padrão 2, mas pode ser customizado)
+    const qualifiersPerGroup = 2; // TODO: tornar dinâmico se necessário
+    let cutoffStats = null;
+    if (groupRankings.length >= qualifiersPerGroup) {
+      const cutoffTeam = groupRankings[qualifiersPerGroup - 1];
+      cutoffStats = cutoffTeam?.stats;
+    }
+    const rankingsForDisplay = groupRankings.map((teamRanking, index) => {
+      const position = teamRanking.position || (index + 1);
+      let isQualified = false;
+      if (position <= qualifiersPerGroup) {
+        isQualified = true;
+      } else if (cutoffStats) {
+        // Comparar critérios de desempate explicitamente
+        const isTied =
+          teamRanking.stats.gameDifference === cutoffStats.gameDifference &&
+          teamRanking.stats.gamesWon === cutoffStats.gamesWon &&
+          teamRanking.stats.wins === cutoffStats.wins &&
+          teamRanking.stats.matchesPlayed === cutoffStats.matchesPlayed;
+        isQualified = isTied;
+      }
+      return {
+        teamId: teamRanking.teamId.join('|'),
+        teamName: getTeamDisplayName(teamRanking.teamId),
+        players: teamRanking.teamId,
+        position,
+        points: teamRanking.stats.points,
+        wins: teamRanking.stats.wins,
+        losses: teamRanking.stats.losses,
+        setsWon: teamRanking.stats.gamesWon,
+        setsLost: teamRanking.stats.gamesLost,
+        setsDiff: teamRanking.stats.gameDifference,
+        winRate: teamRanking.stats.wins + teamRanking.stats.losses > 0 ?
+          (teamRanking.stats.wins / (teamRanking.stats.wins + teamRanking.stats.losses)) * 100 : 0,
+        groupNumber: teamRanking.groupNumber || 0,
+        isQualified
+      };
     });
 
-    // Atribuir posições
-    rankingArray.forEach((team, index) => {
-      team.position = index + 1;
-    });
-
-    return rankingArray;
+    console.log('🏆 Rankings calculados:', rankingsForDisplay);
+    return rankingsForDisplay;
   }, [tournament, participants]);
 
   useEffect(() => {
@@ -263,6 +458,7 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
 
   // Loading state
   if (loading) {
+    console.log('🔄 Estado de carregamento ativo');
     return (
       <div className="tournament-transmission">
         <div className="tournament-transmission-container">
@@ -278,6 +474,7 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
 
   // Error state
   if (error) {
+    console.log('❌ Estado de erro:', error);
     return (
       <div className="tournament-transmission">
         <div className="tournament-transmission-container">
@@ -293,6 +490,7 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
 
   // No event found
   if (!event) {
+    console.log('📭 Nenhum evento encontrado');
     return (
       <div className="tournament-transmission">
         <div className="tournament-transmission-container">
@@ -307,7 +505,8 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
   }
 
   // No tournament data or no rankings
-  if (!tournament || rankings.length === 0) {
+  if (!tournament) {
+    console.log('🏆 Nenhum torneio encontrado para este evento');
     return (
       <div className="tournament-transmission">
         <div className="tournament-transmission-container">
@@ -318,8 +517,8 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
           
           <div className="waiting-state">
             <Trophy size={96} className="waiting-icon" />
-            <h2>Aguardando Resultados</h2>
-            <p>O torneio ainda não possui partidas finalizadas</p>
+            <h2>Torneio Não Iniciado</h2>
+            <p>Este evento ainda não possui um torneio configurado</p>
             <div className="tournament-info">
               <div className="info-item">
                 <span className="info-label">Participantes:</span>
@@ -336,83 +535,137 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
     );
   }
 
+  if (rankings.length === 0) {
+    const completedMatches = tournament?.matches?.filter(m => m.completed) || [];
+    if (completedMatches.length === 0) {
+      // Só mostra "Aguardando Resultados" se realmente não houver nenhuma partida finalizada
+      return (
+        <div className="tournament-transmission">
+          <div className="tournament-transmission-container">
+            <div className="tournament-header">
+              <h1 className="tournament-title">{event.title}</h1>
+              <div className="tournament-subtitle">Transmissão Ao Vivo</div>
+            </div>
+            <div className="waiting-state">
+              <Trophy size={96} className="waiting-icon" />
+              <h2>Aguardando Resultados</h2>
+              <p>O torneio ainda não possui partidas finalizadas</p>
+              <div className="tournament-info">
+                <div className="info-item">
+                  <span className="info-label">Participantes:</span>
+                  <span className="info-value">{participants.length}</span>
+                </div>
+                <div className="info-item">
+                  <span className="info-label">Partidas Total:</span>
+                  <span className="info-value">{tournament?.matches?.length || 0}</span>
+                </div>
+                <div className="info-item">
+                  <span className="info-label">Partidas Finalizadas:</span>
+                  <span className="info-value">{completedMatches.length}</span>
+                </div>
+                <div className="info-item">
+                  <span className="info-label">Fase:</span>
+                  <span className="info-value">{currentPhase}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    // Se há partidas finalizadas mas ranking vazio, mostra mensagem de erro
+    return (
+      <div className="tournament-transmission">
+        <div className="tournament-transmission-container">
+          <div className="tournament-header">
+            <h1 className="tournament-title">{event.title}</h1>
+            <div className="tournament-subtitle">Transmissão Ao Vivo</div>
+          </div>
+          <div className="waiting-state">
+            <Trophy size={96} className="waiting-icon" />
+            <h2>Erro ao calcular ranking</h2>
+            <p>Existem partidas finalizadas, mas não foi possível calcular o ranking.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Main transmission display
+  console.log('🎬 Renderizando transmissão principal:', { 
+    currentPhase, 
+    hasEvent: !!event, 
+    hasTournament: !!tournament, 
+    rankingsLength: rankings.length,
+    eliminationMatchesLength: eliminationMatches.length
+  });
+  
   return (
     <div className="tournament-transmission">
       <div className="tournament-transmission-container">
         {/* Header */}
         <div className="tournament-header">
           <h1 className="tournament-title">{event.title}</h1>
-          <div className="tournament-subtitle">Ranking Geral • Transmissão Ao Vivo</div>
+          <div className="tournament-subtitle">
+            <span className="phase-indicator">
+              {currentPhase === 'GROUP' ? 'FASE DE GRUPOS' : 
+               currentPhase === 'ELIMINATION' ? 'FASE ELIMINATÓRIA' : 
+               'TORNEIO FINALIZADO'}
+            </span>
+            <span> • Transmissão Ao Vivo</span>
+          </div>
         </div>
 
-        {/* Rankings List */}
+
+        {/* Rankings List sempre que houver rankings */}
         <div className="rankings-container">
-          <div className="rankings-grid">
-            {rankings.slice(0, 20).map((team, index) => (
-              <div
-                key={team.teamId}
-                className={`ranking-card ${
-                  index === 0 ? 'position-first' :
-                  index === 1 ? 'position-second' :
-                  index === 2 ? 'position-third' : 'position-regular'
-                }`}
-              >
-                {/* Position */}
-                <div className="position-section">
-                  <div className={`position-number ${
-                    index === 0 ? 'gold' : 
-                    index === 1 ? 'silver' : 
-                    index === 2 ? 'bronze' : 'regular'
-                  }`}>
-                    {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}°`}
+          <div className="ranking-table">
+            <div className="ranking-header">
+              <div className="header-position">#</div>
+              <div className="header-team">DUPLA</div>
+              <div className="header-stat">V</div>
+              <div className="header-stat">SG</div>
+              <div className="header-stat">PG</div>
+              <div className="header-stat">JP</div>
+            </div>
+            {rankings.slice(0, 9).map((team, index) => {
+              const medalPosition = index < 3 ? index + 1 : null;
+              const getMedalEmoji = (pos: number) => {
+                switch(pos) {
+                  case 1: return '🥇';
+                  case 2: return '🥈';
+                  case 3: return '🥉';
+                  default: return '';
+                }
+              };
+              return (
+                <div
+                  key={team.teamId}
+                  className={`ranking-row ${team.isQualified ? 'qualified' : ''}`}
+                >
+                  <div className="row-position">
+                    {medalPosition ? (
+                      <div className="medal-position">
+                        <span className="medal">{getMedalEmoji(medalPosition)}</span>
+                        <span className="position-number">{medalPosition}º</span>
+                      </div>
+                    ) : (
+                      <span className="position-number">{team.position}</span>
+                    )}
                   </div>
+                  <div className="row-team">
+                    <div className="team-name">{team.teamName}</div>
+                    {/* Badge de classificado removida */}
+                  </div>
+                  <div className="row-stat wins">{team.wins}</div>
+                  <div className={`row-stat sets-diff ${team.setsDiff >= 0 ? 'positive' : 'negative'}`}>
+                    {team.setsDiff >= 0 ? '+' : ''}{team.setsDiff}
+                  </div>
+                  <div className="row-stat sets-won">{team.setsWon}</div>
+                  <div className="row-stat sets-lost">{team.setsLost}</div>
                 </div>
-
-                {/* Team Info */}
-                <div className="team-section">
-                  <h3 className="team-name">{team.teamName}</h3>
-                  {team.groupNumber && (
-                    <div className="group-badge">Grupo {team.groupNumber}</div>
-                  )}
-                </div>
-
-                {/* Stats */}
-                <div className="stats-section">
-                  <div className="stat-item primary">
-                    <div className="stat-value">{team.points}</div>
-                    <div className="stat-label">PONTOS</div>
-                  </div>
-                  
-                  <div className="stat-item">
-                    <div className="stat-value wins">{team.wins}</div>
-                    <div className="stat-label">VITÓRIAS</div>
-                  </div>
-                  
-                  <div className="stat-item">
-                    <div className="stat-value losses">{team.losses}</div>
-                    <div className="stat-label">DERROTAS</div>
-                  </div>
-                  
-                  <div className="stat-item">
-                    <div className={`stat-value ${team.setsDiff >= 0 ? 'positive' : 'negative'}`}>
-                      {team.setsDiff >= 0 ? '+' : ''}{team.setsDiff}
-                    </div>
-                    <div className="stat-label">SALDO</div>
-                  </div>
-                  
-                  <div className="stat-item">
-                    <div className="stat-value sets">{team.setsWon}/{team.setsLost}</div>
-                    <div className="stat-label">SETS</div>
-                  </div>
-                  
-                  <div className="stat-item">
-                    <div className="stat-value percentage">{team.winRate.toFixed(0)}%</div>
-                    <div className="stat-label">APROVEIT.</div>
-                  </div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -433,6 +686,39 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
             </div>
           </div>
         </div>
+
+        {/* Bracket Eliminatório só se houver partidas eliminatórias */}
+        {eliminationMatches.length > 0 && (
+          <>
+            {renderEliminationBracket()}
+            <div className="tournament-footer">
+              <div className="footer-stats">
+                <div className="footer-stat">
+                  <span className="footer-label">Fase:</span>
+                  <span className="footer-value">Eliminatórias</span>
+                </div>
+                <div className="footer-stat">
+                  <span className="footer-label">Partidas Eliminatórias:</span>
+                  <span className="footer-value">{eliminationMatches.length}</span>
+                </div>
+                <div className="footer-stat">
+                  <span className="footer-label">Status:</span>
+                  <span className="footer-value">{event.status}</span>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {currentPhase === 'COMPLETED' && (
+          <div className="tournament-completed">
+            <div className="completion-message">
+              <h2>🏆 Torneio Finalizado</h2>
+              <p>Parabéns a todos os participantes!</p>
+            </div>
+            {renderEliminationBracket()}
+          </div>
+        )}
       </div>
     </div>
   );

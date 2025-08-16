@@ -24,12 +24,8 @@ const GroupRankings: React.FC<GroupRankingsProps> = ({
     }
   };
 
-  const getRankColor = (position: number, isQualified: boolean) => {
-    if (isQualified) {
-      return position === 1 
-        ? 'bg-gradient-to-r from-yellow-50 to-yellow-100 border-yellow-300'
-        : 'bg-gradient-to-r from-gray-50 to-gray-100 border-gray-300';
-    }
+  // Remove highlight for qualified teams
+  const getRankColor = () => {
     return 'bg-gray-50 border-gray-200';
   };
 
@@ -63,42 +59,62 @@ const GroupRankings: React.FC<GroupRankingsProps> = ({
               <h3 className="font-bold text-lg">Grupo {groupNumber}</h3>
             </div>
             <div className="p-4 space-y-3">
-              {rankings.map((team, index) => {
-                const position = index + 1;
-                const isQualified = position <= qualifiersPerGroup;
-                
-                return (
-                  <div
-                    key={team.teamId.join('|')}
-                    className={`p-3 rounded-lg border-2 ${getRankColor(position, isQualified)}`}
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      {getRankIcon(position)}
-                      <span className="font-semibold">{position}º</span>
-                      {isQualified && (
-                        <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">
-                          CLASSIFICADO
-                        </span>
-                      )}
-                    </div>
-                    <div className="font-medium text-gray-900 mb-2">
-                      {getTeamDisplayName(team.teamId)}
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div className="flex justify-between">
-                        <span>Saldo:</span>
-                        <span className={team.stats.gameDifference > 0 ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
-                          {team.stats.gameDifference > 0 ? '+' : ''}{team.stats.gameDifference}
-                        </span>
+              {(() => {
+                // Find the cutoff stats at the qualifiersPerGroup position (1-based)
+                let cutoffStats = null;
+                if (rankings.length >= qualifiersPerGroup) {
+                  const cutoffTeam = rankings[qualifiersPerGroup - 1];
+                  cutoffStats = cutoffTeam?.stats;
+                }
+                return rankings.map((team, index) => {
+                  const position = index + 1;
+                  // Mark as qualified if position <= qualifiersPerGroup OR tied with cutoff
+                  let isQualified = false;
+                  if (position <= qualifiersPerGroup) {
+                    isQualified = true;
+                  } else if (cutoffStats) {
+                    // Compare all tiebreaker stats used in sorting
+                    // Compare tiebreaker fields explicitly to avoid TS error
+                    const isTied =
+                      team.stats.gameDifference === cutoffStats.gameDifference &&
+                      team.stats.gamesWon === cutoffStats.gamesWon &&
+                      team.stats.wins === cutoffStats.wins &&
+                      team.stats.matchesPlayed === cutoffStats.matchesPlayed;
+                    isQualified = isTied;
+                  }
+                  return (
+                    <div
+                      key={team.teamId.join('|')}
+                      className={`p-3 rounded-lg border-2 ${getRankColor()}`}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        {getRankIcon(position)}
+                        <span className="font-semibold">{position}º</span>
+                        {isQualified && (
+                          <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">
+                            CLASSIFICADO
+                          </span>
+                        )}
                       </div>
-                      <div className="flex justify-between">
-                        <span>Vitórias:</span>
-                        <span className="font-medium text-blue-600">{team.stats.wins}</span>
+                      <div className="font-medium text-gray-900 mb-2">
+                        {getTeamDisplayName(team.teamId)}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div className="flex justify-between">
+                          <span>Saldo:</span>
+                          <span className={team.stats.gameDifference > 0 ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
+                            {team.stats.gameDifference > 0 ? '+' : ''}{team.stats.gameDifference}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Vitórias:</span>
+                          <span className="font-medium text-blue-600">{team.stats.wins}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
             </div>
           </div>
         ))}

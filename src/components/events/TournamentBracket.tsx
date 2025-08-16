@@ -29,7 +29,8 @@ import {
   OverallRanking,
   detectTieBreaksInRanking,
   removeTeamFromRanking,
-  updateEliminationBracket
+  updateEliminationBracket,
+  getRankedQualifiers
 } from '../../utils/rankingUtils';
 import { generateEliminationBracketWithSmartBye } from '../../utils/bracketFix';
 import TournamentRankings from '../TournamentRankings'; // Import the new component
@@ -1927,13 +1928,28 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                                     });
 
                                     // 1. Calcular ranking geral final
-                                    let allCompletedGroupMatches: Match[] = [];
+                                    // 1. CORREÇÃO: Calcular rankings por grupo e pegar os 2 melhores de cada grupo
+                                    console.log('🏆 Calculando rankings por grupo para classificação...');
+                                    
+                                    // Primeiro, calcular o ranking de cada grupo separadamente
+                                    const groupRankings: Record<number, GroupRanking[]> = {};
                                     for (const groupNum in matchesByStage.GROUP) {
-                                      allCompletedGroupMatches = allCompletedGroupMatches.concat(
-                                        matchesByStage.GROUP[groupNum].filter(match => match.completed)
-                                      );
+                                      const groupMatches = matchesByStage.GROUP[groupNum].filter(match => match.completed);
+                                      console.log(`Grupo ${groupNum}: ${groupMatches.length} partidas completadas`);
+                                      
+                                      if (groupMatches.length > 0) {
+                                        groupRankings[parseInt(groupNum)] = calculateGroupRankings(groupMatches, true);
+                                        console.log(`Ranking do Grupo ${groupNum}:`, groupRankings[parseInt(groupNum)]);
+                                      }
                                     }
-                                    let overallRankingsData = calculateOverallGroupStageRankings(allCompletedGroupMatches);
+                                    
+                                    // Agora usar getRankedQualifiers para pegar os 2 melhores de cada grupo
+                                    const qualifiersPerGroup = 2; // Beach Tennis: top 2 from each group
+                                    let overallRankingsData = getRankedQualifiers(groupRankings, qualifiersPerGroup);
+                                    
+                                    console.log(`📊 Total de grupos: ${Object.keys(groupRankings).length}`);
+                                    console.log(`📈 Qualificados esperados: ${Object.keys(groupRankings).length * qualifiersPerGroup}`);
+                                    console.log(`✅ Qualificados obtidos: ${overallRankingsData.length}`);
 
                                     // 2. Filtrar duplas eliminadas por desempate
                                     const eliminatedTeamsFromStorage = JSON.parse(

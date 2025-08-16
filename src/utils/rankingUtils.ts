@@ -1,3 +1,12 @@
+/**
+ * Verifica se uma partida está finalizada segundo os critérios oficiais do ranking
+ */
+export function isMatchCompleted(match: Match): boolean {
+  return !!(
+    match.team1 && match.team2 &&
+    match.score1 !== null && match.score2 !== null
+  );
+}
 import { Match, GroupTeamStats, GroupRanking, OverallRanking } from '../types';
 import { 
   calculateBeachTennisGroupRankings, 

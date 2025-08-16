@@ -1,14 +1,13 @@
 import React from 'react';
 import { useParams } from 'react-router-dom';
 import TournamentTransmission from '../../components/events/TournamentTransmission';
-import TransmissionTest from './TransmissionTest';
 import TransmissionDiagnostic from '../../components/events/TransmissionDiagnostic';
 
 const TransmissionPage: React.FC = () => {
   const { eventId } = useParams<{ eventId: string }>();
 
   // Usar diagnóstico temporariamente para debug
-  const useDiagnostic = true;
+  const useDiagnostic = false;
 
   if (useDiagnostic) {
     return <TransmissionDiagnostic />;

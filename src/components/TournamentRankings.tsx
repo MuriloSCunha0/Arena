@@ -322,7 +322,7 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({
                             {teamName}
                             {activeTab === 'overall' && entry.rank <= (overallRankings.filter(e => e.rank <= 2).length) && (
                               <div className="text-xs text-green-600 font-medium">
-                                Classificado para eliminatórias (Beach Tennis)
+                                {/* Classificado para eliminatórias removido */}
                               </div>
                             )}
                           </div>
