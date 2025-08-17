@@ -61,8 +61,8 @@ const toSupabaseEvent = (event: Partial<Event>) => {
   let teamFormation = event.teamFormation;
   let tournamentFormat = event.format;
   if (event.type === 'SUPER8') {
-    tournamentFormat = 'SUPER8';
-    teamFormation = 'RANDOM';
+    tournamentFormat = TournamentFormat.SUPER8;
+    teamFormation = TeamFormationType.RANDOM;
   }
   const basePayload = {
     type: event.type,

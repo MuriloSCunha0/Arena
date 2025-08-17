@@ -22,7 +22,7 @@ export type PaymentMethod = 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'CASH' | 'BAN
 export type PaymentStatus = 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'REFUNDED' | 'EXPIRED';
 export type ReservationStatus = 'CONFIRMED' | 'PENDING' | 'CANCELLED';
 export type TeamFormationType = 'FORMED' | 'RANDOM' | 'DRAFT';
-export type TournamentFormat = 'SINGLE_ELIMINATION' | 'DOUBLE_ELIMINATION' | 'ROUND_ROBIN' | 'SWISS' | 'GROUP_STAGE_ELIMINATION';
+export type TournamentFormat = 'SINGLE_ELIMINATION' | 'DOUBLE_ELIMINATION' | 'ROUND_ROBIN' | 'SWISS' | 'GROUP_STAGE_ELIMINATION'| 'SUPER8';
 export type TransactionType = 'INCOME' | 'EXPENSE' | 'REFUND' | 'COMMISSION';
 export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
 

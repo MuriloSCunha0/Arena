@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { useTournamentStore, useParticipantsStore, useCourtsStore } from '../../store';
 import { useNotificationStore } from '../ui/Notification';
-import { Match, Participant, Court, TeamFormationType, EventType } from '../../types';
+import { Match, Participant, Court, TeamFormationType, EventType, TournamentFormat } from '../../types';
 import { Modal } from '../ui/Modal';
 import { 
   calculateGroupRankings, 
@@ -605,7 +605,13 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       
 
       let teamsOrParticipants: any[] = [];
-      let options = {
+      let options: {
+        forceReset: boolean;
+        groupSize: number;
+        maxTeamsPerGroup: number;
+        autoCalculateGroups: boolean;
+        format?: TournamentFormat;
+      } = {
         forceReset,
         groupSize: traditionalGroupSize,
         maxTeamsPerGroup: maxTeamsPerGroup,
