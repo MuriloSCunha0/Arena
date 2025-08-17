@@ -4,7 +4,8 @@ export enum EventType {
   TOURNAMENT = 'TOURNAMENT',
   POOL = 'POOL',
   FRIENDLY = 'FRIENDLY',
-  CHAMPIONSHIP = 'CHAMPIONSHIP'
+  CHAMPIONSHIP = 'CHAMPIONSHIP',
+  SUPER8 = 'SUPER8', // Novo tipo para eventos Super 8
 }
 
 export enum TeamFormationType {
@@ -35,6 +36,7 @@ export interface Event {
   bannerImageUrl: string;
   images?: string[];
   teamFormation: TeamFormationType;
+  format?: TournamentFormat;
   categories: string[];
   ageRestrictions?: Record<string, any>;
   skillLevel?: string;
@@ -49,7 +51,6 @@ export interface Event {
   status?: EventStatus;
   settings?: TournamentSettings;
   entry_fee?: number; // Manter para compatibilidade
-  format?: TournamentFormat; // Permitir formato opcional para eventos especiais
 }
 
 export interface Participant {
@@ -208,7 +209,7 @@ export enum TournamentFormat {
   ROUND_ROBIN = 'ROUND_ROBIN',
   SWISS = 'SWISS',
   GROUP_STAGE_ELIMINATION = 'GROUP_STAGE_ELIMINATION',
-  SUPER8 = 'SUPER8'
+  SUPER8 = 'SUPER8', // Novo formato para Super 8
 }
 
 export interface Tournament {

@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { useTournamentStore, useParticipantsStore, useCourtsStore } from '../../store';
 import { useNotificationStore } from '../ui/Notification';
-import { Match, Participant, Court, TeamFormationType, EventType } from '../../types';
+import { Match, Participant, Court, TeamFormationType, EventType, TournamentFormat } from '../../types';
 import { Modal } from '../ui/Modal';
 import { 
   calculateGroupRankings, 
@@ -29,7 +29,8 @@ import {
   OverallRanking,
   detectTieBreaksInRanking,
   removeTeamFromRanking,
-  updateEliminationBracket
+  updateEliminationBracket,
+  getRankedQualifiers
 } from '../../utils/rankingUtils';
 import { generateEliminationBracketWithSmartBye } from '../../utils/bracketFix';
 import TournamentRankings from '../TournamentRankings'; // Import the new component
@@ -602,26 +603,39 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
         return;
       }
       
-      // Use the service method that respects event team formation
-      console.log('👥 [handleGenerateFormedStructureWithConfig] Forming teams...');
-      const { teams } = TournamentService.formTeamsFromParticipants(
-        eventParticipants,
-        TeamFormationType.FORMED,
-        { groupSize: traditionalGroupSize }
-      );
 
-      console.log('👥 [handleGenerateFormedStructureWithConfig] Teams formed:', teams.length);
-
-      const options = {
+      let teamsOrParticipants: any[] = [];
+      let options: {
+        forceReset: boolean;
+        groupSize: number;
+        maxTeamsPerGroup: number;
+        autoCalculateGroups: boolean;
+        format?: TournamentFormat;
+      } = {
         forceReset,
         groupSize: traditionalGroupSize,
         maxTeamsPerGroup: maxTeamsPerGroup,
         autoCalculateGroups: autoCalculateGroups
       };
 
-      console.log('🎯 [handleGenerateFormedStructureWithConfig] Calling generateFormedStructure with options:', options);
+      if (currentEvent?.type === EventType.SUPER8) {
+        // Para Super 8, passar os participantes individuais
+        teamsOrParticipants = eventParticipants.map(p => [p.id]);
+        options = { ...options, format: TournamentFormat.SUPER8 };
+        console.log('🎯 [handleGenerateFormedStructureWithConfig] SUPER8: passando participantes individuais:', teamsOrParticipants);
+      } else {
+        // Para outros formatos, formar as duplas normalmente
+        const { teams } = TournamentService.formTeamsFromParticipants(
+          eventParticipants,
+          TeamFormationType.FORMED,
+          { groupSize: traditionalGroupSize }
+        );
+        teamsOrParticipants = teams;
+        console.log('👥 [handleGenerateFormedStructureWithConfig] Teams formed:', teams.length);
+      }
 
-      await generateFormedStructure(eventId, teams, options);
+      console.log('🎯 [handleGenerateFormedStructureWithConfig] Calling generateFormedStructure with options:', options);
+      await generateFormedStructure(eventId, teamsOrParticipants, options, currentEvent?.type);
 
       console.log('✅ [handleGenerateFormedStructureWithConfig] generateFormedStructure completed');
 
@@ -1927,13 +1941,28 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                                     });
 
                                     // 1. Calcular ranking geral final
-                                    let allCompletedGroupMatches: Match[] = [];
+                                    // 1. CORREÇÃO: Calcular rankings por grupo e pegar os 2 melhores de cada grupo
+                                    console.log('🏆 Calculando rankings por grupo para classificação...');
+                                    
+                                    // Primeiro, calcular o ranking de cada grupo separadamente
+                                    const groupRankings: Record<number, GroupRanking[]> = {};
                                     for (const groupNum in matchesByStage.GROUP) {
-                                      allCompletedGroupMatches = allCompletedGroupMatches.concat(
-                                        matchesByStage.GROUP[groupNum].filter(match => match.completed)
-                                      );
+                                      const groupMatches = matchesByStage.GROUP[groupNum].filter(match => match.completed);
+                                      console.log(`Grupo ${groupNum}: ${groupMatches.length} partidas completadas`);
+                                      
+                                      if (groupMatches.length > 0) {
+                                        groupRankings[parseInt(groupNum)] = calculateGroupRankings(groupMatches, true);
+                                        console.log(`Ranking do Grupo ${groupNum}:`, groupRankings[parseInt(groupNum)]);
+                                      }
                                     }
-                                    let overallRankingsData = calculateOverallGroupStageRankings(allCompletedGroupMatches);
+                                    
+                                    // Agora usar getRankedQualifiers para pegar os 2 melhores de cada grupo
+                                    const qualifiersPerGroup = 2; // Beach Tennis: top 2 from each group
+                                    let overallRankingsData = getRankedQualifiers(groupRankings, qualifiersPerGroup);
+                                    
+                                    console.log(`📊 Total de grupos: ${Object.keys(groupRankings).length}`);
+                                    console.log(`📈 Qualificados esperados: ${Object.keys(groupRankings).length * qualifiersPerGroup}`);
+                                    console.log(`✅ Qualificados obtidos: ${overallRankingsData.length}`);
 
                                     // 2. Filtrar duplas eliminadas por desempate
                                     const eliminatedTeamsFromStorage = JSON.parse(
