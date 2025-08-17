@@ -60,7 +60,8 @@ const toSupabaseEvent = (event: Partial<Event>) => {
   // Garante integridade: se for SUPER8, força os campos corretos
   let teamFormation = event.teamFormation;
   let tournamentFormat = event.format;
-  if (event.type === 'SUPER8') {
+  // Corrigir: SUPER8 é um TournamentFormat, não EventType
+  if (event.format === TournamentFormat.SUPER8) {
     tournamentFormat = TournamentFormat.SUPER8;
     teamFormation = TeamFormationType.RANDOM;
   }

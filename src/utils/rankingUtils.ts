@@ -1,183 +1,54 @@
 /**
- * Gera todas as partidas do formato Super 8 (todos jogam com e contra todos, duplas variando)
- * @param participantIds Array de IDs dos participantes
- * @returns Array de partidas (Match[])
+ * Gera todas as partidas do rodízio Super 8 (rodízio de duplas).
+ * Cada jogador faz dupla com todos os outros pelo menos uma vez, sem repetições de duplas.
+ * @param participantIds Array de IDs dos participantes (deve ser par e >= 4)
+ * @returns Array de partidas no formato Match[]
  */
 export function generateSuper8Matches(participantIds: string[]): Match[] {
-  // Rodízio de duplas: cada jogador joga com todos os outros exatamente uma vez como parceiro
-  // e nunca repete a mesma dupla. Cada rodada: todos jogam, ninguém fica de fora.
-  const n = participantIds.length;
-  if (n < 4 || n % 2 !== 0) {
+  if (participantIds.length < 4 || participantIds.length % 2 !== 0) {
     throw new Error('O Super 8 exige número par de participantes (mínimo 4)');
   }
 
-  // Algoritmo de rodízio: round robin de duplas variáveis sem repetição
-  // Fonte: https://en.wikipedia.org/wiki/Round-robin_tournament#Scheduling_algorithm
-  // Cada rodada: n participantes, n/2 duplas, n/4 partidas
-  // Garante que cada dupla só joga junta uma vez
-
-  // Gera todas as duplas possíveis (cada dupla só aparece uma vez)
-  const allDuplas: [string, string][] = [];
-  for (let i = 0; i < n; i++) {
-    for (let j = i + 1; j < n; j++) {
-      allDuplas.push([participantIds[i], participantIds[j]]);
+  // Gerar todas as duplas possíveis sem repetição
+  const duplas: string[][] = [];
+  for (let i = 0; i < participantIds.length; i++) {
+    for (let j = i + 1; j < participantIds.length; j++) {
+      duplas.push([participantIds[i], participantIds[j]]);
     }
   }
 
-  // Marca duplas já usadas
-  const duplaUsada = new Set<string>();
-  // Marca jogadores já escalados na rodada
-  let matchId = 1;
+  // Gerar todas as combinações de confrontos entre duplas, sem repetir jogadores
   const matches: Match[] = [];
-  let rodada = 1;
-  // Número máximo de rodadas: (n-1) para garantir todos com todos
-  // Em cada rodada, todos jogam, ninguém repete dupla
-  // O algoritmo abaixo tenta formar o máximo de partidas por rodada sem repetir dupla
-  // e sem repetir jogador na mesma rodada
-  const maxRodadas = n - 1;
-  const duplasPorRodada = n / 2;
-  const partidasPorRodada = n / 4;
-
-  // Copia das duplas para manipulação
-  let duplasRestantes = [...allDuplas];
-
-  while (duplasRestantes.length > 0) {
-    const rodadaDuplas: [string, string][] = [];
-    const jogadoresUsados = new Set<string>();
-
-    // Formar duplas para a rodada sem repetir jogadores
-    for (let i = 0; i < duplasRestantes.length; i++) {
-      const [a, b] = duplasRestantes[i];
-      if (!jogadoresUsados.has(a) && !jogadoresUsados.has(b)) {
-        rodadaDuplas.push([a, b]);
-        jogadoresUsados.add(a);
-        jogadoresUsados.add(b);
-        // Marca dupla como usada
-        duplaUsada.add(`${a}|${b}`);
-        if (rodadaDuplas.length === duplasPorRodada) break;
+  for (let i = 0; i < duplas.length; i++) {
+    for (let j = i + 1; j < duplas.length; j++) {
+      const duplaA = duplas[i];
+      const duplaB = duplas[j];
+      // Duplas não podem ter jogadores em comum
+      if (duplaA.every(p => !duplaB.includes(p))) {
+        matches.push({
+          id: generateUUID(),
+          team1: duplaA,
+          team2: duplaB,
+          round: 1, // O agrupamento em rodadas pode ser feito depois
+          position: matches.length + 1,
+          score1: null,
+          score2: null,
+          completed: false,
+          winnerId: null,
+          courtId: null,
+          scheduledTime: null,
+          stage: 'GROUP',
+          groupNumber: 1,
+          eventId: '',
+          tournamentId: '',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
       }
     }
-
-    // Remove duplas usadas nesta rodada da lista de duplas restantes
-    duplasRestantes = duplasRestantes.filter(([a, b]) => !duplaUsada.has(`${a}|${b}`));
-
-    // Agora, formar partidas entre as duplas da rodada, sem repetir jogadores
-    const partidasRodada: [number, number][] = [];
-    const duplasUsadasNaPartida = new Set<number>();
-    for (let i = 0; i < rodadaDuplas.length; i++) {
-      for (let j = i + 1; j < rodadaDuplas.length; j++) {
-        const dupla1 = rodadaDuplas[i];
-        const dupla2 = rodadaDuplas[j];
-        // Verifica se as duplas não compartilham nenhum jogador
-        if (
-          dupla1[0] !== dupla2[0] &&
-          dupla1[0] !== dupla2[1] &&
-          dupla1[1] !== dupla2[0] &&
-          dupla1[1] !== dupla2[1]
-        ) {
-          // Garante que cada dupla só jogue uma vez por rodada
-          if (!duplasUsadasNaPartida.has(i) && !duplasUsadasNaPartida.has(j)) {
-            partidasRodada.push([i, j]);
-            duplasUsadasNaPartida.add(i);
-            duplasUsadasNaPartida.add(j);
-            if (partidasRodada.length === partidasPorRodada) break;
-          }
-        }
-      }
-      if (partidasRodada.length === partidasPorRodada) break;
-    }
-
-    // Adiciona partidas da rodada
-    for (const [i, j] of partidasRodada) {
-      const dupla1 = rodadaDuplas[i];
-      const dupla2 = rodadaDuplas[j];
-      matches.push({
-        id: `super8-${matchId++}`,
-        team1: dupla1,
-        team2: dupla2,
-        score1: null,
-        score2: null,
-        completed: false,
-        round: rodada,
-        position: matches.length + 1,
-        stage: 'GROUP',
-        groupNumber: 1,
-        eventId: '',
-        tournamentId: '',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        winnerId: null,
-        scheduledTime: null,
-      });
-    }
-
-    rodada++;
-    if (rodada > maxRodadas * 2) break; // Segurança para evitar loop infinito
   }
 
   return matches;
-}
-
-/**
- * Calcula o ranking individual do Super 8 a partir das partidas (standings_data)
- * @param matches Array de partidas (Match[])
- * @returns Array de objetos de ranking individual
- */
-export function calculateSuper8IndividualRanking(matches: Match[]) {
-  // Mapa de estatísticas por jogador
-  const stats: Record<string, {
-    wins: number;
-    losses: number;
-    gamesWon: number;
-    gamesLost: number;
-    matchesPlayed: number;
-    gameDifference: number;
-  }> = {};
-  matches.forEach(match => {
-    if (!match.completed || !match.team1 || !match.team2) return;
-    const t1 = match.team1;
-    const t2 = match.team2;
-    const s1 = match.score1 ?? 0;
-    const s2 = match.score2 ?? 0;
-    // Inicializa stats
-    [...t1, ...t2].forEach(pid => {
-      if (!stats[pid]) stats[pid] = { wins: 0, losses: 0, gamesWon: 0, gamesLost: 0, matchesPlayed: 0, gameDifference: 0 };
-    });
-    // Atualiza stats
-    t1.forEach(pid => {
-      stats[pid].gamesWon += s1;
-      stats[pid].gamesLost += s2;
-      stats[pid].matchesPlayed++;
-      if (s1 > s2) stats[pid].wins++;
-      else stats[pid].losses++;
-    });
-    t2.forEach(pid => {
-      stats[pid].gamesWon += s2;
-      stats[pid].gamesLost += s1;
-      stats[pid].matchesPlayed++;
-      if (s2 > s1) stats[pid].wins++;
-      else stats[pid].losses++;
-    });
-  });
-  // Calcula saldo
-  Object.values(stats).forEach(s => { s.gameDifference = s.gamesWon - s.gamesLost; });
-  // Gera array ordenado
-  return Object.entries(stats)
-    .map(([playerId, s]) => ({ playerId, ...s }))
-    .sort((a, b) =>
-      b.wins - a.wins ||
-      b.gameDifference - a.gameDifference ||
-      b.gamesWon - a.gamesWon
-    );
-}
-/**
- * Verifica se uma partida está finalizada segundo os critérios oficiais do ranking
- */
-export function isMatchCompleted(match: Match): boolean {
-  return !!(
-    match.team1 && match.team2 &&
-    match.score1 !== null && match.score2 !== null
-  );
 }
 import { Match, GroupTeamStats, GroupRanking, OverallRanking } from '../types';
 import { 
@@ -248,7 +119,7 @@ export const calculateGroupRankings = (
   const teamStats = new Map<string, TeamStatistics>();
 
   // Process each completed match
-  matches.forEach((match) => {
+  matches.forEach((match: Match) => {
     if (!match.completed || !match.team1 || !match.team2 || 
         match.score1 === null || match.score2 === null) {
       return;
@@ -407,7 +278,7 @@ export const calculateGroupRankings = (
   });
 
   // Assign ranks and positions
-  rankings.forEach((ranking, index) => {
+  rankings.forEach((ranking: any, index: number) => {
     ranking.rank = index + 1;
     ranking.position = index + 1; // Set position equal to rank
   });
@@ -469,7 +340,7 @@ export function generateEliminationBracket(
   const qualifiedTeams: string[][] = [];
 
   // Extract qualified teams from each group
-  Object.values(groupRankings).forEach(rankings => {
+  Object.values(groupRankings).forEach((rankings: any) => {
     for (let i = 0; i < Math.min(qualifiersPerGroup, rankings.length); i++) {
       qualifiedTeams.push(rankings[i].teamId);
     }
@@ -553,7 +424,7 @@ export function getRankedQualifiers(
   const qualifiedTeams: OverallRanking[] = [];
 
   // Extract qualified teams from each group
-  Object.entries(groupRankings).forEach(([groupNum, rankings]) => {
+  Object.entries(groupRankings).forEach(([groupNum, rankings]: [string, any]) => {
     const groupNumber = parseInt(groupNum);
     for (let i = 0; i < Math.min(qualifiersPerGroup, rankings.length); i++) {
       const team = rankings[i];
@@ -609,7 +480,7 @@ export function getRankedQualifiers(
   });
 
   // Assign overall ranks
-  qualifiedTeams.forEach((team, index) => {
+  qualifiedTeams.forEach((team: any, index: number) => {
     team.rank = index + 1;
   });
 
@@ -624,7 +495,7 @@ export function calculateOverallGroupStageRankings(allGroupMatches: Match[]): Ov
   const teamStats = new Map<string, TeamStatisticsExtended>();
 
   // Process all group matches to build comprehensive statistics
-  allGroupMatches.forEach((match) => {
+  allGroupMatches.forEach((match: Match) => {
     if (!match.completed || !match.team1 || !match.team2 || 
         match.score1 === null || match.score2 === null) {
       return;
@@ -916,7 +787,7 @@ export function generateEliminationBracketWithSmartBye(
   const totalTeams = sortedTeams.length;
   
   console.log(`🎾 [BEACH TENNIS BRACKET] Gerando bracket para ${totalTeams} duplas qualificadas`);
-  sortedTeams.forEach((team, index) => {
+  sortedTeams.forEach((team: any, index: number) => {
     console.log(`   ${index + 1}. ${team.rank}º lugar - ${team.teamId.join(' & ')} (Grupo ${team.groupNumber}, SG: ${team.stats?.gameDifference || 0})`);
   });
   
@@ -1042,7 +913,7 @@ export function generateEliminationBracketWithSmartBye(
       const pairings = generateOptimalPairings(teamsWithoutByes);
       let position = 1;
       
-      pairings.forEach((pair) => {
+  pairings.forEach((pair: any) => {
         const match = createMatch(pair[0].teamId, pair[1].teamId, 1, position++);
         matches.push(match);
         console.log(`⚔️ R1-${match.position}: ${pair[0].rank}º vs ${pair[1].rank}º`);
@@ -1099,7 +970,7 @@ function createMatchWithNextMatch(
  * Pré-popula times que receberam BYE na segunda rodada
  */
 function populateByeAdvancements(matches: Match[], teamsWithByes: OverallRanking[]): void {
-  teamsWithByes.forEach((team, index) => {
+  teamsWithByes.forEach((team: any, index: number) => {
     if (index < matches.length) {
       const targetMatch = matches[index];
       
@@ -1276,7 +1147,7 @@ export function removeTeamFromRanking(
   );
   
   // Recalcular ranks
-  updatedRankings.forEach((team, index) => {
+  updatedRankings.forEach((team: any, index: number) => {
     team.rank = index + 1;
   });
   
@@ -1431,7 +1302,7 @@ export function getByeStatistics(matches: Match[]): {
   const pendingByes = byeMatches.filter(match => !match.completed);
   
   const teamsWithByes: string[][] = [];
-  byeMatches.forEach(match => {
+  byeMatches.forEach((match: Match) => {
     const advancingTeam = getByeAdvancingTeam(match);
     if (advancingTeam && !teamsWithByes.some(team => 
       team.join('|') === advancingTeam.join('|')
@@ -1457,18 +1328,18 @@ export function debugBracketStructure(matches: Match[]): void {
   console.log('\n🔍 [DEBUG] Estrutura do Bracket:');
   
   const rounds = new Map<number, Match[]>();
-  matches.forEach(match => {
+  matches.forEach((match: Match) => {
     if (!rounds.has(match.round)) {
       rounds.set(match.round, []);
     }
     rounds.get(match.round)!.push(match);
   });
   
-  rounds.forEach((roundMatches, roundNumber) => {
+  rounds.forEach((roundMatches: any, roundNumber: number) => {
     console.log(`\n📋 Rodada ${roundNumber}:`);
     roundMatches
-      .sort((a, b) => a.position - b.position)
-      .forEach(match => {
+  .sort((a: any, b: any) => a.position - b.position)
+  .forEach((match: Match) => {
         const team1 = match.team1?.join(' & ') || 'TBD';
         const team2 = match.team2?.join(' & ') || 'TBD';
         const isBye = hasBye(match);

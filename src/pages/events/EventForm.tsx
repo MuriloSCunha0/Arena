@@ -8,7 +8,7 @@ import {
   DollarSign, Users, Trophy, Tag, Eye, Loader2, Link,
   Percent, List, ShieldCheck, Save, X, Plus, Trash2
 } from 'lucide-react';
-import { Event, EventType, TeamFormationType, TournamentFormat } from '../../types';
+import { Event, EventType, TeamFormationType } from '../../types';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { useEventsStore, useCourtsStore, useOrganizersStore } from '../../store';
@@ -23,7 +23,6 @@ import { TournamentCard } from '../../components/tournaments/TournamentCards';
 
 const eventSchema = z.object({
   type: z.nativeEnum(EventType),
-  format: z.nativeEnum(TournamentFormat).optional(),
   title: z.string().min(3, 'Título deve ter pelo menos 3 caracteres'),
   description: z.string().optional(),
   location: z.string().min(3, 'Localização deve ter pelo menos 3 caracteres'),
@@ -81,7 +80,6 @@ export const EventForm = () => {
     resolver: zodResolver(eventSchema),
     defaultValues: {
       type: EventType.TOURNAMENT,
-      format: TournamentFormat.GROUP_STAGE_ELIMINATION,
       title: '',
       description: '',
       location: 'Arena Conexão',
@@ -103,20 +101,6 @@ export const EventForm = () => {
       },
     }
   });
-
-
-  const watchedType = watch('type');
-  const watchedFormat = watch('format');
-
-  // Sempre que o tipo for SUPER8, força o format para SUPER8 e teamFormation para RANDOM (individual)
-  useEffect(() => {
-    if (watchedType === EventType.SUPER8) {
-      if (watchedFormat !== TournamentFormat.SUPER8) {
-        setValue('format', TournamentFormat.SUPER8);
-      }
-      setValue('teamFormation', TeamFormationType.RANDOM);
-    }
-  }, [watchedType, watchedFormat, setValue]);
 
   const watchedFormData = watch();
 
@@ -191,14 +175,8 @@ export const EventForm = () => {
 
   const onSubmit = async (data: EventFormValues) => {
     try {
-      // Se o tipo for SUPER8, força o formato para SUPER8
-      let format = data.format;
-      if (data.type === EventType.SUPER8) {
-        format = TournamentFormat.SUPER8;
-      }
       const eventData: Partial<Event> = {
         ...data,
-        format,
         price: Number(data.price),
         maxParticipants: Number(data.maxParticipants),
         organizerCommissionRate: data.organizerCommissionRate !== null && data.organizerCommissionRate !== undefined ? Number(data.organizerCommissionRate) : undefined,
@@ -237,7 +215,7 @@ export const EventForm = () => {
 
         <fieldset className="border border-brand-gray p-4 rounded-lg">
           <legend className="text-sm font-medium text-brand-blue px-2 flex items-center"><Info size={16} className="mr-1" />Informações Básicas</legend>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
             <div>
               <Label htmlFor="title">Título do Evento</Label>
               <Input id="title" {...register('title')} error={errors.title?.message} />
@@ -251,22 +229,6 @@ export const EventForm = () => {
                   <Select id="type" {...field} error={!!errors.type}>
                     <option value={EventType.TOURNAMENT}>Torneio</option>
                     <option value={EventType.POOL}>Bolão</option>
-                    <option value={EventType.SUPER8}>Super 8</option>
-                  </Select>
-                )}
-              />
-            </div>
-            <div>
-              <Label htmlFor="format">Formato</Label>
-              <Controller
-                name="format"
-                control={control}
-                render={({ field }) => (
-                  <Select id="format" {...field} error={!!errors.format}>
-                    <option value={TournamentFormat.GROUP_STAGE_ELIMINATION}>Grupos + Eliminatória</option>
-                    <option value={TournamentFormat.SINGLE_ELIMINATION}>Eliminatória Simples</option>
-                    <option value={TournamentFormat.ROUND_ROBIN}>Todos contra Todos</option>
-                    <option value={TournamentFormat.SUPER8}>Super 8 (Individual)</option>
                   </Select>
                 )}
               />

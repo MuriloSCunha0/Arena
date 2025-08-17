@@ -9,8 +9,7 @@ import {
   hasBye,
   getByeAdvancingTeam,
   detectTieBreaksInRanking,
-  cleanPhantomMatchesAdvanced,
-  calculateSuper8IndividualRanking
+  cleanPhantomMatchesAdvanced
 } from '../utils/rankingUtils';
 import { validateBeachTennisRules } from '../utils/beachTennisRules';
 import { Match } from '../types';
@@ -253,56 +252,6 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({
     window.alert(`Dupla ${eliminatedTeam.teamId.map(id => playerNameMap?.[id] || 'Desconhecido').join(' & ')} foi eliminada do ranking geral.`);
   };
 
-  // Novo: Ranking individual Super 8
-  const renderSuper8IndividualRanking = () => {
-    if (!tournament) return null;
-    const matches = tournament.matches || [];
-    const ranking = calculateSuper8IndividualRanking(matches);
-    if (ranking.length === 0) {
-      return <p className="text-gray-500 text-center">Nenhum ranking disponível para Super 8.</p>;
-    }
-    return (
-      <div className="space-y-6">
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-xl font-bold">Ranking Individual (Super 8)</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">#</th>
-                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Jogador</th>
-                <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">Vitórias</th>
-                <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">Derrotas</th>
-                <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">Saldo</th>
-                <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">Games Ganhos</th>
-                <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">Games Perdidos</th>
-                <th className="px-3 py-2 text-center font-medium text-gray-500 uppercase tracking-wider">Partidas</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {ranking.map((entry, idx) => {
-                const playerName = (playerNameMap && playerNameMap[entry.playerId]) || (localPlayerNameMap && localPlayerNameMap[entry.playerId]) || entry.playerId;
-                return (
-                  <tr key={entry.playerId}>
-                    <td className="px-3 py-2 whitespace-nowrap font-medium">{idx + 1}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{playerName}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-center font-medium">{entry.wins}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-center">{entry.losses}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-center">{entry.gameDifference > 0 ? `+${entry.gameDifference}` : entry.gameDifference}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-center">{entry.gamesWon}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-center">{entry.gamesLost}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-center">{entry.matchesPlayed}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-  };
-
   const renderTabContent = () => {
     const getLegend = () => (
       <div className="bg-blue-50 p-3 mb-4 rounded-lg border border-blue-100 text-sm">
@@ -373,7 +322,7 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({
                             {teamName}
                             {activeTab === 'overall' && entry.rank <= (overallRankings.filter(e => e.rank <= 2).length) && (
                               <div className="text-xs text-green-600 font-medium">
-                                {/* Classificado para eliminatórias removido */}
+                                Classificado para eliminatórias (Beach Tennis)
                               </div>
                             )}
                           </div>
@@ -398,10 +347,6 @@ const TournamentRankings: React.FC<TournamentRankingsProps> = ({
       );
     };
 
-    // Se for SUPER8, mostrar ranking individual
-    if (tournament && tournament.format === 'SUPER8') {
-      return renderSuper8IndividualRanking();
-    }
     switch (activeTab) {
       case 'overall':
         if (overallRankings.length === 0) {
