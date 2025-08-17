@@ -21,7 +21,8 @@ interface TournamentState {
       forceReset?: boolean;
       maxTeamsPerGroup?: number;
       autoCalculateGroups?: boolean;
-    }
+    },
+    eventType?: string
   ) => Promise<void>;
   generateRandomStructure: (
     eventId: string,
@@ -45,12 +46,17 @@ interface TournamentState {
   resetTournamentState: () => void; // Added reset function
   // Adicionar função para forçar refresh completo dos dados
   forceRefreshTournament: (eventId: string) => Promise<void>;
-  generateFormedBracket: (eventId: string, teams: string[][], options?: { 
-    forceReset?: boolean;
-    groupSize?: number;
-    maxTeamsPerGroup?: number;
-    autoCalculateGroups?: boolean;
-  }) => Promise<void>;
+  generateFormedBracket: (
+    eventId: string,
+    teams: string[][],
+    options?: { 
+      forceReset?: boolean;
+      groupSize?: number;
+      maxTeamsPerGroup?: number;
+      autoCalculateGroups?: boolean;
+    },
+    eventType?: string
+  ) => Promise<void>;
   generateRandomBracketAndGroups: (eventId: string, teams: string[][], options?: { 
     forceReset?: boolean;
     groupSize?: number;
@@ -102,7 +108,8 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
       forceReset?: boolean;
       maxTeamsPerGroup?: number;
       autoCalculateGroups?: boolean;
-    }
+    },
+    eventType?: string
   ) => {
     try {
       set({ loading: true, error: null, isNewTournament: false });
@@ -110,11 +117,19 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
       console.log(`Generating formed structure for event ${eventId} with ${teams.length} teams`);
       console.log('Group options:', options);
       
+
+      // Se for SUPER8, força o format correto
+      let teamFormationType = TeamFormationType.FORMED;
+      const extraOptions: typeof options & { format?: string } = { ...options };
+      if (eventType === 'SUPER8') {
+        extraOptions.format = 'SUPER8';
+      }
+
       const tournament = await TournamentService.generateTournamentStructure(
         eventId,
         teams,
-        TeamFormationType.FORMED,
-        options
+        teamFormationType,
+        extraOptions
       );
       
       console.log(`Tournament generated successfully for event ${eventId}:`, tournament.id);
@@ -427,14 +442,19 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
   }),
 
   // Alias para manter compatibilidade com código existente
-  generateFormedBracket: async (eventId: string, teams: string[][], options?: { 
-    forceReset?: boolean;
-    groupSize?: number;
-    maxTeamsPerGroup?: number;
-    autoCalculateGroups?: boolean;
-  }) => {
+  generateFormedBracket: async (
+    eventId: string,
+    teams: string[][],
+    options?: { 
+      forceReset?: boolean;
+      groupSize?: number;
+      maxTeamsPerGroup?: number;
+      autoCalculateGroups?: boolean;
+    },
+    eventType?: string
+  ) => {
     // Reutiliza a implementação existente
-    return get().generateFormedStructure(eventId, teams, options);
+    return get().generateFormedStructure(eventId, teams, options, eventType);
   },
   // Alias para manter compatibilidade com código existente
   generateRandomBracketAndGroups: async (eventId: string, teams: string[][], options?: { 

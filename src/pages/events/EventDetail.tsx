@@ -124,8 +124,8 @@ export const EventDetail: React.FC = () => {
   const tabs: { id: TabType; label: string; icon: React.ElementType }[] = [
     { id: 'details', label: 'Detalhes', icon: Info },
     { id: 'participants', label: 'Participantes', icon: Users },
-    // Explicitly type the conditionally added object
-    ...(currentEvent?.type === EventType.TOURNAMENT
+    // Show bracket tab for both TOURNAMENT and SUPER8 event types
+    ...(currentEvent?.type === EventType.TOURNAMENT || currentEvent?.type === EventType.SUPER8
       ? [{ id: 'bracket' as TabType, label: 'Chaveamento', icon: Trophy }]
       : []),
     { id: 'financials', label: 'Financeiro', icon: DollarSign },
@@ -345,7 +345,8 @@ export const EventDetail: React.FC = () => {
 
           {/* Other Tab Contents */}
           {activeTab === 'participants' && <ParticipantsList eventId={id || ''} />}
-          {activeTab === 'bracket' && currentEvent.type === EventType.TOURNAMENT && <TournamentBracket eventId={id || ''} />}
+          {/* Show TournamentBracket for both TOURNAMENT and SUPER8 event types */}
+          {activeTab === 'bracket' && (currentEvent.type === EventType.TOURNAMENT || currentEvent.type === EventType.SUPER8) && <TournamentBracket eventId={id || ''} />}
           {activeTab === 'financials' && <EventFinancial eventId={id || ''} />}
           {activeTab === 'registration' && <RegistrationLink event={currentEvent} />}
         </div>

@@ -1,4 +1,176 @@
 /**
+ * Gera todas as partidas do formato Super 8 (todos jogam com e contra todos, duplas variando)
+ * @param participantIds Array de IDs dos participantes
+ * @returns Array de partidas (Match[])
+ */
+export function generateSuper8Matches(participantIds: string[]): Match[] {
+  // Rodízio de duplas: cada jogador joga com todos os outros exatamente uma vez como parceiro
+  // e nunca repete a mesma dupla. Cada rodada: todos jogam, ninguém fica de fora.
+  const n = participantIds.length;
+  if (n < 4 || n % 2 !== 0) {
+    throw new Error('O Super 8 exige número par de participantes (mínimo 4)');
+  }
+
+  // Algoritmo de rodízio: round robin de duplas variáveis sem repetição
+  // Fonte: https://en.wikipedia.org/wiki/Round-robin_tournament#Scheduling_algorithm
+  // Cada rodada: n participantes, n/2 duplas, n/4 partidas
+  // Garante que cada dupla só joga junta uma vez
+
+  // Gera todas as duplas possíveis (cada dupla só aparece uma vez)
+  const allDuplas: [string, string][] = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      allDuplas.push([participantIds[i], participantIds[j]]);
+    }
+  }
+
+  // Marca duplas já usadas
+  const duplaUsada = new Set<string>();
+  // Marca jogadores já escalados na rodada
+  let matchId = 1;
+  const matches: Match[] = [];
+  let rodada = 1;
+  // Número máximo de rodadas: (n-1) para garantir todos com todos
+  // Em cada rodada, todos jogam, ninguém repete dupla
+  // O algoritmo abaixo tenta formar o máximo de partidas por rodada sem repetir dupla
+  // e sem repetir jogador na mesma rodada
+  const maxRodadas = n - 1;
+  const duplasPorRodada = n / 2;
+  const partidasPorRodada = n / 4;
+
+  // Copia das duplas para manipulação
+  let duplasRestantes = [...allDuplas];
+
+  while (duplasRestantes.length > 0) {
+    const rodadaDuplas: [string, string][] = [];
+    const jogadoresUsados = new Set<string>();
+
+    // Formar duplas para a rodada sem repetir jogadores
+    for (let i = 0; i < duplasRestantes.length; i++) {
+      const [a, b] = duplasRestantes[i];
+      if (!jogadoresUsados.has(a) && !jogadoresUsados.has(b)) {
+        rodadaDuplas.push([a, b]);
+        jogadoresUsados.add(a);
+        jogadoresUsados.add(b);
+        // Marca dupla como usada
+        duplaUsada.add(`${a}|${b}`);
+        if (rodadaDuplas.length === duplasPorRodada) break;
+      }
+    }
+
+    // Remove duplas usadas nesta rodada da lista de duplas restantes
+    duplasRestantes = duplasRestantes.filter(([a, b]) => !duplaUsada.has(`${a}|${b}`));
+
+    // Agora, formar partidas entre as duplas da rodada, sem repetir jogadores
+    const partidasRodada: [number, number][] = [];
+    const duplasUsadasNaPartida = new Set<number>();
+    for (let i = 0; i < rodadaDuplas.length; i++) {
+      for (let j = i + 1; j < rodadaDuplas.length; j++) {
+        const dupla1 = rodadaDuplas[i];
+        const dupla2 = rodadaDuplas[j];
+        // Verifica se as duplas não compartilham nenhum jogador
+        if (
+          dupla1[0] !== dupla2[0] &&
+          dupla1[0] !== dupla2[1] &&
+          dupla1[1] !== dupla2[0] &&
+          dupla1[1] !== dupla2[1]
+        ) {
+          // Garante que cada dupla só jogue uma vez por rodada
+          if (!duplasUsadasNaPartida.has(i) && !duplasUsadasNaPartida.has(j)) {
+            partidasRodada.push([i, j]);
+            duplasUsadasNaPartida.add(i);
+            duplasUsadasNaPartida.add(j);
+            if (partidasRodada.length === partidasPorRodada) break;
+          }
+        }
+      }
+      if (partidasRodada.length === partidasPorRodada) break;
+    }
+
+    // Adiciona partidas da rodada
+    for (const [i, j] of partidasRodada) {
+      const dupla1 = rodadaDuplas[i];
+      const dupla2 = rodadaDuplas[j];
+      matches.push({
+        id: `super8-${matchId++}`,
+        team1: dupla1,
+        team2: dupla2,
+        score1: null,
+        score2: null,
+        completed: false,
+        round: rodada,
+        position: matches.length + 1,
+        stage: 'GROUP',
+        groupNumber: 1,
+        eventId: '',
+        tournamentId: '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        winnerId: null,
+        scheduledTime: null,
+      });
+    }
+
+    rodada++;
+    if (rodada > maxRodadas * 2) break; // Segurança para evitar loop infinito
+  }
+
+  return matches;
+}
+
+/**
+ * Calcula o ranking individual do Super 8 a partir das partidas (standings_data)
+ * @param matches Array de partidas (Match[])
+ * @returns Array de objetos de ranking individual
+ */
+export function calculateSuper8IndividualRanking(matches: Match[]) {
+  // Mapa de estatísticas por jogador
+  const stats: Record<string, {
+    wins: number;
+    losses: number;
+    gamesWon: number;
+    gamesLost: number;
+    matchesPlayed: number;
+    gameDifference: number;
+  }> = {};
+  matches.forEach(match => {
+    if (!match.completed || !match.team1 || !match.team2) return;
+    const t1 = match.team1;
+    const t2 = match.team2;
+    const s1 = match.score1 ?? 0;
+    const s2 = match.score2 ?? 0;
+    // Inicializa stats
+    [...t1, ...t2].forEach(pid => {
+      if (!stats[pid]) stats[pid] = { wins: 0, losses: 0, gamesWon: 0, gamesLost: 0, matchesPlayed: 0, gameDifference: 0 };
+    });
+    // Atualiza stats
+    t1.forEach(pid => {
+      stats[pid].gamesWon += s1;
+      stats[pid].gamesLost += s2;
+      stats[pid].matchesPlayed++;
+      if (s1 > s2) stats[pid].wins++;
+      else stats[pid].losses++;
+    });
+    t2.forEach(pid => {
+      stats[pid].gamesWon += s2;
+      stats[pid].gamesLost += s1;
+      stats[pid].matchesPlayed++;
+      if (s2 > s1) stats[pid].wins++;
+      else stats[pid].losses++;
+    });
+  });
+  // Calcula saldo
+  Object.values(stats).forEach(s => { s.gameDifference = s.gamesWon - s.gamesLost; });
+  // Gera array ordenado
+  return Object.entries(stats)
+    .map(([playerId, s]) => ({ playerId, ...s }))
+    .sort((a, b) =>
+      b.wins - a.wins ||
+      b.gameDifference - a.gameDifference ||
+      b.gamesWon - a.gamesWon
+    );
+}
+/**
  * Verifica se uma partida está finalizada segundo os critérios oficiais do ranking
  */
 export function isMatchCompleted(match: Match): boolean {

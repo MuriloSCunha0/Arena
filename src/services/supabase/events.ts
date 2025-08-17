@@ -57,6 +57,13 @@ const transformEvent = (data: any): Event => ({
 // Função robusta para converter Event para formato Supabase com fallbacks
 const toSupabaseEvent = (event: Partial<Event>) => {
   // Preparar payload base com campos sempre presentes
+  // Garante integridade: se for SUPER8, força os campos corretos
+  let teamFormation = event.teamFormation;
+  let tournamentFormat = event.format;
+  if (event.type === 'SUPER8') {
+    tournamentFormat = 'SUPER8';
+    teamFormation = 'RANDOM';
+  }
   const basePayload = {
     type: event.type,
     title: event.title,
@@ -71,7 +78,8 @@ const toSupabaseEvent = (event: Partial<Event>) => {
     rules: event.rules,
     banner_image_url: event.bannerImageUrl,
     images: event.images,
-    team_formation: event.teamFormation,
+    team_formation: teamFormation,
+    tournament_format: tournamentFormat,
     categories: event.categories || [],
     age_restrictions: event.ageRestrictions,
     skill_level: event.skillLevel,

@@ -603,26 +603,33 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
         return;
       }
       
-      // Use the service method that respects event team formation
-      console.log('👥 [handleGenerateFormedStructureWithConfig] Forming teams...');
-      const { teams } = TournamentService.formTeamsFromParticipants(
-        eventParticipants,
-        TeamFormationType.FORMED,
-        { groupSize: traditionalGroupSize }
-      );
 
-      console.log('👥 [handleGenerateFormedStructureWithConfig] Teams formed:', teams.length);
-
-      const options = {
+      let teamsOrParticipants: any[] = [];
+      let options = {
         forceReset,
         groupSize: traditionalGroupSize,
         maxTeamsPerGroup: maxTeamsPerGroup,
         autoCalculateGroups: autoCalculateGroups
       };
 
-      console.log('🎯 [handleGenerateFormedStructureWithConfig] Calling generateFormedStructure with options:', options);
+      if (currentEvent?.type === EventType.SUPER8) {
+        // Para Super 8, passar os participantes individuais
+        teamsOrParticipants = eventParticipants.map(p => [p.id]);
+        options = { ...options, format: TournamentFormat.SUPER8 };
+        console.log('🎯 [handleGenerateFormedStructureWithConfig] SUPER8: passando participantes individuais:', teamsOrParticipants);
+      } else {
+        // Para outros formatos, formar as duplas normalmente
+        const { teams } = TournamentService.formTeamsFromParticipants(
+          eventParticipants,
+          TeamFormationType.FORMED,
+          { groupSize: traditionalGroupSize }
+        );
+        teamsOrParticipants = teams;
+        console.log('👥 [handleGenerateFormedStructureWithConfig] Teams formed:', teams.length);
+      }
 
-      await generateFormedStructure(eventId, teams, options);
+      console.log('🎯 [handleGenerateFormedStructureWithConfig] Calling generateFormedStructure with options:', options);
+      await generateFormedStructure(eventId, teamsOrParticipants, options, currentEvent?.type);
 
       console.log('✅ [handleGenerateFormedStructureWithConfig] generateFormedStructure completed');
 

@@ -17,7 +17,8 @@ import {
   getRankedQualifiers, // Nova função para qualificação
   generateEliminationBracketWithSmartBye, // Nova lógica de BYE inteligente
   processAllByesAdvanced, // Processamento automático de BYEs
-  cleanPhantomMatchesAdvanced // Limpeza de partidas fantasma
+  cleanPhantomMatchesAdvanced, // Limpeza de partidas fantasma
+  generateSuper8Matches // Super 8 rodízio de duplas
 } from '../../utils/rankingUtils';
 import { handleSupabaseError } from '../../utils/supabase-error-handler';
 import { distributeTeamsIntoGroups, createTournamentStructure } from '../../utils/groupFormationUtils';
@@ -642,6 +643,7 @@ export const TournamentService = {
       forceReset?: boolean;
       maxTeamsPerGroup?: number;
       autoCalculateGroups?: boolean;
+      format?: string;
     } = {}
   ): Promise<Tournament> => {
     console.log(`Generating structure for event ${eventId}, formation: ${teamFormation}`);
@@ -663,6 +665,12 @@ export const TournamentService = {
 
       if (!existingTournament) {
         throw new Error(`Nenhum torneio encontrado para este evento. O torneio deveria ter sido criado automaticamente ao criar o evento.`);
+      }
+
+      // Se options.format estiver presente, adapta o formato do torneio
+      if (options.format && options.format !== existingTournament.format) {
+        existingTournament.format = options.format as TournamentFormat;
+        console.log(`⚡ Adaptando formato do torneio para: ${options.format}`);
       }
 
       const tournamentId = existingTournament.id;
@@ -722,10 +730,29 @@ export const TournamentService = {
       // Gerar partidas apenas se há equipes suficientes
       let matchesData: Match[] = [];
       let groupsCount = 0;
-      
-      if (teamsToUse.length >= 2) {
+
+      // SUPORTE AO SUPER8: Se o formato do torneio for SUPER8, usar lógica especial
+      if (existingTournament.format === TournamentFormat.SUPER8) {
+        // Para Super 8, os participantes vêm de teamsToUse (cada team é um participante individual)
+        // ou diretamente dos participantes do evento
+        const participantIds: string[] = teamsToUse.flatMap(t => t.participants);
+        if (participantIds.length < 4 || participantIds.length % 2 !== 0) {
+          throw new Error('O Super 8 exige número par de participantes (mínimo 4)');
+        }
+        console.log(`🔄 Gerando rodízio Super 8 para ${participantIds.length} participantes...`);
+        matchesData = generateSuper8Matches(participantIds).map((match, idx) => ({
+          ...match,
+          id: generateUUID(),
+          tournamentId: tournamentId,
+          eventId: eventId,
+          position: idx + 1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }));
+        groupsCount = 1;
+        console.log(`✅ Super 8: ${matchesData.length} partidas geradas.`);
+      } else if (teamsToUse.length >= 2) {
         console.log(`Generating matches for ${teamsToUse.length} teams...`);
-        
         // Distribuir em grupos usando a nova lógica
         const shuffledTeams = [...teamsToUse].sort(() => Math.random() - 0.5);
         const groups = distributeTeamsIntoGroups(
@@ -733,18 +760,14 @@ export const TournamentService = {
           maxTeamsPerGroup,
           autoCalculateGroups
         );
-        
         console.log(`📊 Groups distribution result: ${groups.length} groups created`);
         groups.forEach((group, index) => {
           console.log(`   Group ${index + 1}: ${group.length} teams`);
         });
-        
         groupsCount = groups.length;
-
         // Gerar partidas
         groups.forEach((group, groupIndex) => {
           const groupNumber = groupIndex + 1;
-          
           for (let i = 0; i < group.length; i++) {
             for (let j = i + 1; j < group.length; j++) {
               matchesData.push({
@@ -817,6 +840,7 @@ export const TournamentService = {
       console.log(`   - Matches: ${matchesData.length}`);
       
       const updateData = { 
+        format: existingTournament.format,
         groups_count: groupsCount,
         matches_data: matchesData,
         teams_data: teamsToUse,
