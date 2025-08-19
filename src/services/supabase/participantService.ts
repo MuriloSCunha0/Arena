@@ -153,10 +153,44 @@ export const ParticipantService = {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-
       return invites?.map(transformInvite) || [];
     } catch (error) {
       console.error('Error fetching pending invites:', error);
+      throw error;
+    }
+  },
+
+  // Buscar convites enviados pelo usuário
+  async getSentInvites(userId: string): Promise<PartnerInvite[]> {
+    try {
+      const { data: invites, error } = await supabase
+        .from('partner_invites')
+        .select('*')
+        .eq('sender_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return invites?.map(transformInvite) || [];
+    } catch (error) {
+      console.error('Error fetching sent invites:', error);
+      throw error;
+    }
+  },
+
+  // Buscar convites confirmados (aceitos) pelo usuário
+  async getConfirmedInvites(userId: string): Promise<PartnerInvite[]> {
+    try {
+      const { data: invites, error } = await supabase
+        .from('partner_invites')
+        .select('*')
+        .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
+        .eq('status', 'ACCEPTED')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return invites?.map(transformInvite) || [];
+    } catch (error) {
+      console.error('Error fetching confirmed invites:', error);
       throw error;
     }
   },
@@ -244,74 +278,63 @@ export const ParticipantService = {
   },
 
   // Obter torneios do participante
-  async getTorneiasParticipante(userId: string): Promise<{
+  // Obter torneios do participante (futuros e passados)
+  async getParticipantTournaments(userId: string): Promise<{
     upcomingTournaments: any[],
     pastTournaments: any[]
   }> {
     try {
-      // Buscar participações
+      // Buscar participações do usuário
+      // Buscar pela relação 'events' (conforme FK event_id -> events.id)
       const { data: participations, error } = await supabase
         .from('participants')
         .select(`
           id,
           event_id,
           partner_name,
+          final_position,
           events(id, title, date, location, status)
         `)
         .eq('user_id', userId);
-        
+
       if (error) throw error;
-      
+      if (!participations) return { upcomingTournaments: [], pastTournaments: [] };
+
+      // Mapear participações para estrutura esperada
       const now = new Date();
-      const upcomingTournaments = [];
-      const pastTournaments = [];
-      
-      if (participations) {
-        for (const participation of participations) {
-          if (!participation.events || participation.events.length === 0) continue;
-          
-          // Fix: events is returned as an array, so we need to get the first element
-          const event = Array.isArray(participation.events) 
-            ? participation.events[0] 
-            : participation.events;
-          
-          const eventDate = new Date(event.date);
-          const isUpcoming = eventDate >= now || event.status === 'ONGOING';
-          
-          // Buscar resultados para torneios passados
-          let placement = null;
-          if (!isUpcoming) {
-            const { data: result } = await supabase
-              .from('participant_results')
-              .select('position')
-              .eq('participant_id', participation.id)
-              .maybeSingle();
-              
-            placement = result?.position;
-          }
-          
-          const tournament = {
-            id: event.id,
-            title: event.title,
-            date: event.date,
-            location: event.location,
-            partner_name: participation.partner_name,
-            placement: placement,
-            upcoming: isUpcoming
-          };
-          
-          if (isUpcoming) {
-            upcomingTournaments.push(tournament);
-          } else {
-            pastTournaments.push(tournament);
-          }
+      const upcomingTournaments: any[] = [];
+      const pastTournaments: any[] = [];
+
+      participations.forEach((p: any) => {
+        // events pode vir como array ou objeto
+        let event = p.events;
+        if (Array.isArray(event)) event = event[0];
+        if (!event) return;
+        const tournament = {
+          id: event.id,
+          title: event.title,
+          date: event.date,
+          location: event.location,
+          partner_name: p.partner_name,
+          final_position: p.final_position,
+          upcoming: new Date(event.date) >= now
+        };
+        if (tournament.upcoming) {
+          upcomingTournaments.push(tournament);
+        } else {
+          pastTournaments.push(tournament);
         }
-      }
-      
+      });
+
+      // Ordenar por data
+      upcomingTournaments.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      pastTournaments.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
       return { upcomingTournaments, pastTournaments };
     } catch (error) {
       console.error('Error fetching participant tournaments:', error);
-      throw error;
+      // Retorne vazio para não travar a tela
+      return { upcomingTournaments: [], pastTournaments: [] };
     }
   },
 

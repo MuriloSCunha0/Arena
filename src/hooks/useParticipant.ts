@@ -1,3 +1,4 @@
+
 import { useState } from 'react';
 import { ParticipantService } from '../services/supabase/participantService';
 import { Participant, PartnerInvite } from '../types';
@@ -7,7 +8,41 @@ export function useParticipant() {
   const [loading, setLoading] = useState(false);
   const [participant, setParticipant] = useState<Participant | null>(null);
   const [pendingInvites, setPendingInvites] = useState<PartnerInvite[]>([]);
-  const addNotification = useNotificationStore(state => state.addNotification);
+  const addNotification = useNotificationStore((state: any) => state.addNotification);
+
+  // Buscar convites enviados
+  const fetchSentInvites = async (userId: string) => {
+    try {
+      setLoading(true);
+      return await ParticipantService.getSentInvites(userId);
+    } catch (error) {
+      console.error('Error fetching sent invites:', error);
+      addNotification({
+        type: 'error',
+        message: 'Erro ao buscar convites enviados'
+      });
+      return [];
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Buscar convites confirmados
+  const fetchConfirmedInvites = async (userId: string) => {
+    try {
+      setLoading(true);
+      return await ParticipantService.getConfirmedInvites(userId);
+    } catch (error) {
+      console.error('Error fetching confirmed invites:', error);
+      addNotification({
+        type: 'error',
+        message: 'Erro ao buscar convites confirmados'
+      });
+      return [];
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Verificar se o usuário já está inscrito em um evento
   const checkEventRegistration = async (userId: string, eventId: string) => {
@@ -142,15 +177,17 @@ export function useParticipant() {
 
   // Obter torneios do participante
   const getParticipantTournaments = async (userId: string) => {
+    setLoading(true);
     try {
-      setLoading(true);
-      return await ParticipantService.getTorneiasParticipante(userId);
+      const result = await ParticipantService.getParticipantTournaments(userId);
+      return result;
     } catch (error) {
       console.error('Error fetching participant tournaments:', error);
       addNotification({
         type: 'error',
         message: 'Erro ao buscar torneios do participante'
       });
+      // Retorna vazio para não travar a tela
       return { upcomingTournaments: [], pastTournaments: [] };
     } finally {
       setLoading(false);
@@ -165,6 +202,8 @@ export function useParticipant() {
     registerForEvent,
     invitePartner,
     fetchPendingInvites,
+    fetchSentInvites,
+    fetchConfirmedInvites,
     acceptInvite,
     declineInvite,
     getParticipantTournaments

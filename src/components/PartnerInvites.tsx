@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle, XCircle, Clock, Calendar, User } from 'lucide-react';
-import { PartnerInvite } from '../types';
 import { formatDate } from '../utils/formatters';
 import { Button } from './ui/Button';
 import { useParticipant } from '../hooks/useParticipant';
@@ -104,37 +103,43 @@ export const PartnerInvites: React.FC<PartnerInvitesProps> = ({
       {pendingInvites.map(invite => (
         <div
           key={invite.id}
-          className="p-4 rounded-lg border border-gray-200 bg-white"
+          className="p-4 sm:p-6 rounded-xl border border-gray-200 bg-gradient-to-br from-white to-gray-50 hover:shadow-lg transition-all duration-200"
         >
-          <div className="flex items-start justify-between">
-            <div>
-              <h3 className="font-medium text-brand-blue">{invite.eventName}</h3>
-              <p className="text-sm text-gray-700 mt-1 flex items-center">
-                <User size={16} className="mr-1" />
-                {invite.senderName} convidou você como parceiro
-              </p>
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+            <div className="flex-1">
+              <h3 className="font-semibold text-lg text-brand-blue mb-2">{invite.eventName}</h3>
+              <div className="flex items-center text-gray-700 mb-3">
+                <div className="p-1.5 bg-blue-100 rounded-lg mr-3">
+                  <User size={16} className="text-blue-600" />
+                </div>
+                <p className="text-sm">
+                  <span className="font-medium">{invite.senderName}</span> convidou você como parceiro
+                </p>
+              </div>
+              
+              <div className="flex items-center text-xs text-gray-500">
+                <div className="p-1 bg-gray-100 rounded mr-2">
+                  <Calendar size={12} className="text-gray-600" />
+                </div>
+                Enviado em {formatDate(invite.createdAt)}
+              </div>
             </div>
             
-            <div className="flex items-center text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">
+            <div className="flex items-center justify-center px-3 py-1.5 bg-yellow-100 text-yellow-800 rounded-full text-xs font-medium shrink-0">
               <Clock size={12} className="mr-1" />
               Pendente
             </div>
           </div>
           
-          <div className="mt-3 flex items-center text-xs text-gray-500">
-            <Calendar size={14} className="mr-1" />
-            Enviado em {formatDate(invite.createdAt)}
-          </div>
-          
-          <div className="mt-4 flex justify-end space-x-3">
+          <div className="mt-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
             <Button 
               variant="outline"
               size="sm"
               onClick={() => handleDecline(invite.id)}
               disabled={processingInvites[invite.id]}
-              className="flex items-center"
+              className="flex items-center justify-center border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
             >
-              <XCircle size={16} className="mr-1 text-red-500" />
+              <XCircle size={16} className="mr-2" />
               Recusar
             </Button>
             
@@ -143,9 +148,9 @@ export const PartnerInvites: React.FC<PartnerInvitesProps> = ({
               size="sm"
               onClick={() => handleAccept(invite.id)}
               loading={processingInvites[invite.id]}
-              className="flex items-center"
+              className="flex items-center justify-center bg-green-600 hover:bg-green-700"
             >
-              <CheckCircle size={16} className="mr-1" />
+              <CheckCircle size={16} className="mr-2" />
               Aceitar
             </Button>
           </div>

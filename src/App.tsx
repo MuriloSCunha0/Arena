@@ -31,9 +31,12 @@ const EventoRegistro = lazy(() => import('./pages/participante/EventoRegistro').
 // Componentes para participantes
 const EventosDisponiveis = lazy(() => import('./pages/participante/EventosDisponiveis').then(module => ({ default: module.EventosDisponiveis })));
 const MeusTorneios = lazy(() => import('./pages/participante/MeusTorneios').then(module => ({ default: module.MeusTorneios })));
-// Perfis de usuário
 const UserProfile = lazy(() => import('./pages/profile/UserProfile').then(module => ({ default: module.UserProfile })));
 const AdminProfile = lazy(() => import('./pages/profile/AdminProfile').then(module => ({ default: module.AdminProfile })));
+// Convites participante
+const Convites = lazy(() => import('./pages/participante/Convites').then(module => ({ default: module.Convites })));
+// Acompanhar torneio
+const AcompanharTorneio = lazy(() => import('./pages/participante/AcompanharTorneio').then(module => ({ default: module.AcompanharTorneio })));
 // Debug components
 const PaymentStatusTest = lazy(() => import('./pages/debug/PaymentStatusTest').then(module => ({ default: module.default })));
 // Transmissão de torneio para telão
@@ -121,6 +124,8 @@ const ProtectedApp = () => {
             <Route path="/eventos-disponiveis" element={<EventosDisponiveis />} />
             <Route path="/evento-registro/:eventId" element={<EventoRegistro />} />
             <Route path="/inscricao/:eventId" element={<EventRegistration />} />
+            <Route path="/torneio/:eventId/acompanhar" element={<AcompanharTorneio />} />
+            <Route path="/participante/convites" element={<Convites />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>

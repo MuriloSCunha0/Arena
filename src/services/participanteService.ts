@@ -321,21 +321,268 @@ export const ParticipanteService = {
     date: string;
     location: string;
     price: number;
+    entry_fee?: number;
     banner_image_url?: string;
     description?: string;
   }>> {
     try {
+      // Primeiro buscar eventos que estão abertos ou publicados e com data futura
       const { data, error } = await supabase
         .from('events')
-        .select('*')
-        .gt('date', new Date().toISOString())
+        .select('id, title, description, location, date, time, entry_fee, banner_image_url, status')
+        .in('status', ['OPEN', 'PUBLISHED'])
+        .gt('date', new Date().toISOString().split('T')[0])
         .order('date', { ascending: true });
         
       if (error) throw error;
       
-      return data || [];
+      if (!data || data.length === 0) {
+        return [];
+      }
+
+      // Verificar quais eventos não têm torneio iniciado (não têm standings_data preenchido)
+      const eventIds = data.map(event => event.id);
+      
+      const { data: tournaments, error: tournamentError } = await supabase
+        .from('tournaments')
+        .select('event_id, standings_data, status')
+        .in('event_id', eventIds);
+
+      if (tournamentError) {
+        console.warn('Error checking tournaments:', tournamentError);
+        // Se houver erro na consulta de torneios, ainda retornar os eventos
+      }
+
+      // Filtrar eventos que não têm torneio iniciado
+      const availableEvents = data.filter(event => {
+        const tournament = tournaments?.find(t => t.event_id === event.id);
+        
+        // Se não há torneio associado, o evento está disponível
+        if (!tournament) return true;
+        
+        // Se o torneio existe mas não foi iniciado (sem standings_data ou standings_data vazio)
+        if (!tournament.standings_data || 
+            Object.keys(tournament.standings_data).length === 0) {
+          return true;
+        }
+        
+        // Se chegou aqui, o torneio já foi iniciado
+        return false;
+      });
+      
+      // Map the data to ensure compatibility
+      const events = availableEvents.map(event => ({
+        ...event,
+        price: event.entry_fee || 0,
+        entry_fee: event.entry_fee || 0
+      }));
+      
+      return events;
     } catch (error) {
       console.error('Error fetching available events:', error);
+      throw error;
+    }
+  },
+
+  // Get tournaments that are currently in progress
+  async getTorneiosEmAndamento(): Promise<any[]> {
+    try {
+      const { data, error } = await supabase
+        .from('events')
+        .select(`
+          id, 
+          title, 
+          description, 
+          location, 
+          date, 
+          time, 
+          entry_fee, 
+          banner_image_url, 
+          status,
+          current_participants,
+          tournaments(
+            id,
+            status,
+            standings_data,
+            groups_data,
+            brackets_data,
+            matches_data,
+            teams_data,
+            current_round,
+            total_rounds
+          )
+        `)
+        .in('status', ['IN_PROGRESS'])
+        .order('date', { ascending: true });
+
+      if (error) throw error;
+      
+      return (data || []).map(event => ({
+        ...event,
+        price: event.entry_fee || 0,
+        entry_fee: event.entry_fee || 0,
+        participantsCount: event.current_participants || 0,
+        tournament: event.tournaments?.[0] || null // Pode não ter tournament ainda
+      }));
+    } catch (error) {
+      console.error('Error fetching ongoing tournaments:', error);
+      throw error;
+    }
+  },
+
+  // Get detailed tournament information for spectators
+  async getTournamentDetails(eventId: string): Promise<any> {
+    try {
+      console.log(`[getTournamentDetails] Fetching data for event: ${eventId}`);
+      
+      // Buscar dados do evento
+      const { data: eventData, error: eventError } = await supabase
+        .from('events')
+        .select(`
+          id,
+          title,
+          description,
+          type,
+          tournament_format,
+          team_formation,
+          location,
+          date,
+          time,
+          end_date,
+          end_time,
+          entry_fee,
+          prize_pool,
+          prize_distribution,
+          banner_image_url,
+          status,
+          current_participants,
+          max_participants,
+          min_participants,
+          categories,
+          age_restrictions,
+          skill_level,
+          rules,
+          additional_info,
+          organizer_id,
+          organizer_commission_rate,
+          court_ids,
+          created_at,
+          updated_at
+        `)
+        .eq('id', eventId)
+        .single();
+
+      if (eventError) {
+        console.error('Error fetching event:', eventError);
+        throw eventError;
+      }
+      if (!eventData) {
+        console.log('Event not found');
+        return null;
+      }
+
+      console.log(`[getTournamentDetails] Event found: ${eventData.title}`);
+
+      // Buscar tournament associado com todos os campos JSONB
+      const { data: tournamentData, error: tournamentError } = await supabase
+        .from('tournaments')
+        .select(`
+          id,
+          event_id,
+          format,
+          settings,
+          status,
+          total_rounds,
+          current_round,
+          groups_count,
+          groups_data,
+          brackets_data,
+          third_place_match,
+          auto_advance,
+          started_at,
+          completed_at,
+          team_formation,
+          matches_data,
+          teams_data,
+          standings_data,
+          elimination_bracket,
+          stage,
+          created_at,
+          updated_at
+        `)
+        .eq('event_id', eventId)
+        .single();
+
+      if (tournamentError && tournamentError.code !== 'PGRST116') {
+        console.error('Error fetching tournament:', tournamentError);
+      }
+
+      if (tournamentData) {
+        console.log(`[getTournamentDetails] Tournament found: ${tournamentData.id}, status: ${tournamentData.status}, stage: ${tournamentData.stage}`);
+        console.log(`[getTournamentDetails] Tournament data - groups: ${tournamentData.groups_count}, rounds: ${tournamentData.current_round}/${tournamentData.total_rounds}`);
+        console.log(`[getTournamentDetails] JSONB data sizes - matches: ${Array.isArray(tournamentData.matches_data) ? tournamentData.matches_data.length : 0}, teams: ${Array.isArray(tournamentData.teams_data) ? tournamentData.teams_data.length : 0}`);
+      } else {
+        console.log(`[getTournamentDetails] No tournament found for event ${eventId}`);
+      }
+
+      // Buscar participantes do evento
+      const { data: participantsData, error: participantsError } = await supabase
+        .from('participants')
+        .select(`
+          id,
+          event_id,
+          user_id,
+          name,
+          email,
+          phone,
+          cpf,
+          birth_date,
+          partner_id,
+          partner_name,
+          team_name,
+          seed_number,
+          category,
+          skill_level,
+          payment_id,
+          payment_date,
+          payment_amount,
+          payment_status,
+          payment_method,
+          final_position,
+          eliminated_in_round,
+          points_scored,
+          points_against,
+          matches_played,
+          matches_won,
+          matches_lost,
+          sets_won,
+          sets_lost,
+          registration_notes,
+          medical_notes,
+          metadata,
+          registered_at,
+          updated_at
+        `)
+        .eq('event_id', eventId)
+        .order('seed_number', { ascending: true, nullsFirst: false });
+
+      if (participantsError) {
+        console.error('Error fetching participants:', participantsError);
+      }
+
+      console.log(`[getTournamentDetails] Found ${participantsData?.length || 0} participants`);
+
+      const result = {
+        ...eventData,
+        price: eventData.entry_fee || 0,
+        tournament: tournamentError && tournamentError.code === 'PGRST116' ? null : tournamentData,
+        participants: participantsData || []
+      };
+
+      console.log('[getTournamentDetails] Complete result assembled');
+      return result;
+    } catch (error) {
+      console.error('Error fetching tournament details:', error);
       throw error;
     }
   },
@@ -390,5 +637,204 @@ export const ParticipanteService = {
       console.error('Error fetching event details:', error);
       return { error: error as Error };
     }
+  },
+
+  // Get event with tournament and participants by ID - robust version inspired by admin getByIdWithOrganizer
+  async getEventWithTournamentById(eventId: string): Promise<{
+    event?: any | null;
+    tournament?: any | null;
+    participants?: any[] | null;
+    error?: Error;
+  }> {
+    try {
+      console.log(`[ParticipanteService] Fetching event ${eventId} with tournament and participants`);
+      
+      // Tentativa 1: Query completa com joins
+      const { data: eventData, error: eventError } = await supabase
+        .from('events')
+        .select(`
+          *,
+          tournaments(*),
+          participants(
+            *,
+            users(*)
+          )
+        `)
+        .eq('id', eventId)
+        .single();
+
+      if (eventError) {
+        if (eventError.code === 'PGRST116') {
+          console.log(`[ParticipanteService] Event ${eventId} not found`);
+          return { error: new Error('Evento não encontrado') };
+        }
+        
+        // Se erro de relação, tentar fallback queries separadas
+        if (eventError.code === 'PGRST204' || eventError.message?.includes('does not exist')) {
+          console.warn('[ParticipanteService] Relation issue, trying fallback queries');
+          return this.getEventWithTournamentFallback(eventId);
+        }
+        
+        console.error('[ParticipanteService] Error fetching event with tournament:', eventError);
+        throw new Error(`Falha ao carregar evento: ${eventError.message}`);
+      }
+
+      if (!eventData) {
+        return { error: new Error('Evento não encontrado') };
+      }
+
+      // Transform participants data
+      const transformedParticipants = eventData.participants?.map((p: any) => ({
+        id: p.id,
+        name: p.users?.user_metadata?.name || p.users?.email || 'Participante',
+        email: p.users?.email || '',
+        team: p.team,
+        category: p.category,
+        registrationDate: p.created_at,
+        status: p.status || 'active',
+        eventId: p.event_id,
+        userId: p.user_id
+      })) || [];
+
+      // Extract tournament data (should be single object or null)
+      const tournamentData = Array.isArray(eventData.tournaments) 
+        ? eventData.tournaments[0] 
+        : eventData.tournaments;
+
+      console.log(`[ParticipanteService] Successfully loaded event ${eventId} with ${transformedParticipants.length} participants`);
+      
+      return {
+        event: {
+          id: eventData.id,
+          title: eventData.title,
+          date: eventData.date,
+          location: eventData.location,
+          price: eventData.price || 0,
+          banner_image_url: eventData.banner_image_url,
+          description: eventData.description,
+          max_participants: eventData.max_participants,
+          registration_deadline: eventData.registration_deadline,
+          isTeamEvent: this.checkIfTeamEvent(eventData.title)
+        },
+        tournament: tournamentData,
+        participants: transformedParticipants
+      };
+    } catch (networkError) {
+      // Se é erro de rede, tentar novamente uma vez
+      if (networkError instanceof TypeError && networkError.message.includes('Failed to fetch')) {
+        console.warn('[ParticipanteService] Network error, retrying once...');
+        
+        try {
+          return this.getEventWithTournamentFallback(eventId);
+        } catch (retryFailed) {
+          console.error('[ParticipanteService] Retry also failed:', retryFailed);
+          return { error: new Error('Erro de conexão. Verifique sua internet e tente novamente.') };
+        }
+      }
+      
+      console.error('[ParticipanteService] Unexpected error:', networkError);
+      return { error: new Error('Erro inesperado ao carregar dados do evento') };
+    }
+  },
+
+  // Fallback method for separate queries when joins fail
+  getEventWithTournamentFallback: async function(eventId: string): Promise<{
+    event?: any | null;
+    tournament?: any | null;
+    participants?: any[] | null;
+    error?: Error;
+  }> {
+    try {
+      console.log(`[ParticipanteService] Using fallback queries for event ${eventId}`);
+      
+      // Query 1: Get event data
+      const { data: eventData, error: eventError } = await supabase
+        .from('events')
+        .select('*')
+        .eq('id', eventId)
+        .single();
+
+      if (eventError) {
+        if (eventError.code === 'PGRST116') {
+          return { error: new Error('Evento não encontrado') };
+        }
+        throw new Error(`Falha ao carregar evento: ${eventError.message}`);
+      }
+
+      // Query 2: Get tournament data
+      const { data: tournamentData, error: tournamentError } = await supabase
+        .from('tournaments')
+        .select('*')
+        .eq('event_id', eventId)
+        .single();
+
+      if (tournamentError && tournamentError.code !== 'PGRST116') {
+        console.warn('[ParticipanteService] Tournament not found for event:', eventId);
+      }
+
+      // Query 3: Get participants
+      const { data: participantsData, error: participantsError } = await supabase
+        .from('participants')
+        .select(`
+          *,
+          users(*)
+        `)
+        .eq('event_id', eventId);
+
+      if (participantsError) {
+        console.error('[ParticipanteService] Error fetching participants:', participantsError);
+        return { 
+          event: this.transformEventData(eventData),
+          tournament: tournamentData,
+          participants: [],
+          error: new Error('Falha ao carregar participantes')
+        };
+      }
+
+      // Transform participants data
+      const transformedParticipants = participantsData?.map((p: any) => ({
+        id: p.id,
+        name: p.users?.user_metadata?.name || p.users?.email || 'Participante',
+        email: p.users?.email || '',
+        team: p.team,
+        category: p.category,
+        registrationDate: p.created_at,
+        status: p.status || 'active',
+        eventId: p.event_id,
+        userId: p.user_id
+      })) || [];
+
+      return {
+        event: this.transformEventData(eventData),
+        tournament: tournamentData,
+        participants: transformedParticipants
+      };
+    } catch (error) {
+      console.error('[ParticipanteService] Fallback query failed:', error);
+      return { error: error as Error };
+    }
+  },
+
+  // Helper method to transform event data
+  transformEventData: function(eventData: any) {
+    return {
+      id: eventData.id,
+      title: eventData.title,
+      date: eventData.date,
+      location: eventData.location,
+      price: eventData.price || 0,
+      banner_image_url: eventData.banner_image_url,
+      description: eventData.description,
+      max_participants: eventData.max_participants,
+      registration_deadline: eventData.registration_deadline,
+      isTeamEvent: this.checkIfTeamEvent(eventData.title)
+    };
+  },
+
+  // Helper method to check if event is team-based
+  checkIfTeamEvent: function(title: string): boolean {
+    if (!title) return false;
+    const lowerTitle = title.toLowerCase();
+    return lowerTitle.includes('duplas') || lowerTitle.includes('doubles') || lowerTitle.includes('equipe');
   }
 }

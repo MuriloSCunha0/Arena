@@ -214,6 +214,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = true, onClose }) => {
               isCollapsed={isCollapsed}
               badge={notificationCounts.participantes}
             />
+            
             <NavItem 
               to="/financeiro" 
               icon={DollarSign} 
