@@ -234,14 +234,15 @@ export const TournamentService = {
         id.includes('WINNER_') || id.includes('TBD') || id.includes('Vencedor') || id === 'Desconhecido' || id.length < 36
       );
 
-      // CORRIGIDO / APRIMORADO: Combinar partidas de grupo (standings_data) e eliminação (elimination_bracket)
-      // e aplicar melhoria de dados usando matches_data quando possuir versões mais completas
-      const groupMatches = standingsData.filter((m: any) => m.stage !== 'ELIMINATION');
+      // CORRIGIDO: Usar matches_data como fonte principal das partidas
+      // standings_data é usado para rankings, não para as partidas em si
+      const groupMatches = matchesData.filter((m: any) => m.stage === 'GROUP' || (!m.stage && m.groupNumber > 0));
       let eliminationMatches = eliminationData;
 
       console.log(`🔍 [DEBUG MERGE] Dados antes do merge:`);
       console.log(`- elimination_bracket tem ${eliminationMatches.length} partidas`);
       console.log(`- matches_data tem ${matchesData.length} partidas`);
+      console.log(`- groupMatches filtradas: ${groupMatches.length}`);
 
       if (matchesData && matchesData.length) {
         const matchesDataMap = new Map<string, any>();
@@ -301,6 +302,10 @@ export const TournamentService = {
       allMatchesData = [...groupMatches, ...eliminationMatches];
       
       console.log(`📊 [DEBUG] Group matches: ${groupMatches.length}, Elimination matches: ${eliminationMatches.length}, Total: ${allMatchesData.length}`);
+      
+      if (allMatchesData.length > 0) {
+        console.log(`🔍 [DEBUG] Sample match data:`, JSON.stringify(allMatchesData[0], null, 2));
+      }
 
       // Transform matches using the existing transformMatch function
       const allMatches = allMatchesData.map((match: any) => {

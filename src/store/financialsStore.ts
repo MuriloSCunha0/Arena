@@ -24,7 +24,7 @@ interface FinancialsState {
   clearError: () => void;
 }
 
-export const useFinancialsStore = create<FinancialsState>((set, get) => ({
+export const useFinancialsStore = create<FinancialsState>((set) => ({
   transactions: [],
   eventTransactions: [],
   financialSummary: {
@@ -38,11 +38,23 @@ export const useFinancialsStore = create<FinancialsState>((set, get) => ({
   fetchAllTransactions: async () => {
     set({ loading: true, error: null });
     try {
+      console.log('🔍 [FinancialsStore] Iniciando busca de transações...');
+      
       // Fetch transactions
       const transactions = await FinancialsService.getAll();
+      console.log(`✅ [FinancialsStore] Transações recebidas do serviço:`, {
+        total: transactions.length,
+        primeiras3: transactions.slice(0, 3).map(t => ({
+          id: t.id,
+          eventId: t.eventId,
+          type: t.type,
+          amount: t.amount
+        }))
+      });
       
       // Get unique event IDs
       const eventIds = Array.from(new Set(transactions.map(t => t.eventId)));
+      console.log(`🔍 [FinancialsStore] Event IDs únicos encontrados:`, eventIds);
       
       // Create a map of event IDs to event titles
       const eventMap: Record<string, string> = {};
@@ -64,6 +76,11 @@ export const useFinancialsStore = create<FinancialsState>((set, get) => ({
         ...transaction,
         eventName: eventMap[transaction.eventId] || 'Evento desconhecido'
       }));
+      
+      console.log(`🔄 [FinancialsStore] Transações enriquecidas:`, {
+        total: enrichedTransactions.length,
+        eventosMapeados: Object.keys(eventMap).length
+      });
       
       set({ transactions: enrichedTransactions, loading: false });
     } catch (error) {

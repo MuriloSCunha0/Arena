@@ -6,7 +6,6 @@ import { AddParticipantForm } from './AddParticipantForm';
 import { useParticipantsStore, useFinancialsStore } from '../../store';
 import { useNotificationStore } from '../ui/Notification';
 import { formatDateTime } from '../../utils/formatters';
-import { getPaymentMethodFromId } from '../../utils/payments';
 
 interface ParticipantsListProps {
   eventId: string;
@@ -111,7 +110,9 @@ export const ParticipantsList: React.FC<ParticipantsListProps> = ({ eventId }) =
       
       addNotification({
         type: 'success',
-        message: `Status de pagamento ${newStatus === 'CONFIRMED' ? 'confirmado' : 'atualizado para pendente'}`
+        message: newStatus === 'CONFIRMED' 
+          ? 'Pagamento confirmado e transação financeira criada automaticamente!' 
+          : 'Status de pagamento atualizado para pendente'
       });
     } catch (err) {
       addNotification({

@@ -6,15 +6,24 @@ const transformCourt = (data: any): Court => ({
   id: data.id,
   name: data.name,
   location: data.location,
-  surface: data.surface,
+  surface: data.surface || '',
   indoor: data.indoor === true,
+  lighting: data.lighting === true,
   active: data.active === true,
   imageUrl: data.image_url,
-  description: data.description,
-  type: data.type, // PADEL, BEACH_TENNIS, OTHER conforme o enum court_type
-  status: data.status, // AVAILABLE, MAINTENANCE, BOOKED conforme o enum court_status
+  description: data.description || '',
+  type: data.type, // PADEL, BEACH_TENNIS, TENNIS, FUTSAL, VOLLEYBALL, OTHER conforme o enum court_type
+  status: data.status, // AVAILABLE, OCCUPIED, MAINTENANCE, INACTIVE conforme o enum court_status
   createdAt: data.created_at,
   updatedAt: data.updated_at,
+  // Campos com nomes corretos do banco
+  widthMeters: data.width_meters,
+  lengthMeters: data.length_meters,
+  hourlyRate: data.hourly_rate,
+  images: data.images || [],
+  equipment: data.equipment || [],
+  address: data.address || {},
+  settings: data.settings || {},
 });
 
 // Função para converter nosso tipo Court para o formato do Supabase
@@ -23,11 +32,19 @@ const toSupabaseCourt = (court: Partial<Court>) => ({
   location: court.location,
   surface: court.surface,
   indoor: court.indoor,
+  lighting: court.lighting,
   active: court.active,
   image_url: court.imageUrl,
   description: court.description,
   type: court.type, // Validar conforme o enum
   status: court.status, // Validar conforme o enum
+  width_meters: court.widthMeters,
+  length_meters: court.lengthMeters,
+  hourly_rate: court.hourlyRate,
+  images: court.images,
+  equipment: court.equipment,
+  address: court.address,
+  settings: court.settings,
   updated_at: new Date().toISOString()
 });
 
@@ -116,12 +133,12 @@ export const CourtService = {
   async create(court: Partial<Court>): Promise<Court> {
     try {
       // Validar tipo e status conforme os enums do banco
-      if (court.type && !['PADEL', 'BEACH_TENNIS', 'OTHER'].includes(court.type)) {
-        throw new Error('O tipo de quadra precisa ser PADEL, BEACH_TENNIS ou OTHER');
+      if (court.type && !['PADEL', 'BEACH_TENNIS', 'TENNIS', 'FUTSAL', 'VOLLEYBALL', 'OTHER'].includes(court.type)) {
+        throw new Error('O tipo de quadra precisa ser PADEL, BEACH_TENNIS, TENNIS, FUTSAL, VOLLEYBALL ou OTHER');
       }
       
-      if (court.status && !['AVAILABLE', 'MAINTENANCE', 'BOOKED'].includes(court.status)) {
-        throw new Error('O status da quadra precisa ser AVAILABLE, MAINTENANCE ou BOOKED');
+      if (court.status && !['AVAILABLE', 'OCCUPIED', 'MAINTENANCE', 'INACTIVE'].includes(court.status)) {
+        throw new Error('O status da quadra precisa ser AVAILABLE, OCCUPIED, MAINTENANCE ou INACTIVE');
       }
 
       const { data, error } = await supabase
@@ -146,12 +163,12 @@ export const CourtService = {
   async update(id: string, court: Partial<Court>): Promise<Court> {
     try {
       // Validar tipo e status conforme os enums do banco
-      if (court.type && !['PADEL', 'BEACH_TENNIS', 'OTHER'].includes(court.type)) {
-        throw new Error('O tipo de quadra precisa ser PADEL, BEACH_TENNIS ou OTHER');
+      if (court.type && !['PADEL', 'BEACH_TENNIS', 'TENNIS', 'FUTSAL', 'VOLLEYBALL', 'OTHER'].includes(court.type)) {
+        throw new Error('O tipo de quadra precisa ser PADEL, BEACH_TENNIS, TENNIS, FUTSAL, VOLLEYBALL ou OTHER');
       }
       
-      if (court.status && !['AVAILABLE', 'MAINTENANCE', 'BOOKED'].includes(court.status)) {
-        throw new Error('O status da quadra precisa ser AVAILABLE, MAINTENANCE ou BOOKED');
+      if (court.status && !['AVAILABLE', 'OCCUPIED', 'MAINTENANCE', 'INACTIVE'].includes(court.status)) {
+        throw new Error('O status da quadra precisa ser AVAILABLE, OCCUPIED, MAINTENANCE ou INACTIVE');
       }
 
       const { data, error } = await supabase

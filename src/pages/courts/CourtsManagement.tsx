@@ -12,11 +12,15 @@ import {
   Trash2, 
   MapPin, 
   Clipboard, 
-  CheckCircle,
-  XCircle,
-  Calendar
+  Calendar,
+  Building,
+  Sun,
+  Home,
+  Users,
+  Star,
+  Activity
 } from 'lucide-react';
-import { formatDate, formatDateTime } from '../../utils/formatters';
+import { formatDate } from '../../utils/formatters';
 
 export const CourtsManagement: React.FC = () => {
   const { 
@@ -47,9 +51,16 @@ export const CourtsManagement: React.FC = () => {
   const [formData, setFormData] = useState<Partial<Court>>({
     name: '',
     location: '',
-    surface: '',
+    surface: 'Areia',
+    type: 'BEACH_TENNIS',
+    status: 'AVAILABLE',
     indoor: false,
+    lighting: true,   // Campo do banco - iluminação padrão
+    active: true,
     description: '',
+    widthMeters: 8,     // Largura correta para Beach Tennis
+    lengthMeters: 16,   // Comprimento correto para Beach Tennis  
+    hourlyRate: 120,    // Nome correto conforme banco
   });
   
   const [reservationData, setReservationData] = useState<Partial<CourtReservation>>({
@@ -87,16 +98,30 @@ export const CourtsManagement: React.FC = () => {
         name: currentCourt.name,
         location: currentCourt.location,
         surface: currentCourt.surface || '',
+        type: currentCourt.type || 'BEACH_TENNIS',
+        status: currentCourt.status || 'AVAILABLE',
         indoor: currentCourt.indoor,
+        lighting: currentCourt.lighting,
+        active: currentCourt.active,
         description: currentCourt.description || '',
+        widthMeters: currentCourt.widthMeters,
+        lengthMeters: currentCourt.lengthMeters,
+        hourlyRate: currentCourt.hourlyRate,
       });
     } else if (!isEditMode) {
       setFormData({
         name: '',
         location: '',
-        surface: '',
+        surface: 'Areia',
+        type: 'BEACH_TENNIS',
+        status: 'AVAILABLE',
         indoor: false,
+        lighting: true,
+        active: true,
         description: '',
+        widthMeters: 8,     // Largura correta para Beach Tennis
+        lengthMeters: 16,   // Comprimento correto para Beach Tennis  
+        hourlyRate: 120,
       });
     }
   }, [isEditMode, currentCourt]);
@@ -286,6 +311,13 @@ export const CourtsManagement: React.FC = () => {
         ...formData,
         [name]: (e.target as HTMLInputElement).checked
       });
+    } else if (type === 'number') {
+      // Converter valores numéricos ou deixar undefined se vazio
+      const numericValue = value === '' ? undefined : parseFloat(value);
+      setFormData({
+        ...formData,
+        [name]: numericValue
+      });
     } else {
       setFormData({
         ...formData,
@@ -314,84 +346,182 @@ export const CourtsManagement: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-brand-blue">Gerenciamento de Quadras</h1>
-        <Button onClick={handleAdd}>
+        <div>
+          <h1 className="text-2xl font-bold text-blue-900">🏖️ Gerenciamento de Quadras de Beach Tennis</h1>
+          <p className="text-gray-600 mt-1">Gerencie suas quadras de beach tennis, configurações e reservas</p>
+        </div>
+        <Button onClick={handleAdd} className="bg-orange-500 hover:bg-orange-600">
           <Plus size={18} className="mr-2" />
           Nova Quadra
         </Button>
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {courts.map(court => (
-          <div key={court.id} className="bg-white p-6 rounded-lg shadow border border-brand-gray">
-            <h2 className="text-lg font-semibold text-brand-blue flex items-center">
-              {court.name}
-              {court.indoor && (
-                <span className="ml-2 bg-brand-purple/20 text-brand-purple text-xs px-2 py-0.5 rounded-full">
-                  Indoor
-                </span>
+        {courts.map(court => {
+          const getTypeIcon = () => {
+            return <Sun size={16} className="text-orange-500" />; // Sempre Beach Tennis
+          };
+
+          const getStatusConfig = () => {
+            switch (court.status) {
+              case 'AVAILABLE':
+                return { bg: 'bg-emerald-100', text: 'text-emerald-800', label: 'Disponível' };
+              case 'MAINTENANCE':
+                return { bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Manutenção' };
+              case 'OCCUPIED':
+                return { bg: 'bg-red-100', text: 'text-red-800', label: 'Ocupada' };
+              case 'INACTIVE':
+                return { bg: 'bg-gray-100', text: 'text-gray-800', label: 'Inativa' };
+              default:
+                return { bg: 'bg-gray-100', text: 'text-gray-800', label: 'Indefinido' };
+            }
+          };
+
+          const statusConfig = getStatusConfig();
+
+          return (
+            <div key={court.id} className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center space-x-2">
+                  {getTypeIcon()}
+                  <h2 className="text-lg font-semibold text-gray-900">{court.name}</h2>
+                </div>
+                <div className="flex items-center space-x-2">
+                  {court.indoor && (
+                    <div className="flex items-center bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">
+                      <Home size={12} className="mr-1" />
+                      Indoor
+                    </div>
+                  )}
+                  <div className={`text-xs px-2 py-1 rounded-full font-medium ${statusConfig.bg} ${statusConfig.text}`}>
+                    {statusConfig.label}
+                  </div>
+                </div>
+              </div>
+              
+              <div className="space-y-2 mb-4">
+                <div className="flex items-center text-sm text-gray-600">
+                  <MapPin size={16} className="mr-2 text-gray-400" />
+                  <span>{court.location}</span>
+                </div>
+                
+                {court.surface && (
+                  <div className="flex items-center text-sm text-gray-600">
+                    <Building size={16} className="mr-2 text-gray-400" />
+                    <span>Superfície: {court.surface}</span>
+                  </div>
+                )}
+
+                <div className="flex items-center text-sm text-gray-600">
+                  <Users size={16} className="mr-2 text-gray-400" />
+                  <span>🏖️ Beach Tennis</span>
+                </div>
+
+                {(court.widthMeters && court.lengthMeters) && (
+                  <div className="flex items-center text-sm text-gray-600">
+                    <Star size={16} className="mr-2 text-gray-400" />
+                    <span>Dimensões: {court.widthMeters}m × {court.lengthMeters}m</span>
+                  </div>
+                )}
+
+                {court.hourlyRate && (
+                  <div className="flex items-center text-sm text-gray-600">
+                    <Activity size={16} className="mr-2 text-gray-400" />
+                    <span>Taxa: R$ {court.hourlyRate.toFixed(2)}/hora</span>
+                  </div>
+                )}
+              </div>
+              
+              {court.description && (
+                <div className="text-sm text-gray-600 mb-4 p-3 bg-gray-50 rounded">
+                  {court.description}
+                </div>
               )}
-            </h2>
-            
-            <div className="mt-2 text-sm text-gray-500 flex items-start">
-              <MapPin size={16} className="mr-1 mt-0.5 flex-shrink-0" />
-              <span>{court.location}</span>
-            </div>
-            
-            {court.surface && (
-              <div className="mt-2 text-sm text-gray-500">
-                <span className="font-semibold">Superfície:</span> {court.surface}
-              </div>
-            )}
-            
-            {court.description && (
-              <div className="mt-2 text-sm text-gray-600">
-                {court.description}
-              </div>
-            )}
-            
-            <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end space-x-2">
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={() => handleViewReservations(court.id)}
-              >
-                <Calendar size={16} className="mr-1" />
-                Reservas
-              </Button>
               
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={() => handleEdit(court)}
-              >
-                <Edit size={16} className="mr-1" />
-                Editar
-              </Button>
-              
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={() => handleDelete(court.id)}
-              >
-                <Trash2 size={16} className="mr-1" />
-                Excluir
-              </Button>
+              <div className="flex justify-between items-center pt-4 border-t border-gray-100">
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => handleViewReservations(court.id)}
+                  className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                >
+                  <Calendar size={16} className="mr-1" />
+                  Reservas
+                </Button>
+                
+                <div className="flex space-x-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => handleEdit(court)}
+                    className="text-gray-600 border-gray-200 hover:bg-gray-50"
+                  >
+                    <Edit size={16} className="mr-1" />
+                    Editar
+                  </Button>
+                  
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => handleDelete(court.id)}
+                    className="text-red-600 border-red-200 hover:bg-red-50"
+                  >
+                    <Trash2 size={16} className="mr-1" />
+                    Excluir
+                  </Button>
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         
-        {courts.length === 0 && (
-          <div className="col-span-full bg-white p-8 text-center rounded-lg shadow border border-brand-gray">
-            <MapPin size={48} className="mx-auto text-gray-300 mb-3" />
-            <h3 className="text-lg font-medium text-gray-800">Nenhuma quadra cadastrada</h3>
-            <p className="text-sm text-gray-500 mt-1">
-              Adicione quadras para gerenciar reservas e atribuí-las aos jogos do torneio
+        {courts.length === 0 && !loading && (
+          <div className="col-span-full bg-gradient-to-br from-orange-50 to-yellow-50 p-12 text-center rounded-lg border-2 border-dashed border-orange-200">
+            <div className="text-6xl mb-4">🏖️</div>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">
+              Nenhuma quadra de Beach Tennis cadastrada
+            </h3>
+            <p className="text-gray-600 mb-6 max-w-md mx-auto">
+              Comece criando sua primeira quadra de beach tennis. Defina as especificações, 
+              equipamentos e tarifas para começar a receber jogadores!
             </p>
-            <Button onClick={handleAdd} className="mt-4">
+            <Button onClick={handleAdd} className="bg-orange-500 hover:bg-orange-600">
               <Plus size={18} className="mr-2" />
-              Adicionar Quadra
+              Criar Primeira Quadra
             </Button>
+          </div>
+        )}
+
+        {/* Estatísticas das quadras */}
+        {courts.length > 0 && (
+          <div className="col-span-full bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">📊 Estatísticas das Quadras</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="text-center p-4 bg-green-50 rounded-lg">
+                <div className="text-2xl font-bold text-green-600">
+                  {courts.filter(c => c.status === 'AVAILABLE').length}
+                </div>
+                <div className="text-sm text-gray-600">Disponíveis</div>
+              </div>
+              <div className="text-center p-4 bg-yellow-50 rounded-lg">
+                <div className="text-2xl font-bold text-yellow-600">
+                  {courts.filter(c => c.status === 'MAINTENANCE').length}
+                </div>
+                <div className="text-sm text-gray-600">Em Manutenção</div>
+              </div>
+              <div className="text-center p-4 bg-red-50 rounded-lg">
+                <div className="text-2xl font-bold text-red-600">
+                  {courts.filter(c => c.status === 'OCCUPIED').length}
+                </div>
+                <div className="text-sm text-gray-600">Ocupadas</div>
+              </div>
+              <div className="text-center p-4 bg-blue-50 rounded-lg">
+                <div className="text-2xl font-bold text-blue-600">
+                  {Math.round(courts.reduce((acc, c) => acc + (c.hourlyRate || 0), 0) / courts.length) || 0}
+                </div>
+                <div className="text-sm text-gray-600">Taxa Média/Hora</div>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -400,87 +530,236 @@ export const CourtsManagement: React.FC = () => {
       <Modal
         isOpen={showAddEditModal}
         onClose={() => setShowAddEditModal(false)}
-        title={isEditMode ? "Editar Quadra" : "Nova Quadra"}
+        title={isEditMode ? "Editar Quadra de Beach Tennis" : "Nova Quadra de Beach Tennis"}
       >
         <div className="space-y-4">
-          <div>
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
-              Nome da Quadra
-            </label>
-            <Input
-              id="name"
-              name="name"
-              value={formData.name}
-              onChange={handleChange}
-              placeholder="Ex: Quadra Central"
-              icon={<Clipboard size={18} />}
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+                Nome da Quadra *
+              </label>
+              <Input
+                id="name"
+                name="name"
+                value={formData.name}
+                onChange={handleChange}
+                placeholder="Ex: Beach Tennis Central"
+                icon={<Clipboard size={18} />}
+                required
+              />
+            </div>
+            
+            <div>
+              <label htmlFor="location" className="block text-sm font-medium text-gray-700 mb-1">
+                Localização *
+              </label>
+              <Input
+                id="location"
+                name="location"
+                value={formData.location}
+                onChange={handleChange}
+                placeholder="Ex: Arena Principal - Setor A"
+                icon={<MapPin size={18} />}
+                required
+              />
+            </div>
           </div>
-          
-          <div>
-            <label htmlFor="location" className="block text-sm font-medium text-gray-700 mb-1">
-              Localização
-            </label>
-            <Input
-              id="location"
-              name="location"
-              value={formData.location}
-              onChange={handleChange}
-              placeholder="Ex: Arena Principal"
-              icon={<MapPin size={18} />}
-            />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="surface" className="block text-sm font-medium text-gray-700 mb-1">
+                Tipo de Superfície *
+              </label>
+              <select
+                id="surface"
+                name="surface"
+                value={formData.surface}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border rounded-lg shadow-sm border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                required
+              >
+                <option value="Areia">Areia</option>
+                <option value="Areia Fina">Areia Fina</option>
+                <option value="Areia Compactada">Areia Compactada</option>
+                <option value="Sintético com Areia">Sintético com Areia</option>
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">
+                Status da Quadra
+              </label>
+              <select
+                id="status"
+                name="status"
+                value={formData.status}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border rounded-lg shadow-sm border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="AVAILABLE">🟢 Disponível</option>
+                <option value="MAINTENANCE">🟡 Em Manutenção</option>
+                <option value="OCCUPIED">🔴 Ocupada</option>
+                <option value="INACTIVE">⚫ Inativa</option>
+              </select>
+            </div>
           </div>
-          
-          <div>
-            <label htmlFor="surface" className="block text-sm font-medium text-gray-700 mb-1">
-              Tipo de Superfície
-            </label>
-            <select
-              id="surface"
-              name="surface"
-              value={formData.surface}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border rounded-lg shadow-sm border-brand-gray focus:outline-none focus:ring-2 focus:ring-brand-green"
-            >
-              <option value="">Selecione</option>
-              <option value="Saibro">Saibro</option>
-              <option value="Grama Sintética">Grama Sintética</option>
-              <option value="Hard Court">Hard Court</option>
-              <option value="Areia">Areia</option>
-              <option value="Grama">Grama</option>
-              <option value="Cimento">Cimento</option>
-              <option value="Carpete">Carpete</option>
-              <option value="Outro">Outro</option>
-            </select>
+
+          <div className="bg-blue-50 p-4 rounded-lg">
+            <h4 className="text-sm font-medium text-blue-900 mb-3">🏖️ Especificações Beach Tennis</h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label htmlFor="width" className="block text-sm font-medium text-gray-700 mb-1">
+                  Largura (metros) *
+                </label>
+                <Input
+                  id="widthMeters"
+                  name="widthMeters"
+                  type="number"
+                  step="0.1"
+                  min="7"
+                  max="9"
+                  value={formData.widthMeters || ''}
+                  onChange={handleChange}
+                  placeholder="8.0"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">Padrão: 8m (Beach Tennis)</p>
+              </div>
+
+              <div>
+                <label htmlFor="lengthMeters" className="block text-sm font-medium text-gray-700 mb-1">
+                  Comprimento (metros) *
+                </label>
+                <Input
+                  id="lengthMeters"
+                  name="lengthMeters"
+                  type="number"
+                  step="0.1"
+                  min="15"
+                  max="17"
+                  value={formData.lengthMeters || ''}
+                  onChange={handleChange}
+                  placeholder="16.0"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">Padrão: 16m (Beach Tennis)</p>
+              </div>
+
+              <div>
+                <label htmlFor="hourlyRate" className="block text-sm font-medium text-gray-700 mb-1">
+                  Taxa por Hora (R$) *
+                </label>
+                <Input
+                  id="hourlyRate"
+                  name="hourlyRate"
+                  type="number"
+                  step="10"
+                  min="50"
+                  value={formData.hourlyRate || ''}
+                  onChange={handleChange}
+                  placeholder="120.00"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">Valor sugerido: R$ 100-150</p>
+              </div>
+            </div>
           </div>
-          
-          <div className="flex items-center">
-            <input
-              type="checkbox"
-              id="indoor"
-              name="indoor"
-              checked={formData.indoor}
-              onChange={(e) => setFormData({...formData, indoor: e.target.checked})}
-              className="h-4 w-4 text-brand-green rounded"
-            />
-            <label htmlFor="indoor" className="ml-2 block text-sm text-gray-700">
-              Quadra Coberta (Indoor)
-            </label>
+
+          <div className="flex items-center space-x-6">
+            <div className="flex items-center">
+              <input
+                id="indoor"
+                name="indoor"
+                type="checkbox"
+                checked={formData.indoor}
+                onChange={handleChange}
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+              />
+              <label htmlFor="indoor" className="ml-2 text-sm text-gray-700">
+                🏠 Quadra coberta (Indoor)
+              </label>
+            </div>
+
+            <div className="flex items-center">
+              <input
+                id="lighting"
+                name="lighting"
+                type="checkbox"
+                checked={formData.lighting}
+                onChange={handleChange}
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+              />
+              <label htmlFor="lighting" className="ml-2 text-sm text-gray-700">
+                💡 Iluminação artificial
+              </label>
+            </div>
+
+            <div className="flex items-center">
+              <input
+                id="active"
+                name="active"
+                type="checkbox"
+                checked={formData.active}
+                onChange={handleChange}
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+              />
+              <label htmlFor="active" className="ml-2 text-sm text-gray-700">
+                ✅ Quadra ativa
+              </label>
+            </div>
           </div>
           
           <div>
             <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
-              Descrição
+              Observações e Características Especiais
             </label>
             <textarea
               id="description"
               name="description"
               value={formData.description}
               onChange={handleChange}
-              placeholder="Adicione informações adicionais sobre a quadra"
-              className="w-full px-3 py-2 border rounded-lg shadow-sm border-brand-gray focus:outline-none focus:ring-2 focus:ring-brand-green"
+              placeholder="Ex: Quadra com iluminação LED, vestiários próximos, estacionamento..."
+              className="w-full px-3 py-2 border rounded-lg shadow-sm border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               rows={3}
             />
+          </div>
+
+          <div className="bg-orange-50 p-4 rounded-lg">
+            <h4 className="text-sm font-medium text-orange-900 mb-2">🏖️ Equipamentos Inclusos</h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+              <label className="flex items-center">
+                <input type="checkbox" className="mr-2 text-orange-600" defaultChecked />
+                Rede oficial
+              </label>
+              <label className="flex items-center">
+                <input type="checkbox" className="mr-2 text-orange-600" defaultChecked />
+                Postes
+              </label>
+              <label className="flex items-center">
+                <input type="checkbox" className="mr-2 text-orange-600" />
+                Bolas de treino
+              </label>
+              <label className="flex items-center">
+                <input type="checkbox" className="mr-2 text-orange-600" />
+                Raquetes para empréstimo
+              </label>
+              <label className="flex items-center">
+                <input type="checkbox" className="mr-2 text-orange-600" />
+                Iluminação noturna
+              </label>
+              <label className="flex items-center">
+                <input type="checkbox" className="mr-2 text-orange-600" />
+                Vestiários
+              </label>
+              <label className="flex items-center">
+                <input type="checkbox" className="mr-2 text-orange-600" />
+                Bebedouro
+              </label>
+              <label className="flex items-center">
+                <input type="checkbox" className="mr-2 text-orange-600" />
+                Banco de reservas
+              </label>
+            </div>
           </div>
           
           <div className="flex justify-end space-x-3 pt-4">

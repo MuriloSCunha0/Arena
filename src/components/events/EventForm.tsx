@@ -213,9 +213,10 @@ export const EventForm: React.FC = () => {
                 required
               >
                 <option value="TOURNAMENT">Torneio</option>
-                <option value="GATHERING">Encontro</option>
-                <option value="TRAINING">Treino</option>
-                <option value="OTHER">Outro</option>
+                <option value="POOL">Bolão</option>
+                <option value="SUPER8">Super 8</option>
+                <option value="CHAMPIONSHIP">Campeonato</option>
+                <option value="FRIENDLY">Amistoso</option>
               </select>
             </div>
           </div>
@@ -240,34 +241,81 @@ export const EventForm: React.FC = () => {
               Quadras disponíveis para este evento
             </label>
             {courts.length > 0 ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                {courts.map(court => {
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {courts
+                  .filter(court => court.active) // Mostrar apenas quadras ativas
+                  .map(court => {
                   const isSelected = (formData.courtIds || []).includes(court.id);
+                  
+                  const getTypeIcon = () => {
+                    switch (court.type) {
+                      case 'PADEL': return '🏓';
+                      case 'BEACH_TENNIS': return '🏖️';
+                      case 'TENNIS': return '🎾';
+                      default: return '⚽';
+                    }
+                  };
+
+                  const getStatusColor = () => {
+                    switch (court.status) {
+                      case 'AVAILABLE': return 'text-emerald-600';
+                      case 'MAINTENANCE': return 'text-yellow-600';
+                      case 'OCCUPIED': return 'text-red-600';
+                      case 'INACTIVE': return 'text-gray-600';
+                      default: return 'text-gray-600';
+                    }
+                  };
                   
                   return (
                     <div
                       key={court.id}
-                      className={`border rounded-lg p-3 cursor-pointer transition-all
+                      className={`border rounded-lg p-4 cursor-pointer transition-all relative
                         ${isSelected 
-                          ? 'bg-brand-green/10 border-brand-green' 
-                          : 'hover:bg-gray-50 border-gray-200'
-                        }`}
+                          ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-200' 
+                          : 'hover:bg-gray-50 border-gray-200 hover:border-gray-300'
+                        }
+                        ${court.status !== 'AVAILABLE' ? 'opacity-75' : ''}
+                      `}
                       onClick={() => handleCourtToggle(court.id)}
                     >
-                      <div className="flex items-start">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center mb-2">
+                            <span className="text-lg mr-2">{getTypeIcon()}</span>
+                            <div className="font-medium text-sm text-gray-900">{court.name}</div>
+                            {court.indoor && (
+                              <span className="ml-2 bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full">
+                                Indoor
+                              </span>
+                            )}
+                          </div>
+                          
+                          <div className="text-xs text-gray-600 mb-1">
+                            📍 {court.location}
+                          </div>
+                          
+                          {court.surface && (
+                            <div className="text-xs text-gray-600 mb-1">
+                              🏗️ {court.surface}
+                            </div>
+                          )}
+                          
+                          <div className={`text-xs font-medium ${getStatusColor()}`}>
+                            {court.status === 'AVAILABLE' ? '✅ Disponível' :
+                             court.status === 'MAINTENANCE' ? '🔧 Manutenção' :
+                             '🚫 Ocupada'}
+                          </div>
+                        </div>
+                        
                         <div className="flex-shrink-0">
-                          <div className={`h-4 w-4 rounded border flex items-center justify-center
+                          <div className={`h-5 w-5 rounded border-2 flex items-center justify-center
                             ${isSelected 
-                              ? 'bg-brand-green border-brand-green' 
+                              ? 'bg-blue-600 border-blue-600' 
                               : 'border-gray-300'
                             }`}
                           >
-                            {isSelected && <Check size={12} className="text-white" />}
+                            {isSelected && <Check size={14} className="text-white" />}
                           </div>
-                        </div>
-                        <div className="ml-2">
-                          <div className="font-medium text-sm">{court.name}</div>
-                          <div className="text-xs text-gray-500">{court.location}</div>
                         </div>
                       </div>
                     </div>
@@ -275,8 +323,13 @@ export const EventForm: React.FC = () => {
                 })}
               </div>
             ) : (
-              <div className="text-gray-500 text-sm p-4 border border-dashed border-gray-300 rounded-lg">
-                Nenhuma quadra cadastrada. <a href="/quadras" className="text-brand-blue hover:underline">Cadastre quadras</a> para associá-las a este evento.
+              <div className="text-gray-500 text-sm p-4 border border-dashed border-gray-300 rounded-lg text-center">
+                <div className="mb-2">🏟️ Nenhuma quadra cadastrada</div>
+                <div>
+                  <a href="/quadras" className="text-blue-600 hover:text-blue-800 hover:underline font-medium">
+                    Cadastre quadras aqui
+                  </a> para associá-las a este evento.
+                </div>
               </div>
             )}
           </div>

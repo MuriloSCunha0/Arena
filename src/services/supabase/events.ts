@@ -33,6 +33,7 @@ const transformEvent = (data: any): Event => ({
   organizerId: data.organizer_id,
   organizerCommissionRate: data.organizer_commission_rate,
   courtIds: data.court_ids || [],
+  status: data.status, // ✅ Adicionar status que estava faltando
   organizer: data.organizers ? {
       id: data.organizers.id,
       name: data.organizers.name,
@@ -51,7 +52,6 @@ const transformEvent = (data: any): Event => ({
       createdAt: data.organizers.created_at,
       updatedAt: data.organizers.updated_at,
   } : undefined,
-  status: data.status,
 });
 
 // Função robusta para converter Event para formato Supabase com fallbacks
@@ -108,15 +108,38 @@ export const EventsService = {
   // Buscar todos os eventos
   async getAll(): Promise<Event[]> {
     try {
+      console.log('🔍 [EventsService] Executando query para buscar eventos...');
+      
       const { data, error } = await supabase
         .from('events')
         .select('*')
-        .order('created_at', { ascending: false });      if (error) {
-        console.error('Supabase error fetching events:', error);
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('❌ [EventsService] Erro do Supabase:', error);
         throw new Error(`Falha ao buscar eventos: ${error.message}`);
       }
       
-      return (data || []).map(transformEvent);    } catch (error) {
+      console.log(`✅ [EventsService] Query executada com sucesso:`, {
+        totalRegistros: data?.length || 0,
+        primeiros3: data?.slice(0, 3).map(d => ({
+          id: d.id,
+          title: d.title,
+          status: d.status,
+          date: d.date
+        }))
+      });
+      
+      const transformedEvents = (data || []).map(transformEvent);
+      
+      console.log(`🔄 [EventsService] Eventos transformados:`, {
+        total: transformedEvents.length,
+        sample: transformedEvents.slice(0, 2)
+      });
+      
+      return transformedEvents;
+    } catch (error) {
+      console.error('❌ [EventsService] Erro na busca de eventos:', error);
       throw tratarErroSupabase(error, 'buscar todos os eventos');
     }
   },

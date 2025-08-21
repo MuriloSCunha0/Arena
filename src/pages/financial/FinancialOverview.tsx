@@ -38,7 +38,12 @@ export const FinancialOverview = () => {
     Promise.all([
       fetchAllTransactions(),
       fetchEvents()
-    ]).catch(() => {
+    ]).then(() => {
+      console.log('Dados carregados:', { 
+        transactionsCount: transactions.length, 
+        eventsCount: events.length 
+      });
+    }).catch(() => {
       addNotification({
         type: 'error',
         message: 'Falha ao carregar dados financeiros'
@@ -256,7 +261,13 @@ export const FinancialOverview = () => {
         <FinancialEventBreakdown events={eventBreakdownData} loading={loading} />
       ) : (
         <div className="bg-white p-6 rounded-lg shadow border border-brand-gray">
-          <h2 className="text-lg font-semibold text-brand-blue mb-4">Transações</h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-brand-blue">Transações</h2>
+            {/* Debug info */}
+            <div className="text-sm text-gray-500">
+              {transactions.length} transações carregadas | {filteredTransactions.length} após filtros
+            </div>
+          </div>
           
           <div className="flex flex-col md:flex-row gap-4 mb-6">
             <div className="relative flex-grow">

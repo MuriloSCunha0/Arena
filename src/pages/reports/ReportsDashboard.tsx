@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { 
   BarChart3, Calendar, Download, Users, CircleDollarSign, 
-  TrendingUp, Trophy, Filter, RefreshCw, Loader2, 
+  TrendingUp, Filter, RefreshCw, Loader2, X
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { useEventsStore, useParticipantsStore, useFinancialsStore } from '../../store';
@@ -20,6 +20,9 @@ export const ReportsDashboard = () => {
   
   const [isLoading, setIsLoading] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [dateFiltered, setDateFiltered] = useState(false);
 
   // Load all required data
   useEffect(() => {
@@ -29,7 +32,13 @@ export const ReportsDashboard = () => {
       
       try {
         // Paralelizando o carregamento de dados para maior eficiência
+        console.log('Carregando dados dos relatórios...');
         await Promise.all([fetchEvents(), fetchAllParticipants(), fetchAllTransactions()]);
+        console.log('Dados carregados:', { 
+          events: events.length, 
+          participants: allParticipants.length, 
+          transactions: transactions.length 
+        });
       } catch (error) {
         console.error('Error loading report data:', error);
         setDataError('Falha ao carregar dados para relatórios');
@@ -46,9 +55,96 @@ export const ReportsDashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Função para aplicar filtros de data
+  const applyDateFilter = () => {
+    if (!startDate || !endDate) {
+      addNotification({
+        type: 'warning',
+        message: 'Por favor, selecione ambas as datas para filtrar'
+      });
+      return;
+    }
+    
+    if (new Date(startDate) > new Date(endDate)) {
+      addNotification({
+        type: 'error',
+        message: 'A data inicial deve ser anterior à data final'
+      });
+      return;
+    }
+    
+    setDateFiltered(true);
+    addNotification({
+      type: 'success',
+      message: `Filtro aplicado: ${startDate} até ${endDate}`
+    });
+  };
+
+  const handleRefreshData = async () => {
+    setIsLoading(true);
+    setDataError(null);
+    
+    try {
+      await Promise.all([fetchEvents(), fetchAllParticipants(), fetchAllTransactions()]);
+      addNotification({
+        type: 'success',
+        message: 'Dados atualizados com sucesso!'
+      });
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+      setDataError('Falha ao atualizar dados');
+      addNotification({
+        type: 'error',
+        message: 'Falha ao atualizar dados'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Função para limpar filtros
+  const clearDateFilter = () => {
+    setStartDate('');
+    setEndDate('');
+    setDateFiltered(false);
+    addNotification({
+      type: 'info',
+      message: 'Filtros removidos - exibindo todos os dados'
+    });
+  };
+
+  // Filtrar transações por data se aplicável
+  const filteredTransactions = useMemo(() => {
+    if (!dateFiltered || !startDate || !endDate) {
+      return transactions;
+    }
+    
+    return transactions.filter(t => {
+      const transactionDate = new Date(t.transactionDate);
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      return transactionDate >= start && transactionDate <= end;
+    });
+  }, [transactions, dateFiltered, startDate, endDate]);
+
+  // Filtrar eventos por data se aplicável
+  const filteredEvents = useMemo(() => {
+    if (!dateFiltered || !startDate || !endDate) {
+      return events;
+    }
+    
+    return events.filter(e => {
+      const eventDate = new Date(e.date);
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      return eventDate >= start && eventDate <= end;
+    });
+  }, [events, dateFiltered, startDate, endDate]);
+
   // Usamos useMemo para cálculos de dados que dependem dos dados carregados
   const eventStats = useMemo(() => {
-    if (!events || events.length === 0) {
+    const eventsToUse = dateFiltered ? filteredEvents : events;
+    if (!eventsToUse || eventsToUse.length === 0) {
       return {
         totalEvents: 0,
         upcomingEvents: 0,
@@ -59,11 +155,11 @@ export const ReportsDashboard = () => {
     const now = new Date();
     
     return {
-      totalEvents: events.length,
-      upcomingEvents: events.filter(e => new Date(e.date) > now).length,
-      pastEvents: events.filter(e => new Date(e.date) <= now).length,
+      totalEvents: eventsToUse.length,
+      upcomingEvents: eventsToUse.filter(e => new Date(e.date) > now).length,
+      pastEvents: eventsToUse.filter(e => new Date(e.date) <= now).length,
     };
-  }, [events]);
+  }, [events, filteredEvents, dateFiltered]);
   
   const participantStats = useMemo(() => {
     if (!allParticipants || allParticipants.length === 0) {
@@ -74,6 +170,12 @@ export const ReportsDashboard = () => {
       };
     }
     
+    console.log('Debug participantes:', {
+      total: allParticipants.length,
+      primeiro: allParticipants[0],
+      statusTypes: allParticipants.map(p => p.paymentStatus)
+    });
+    
     return {
       totalParticipants: allParticipants.length,
       confirmedParticipants: allParticipants.filter(p => p.paymentStatus === 'CONFIRMED').length,
@@ -82,7 +184,15 @@ export const ReportsDashboard = () => {
   }, [allParticipants]);
   
   const financialStats = useMemo(() => {
-    if (!transactions || transactions.length === 0) {
+    const transactionsToUse = dateFiltered ? filteredTransactions : transactions;
+    
+    console.log('Debug financeiro:', {
+      transactionsToUse: transactionsToUse?.length || 0,
+      primeiraTransacao: transactionsToUse?.[0],
+      tiposTransacao: transactionsToUse?.map(t => ({ type: t.type, amount: t.amount }))
+    });
+    
+    if (!transactionsToUse || transactionsToUse.length === 0) {
       return {
         totalIncome: 0,
         totalExpenses: 0,
@@ -90,12 +200,13 @@ export const ReportsDashboard = () => {
       };
     }
     
-    const incomeTotal = transactions
-      .filter(t => t.type === 'INCOME' && t.status === 'CONFIRMED')
+    // Remover filtro por status já que não existe na tabela do banco
+    const incomeTotal = transactionsToUse
+      .filter(t => t.type === 'INCOME')
       .reduce((sum, t) => sum + t.amount, 0);
       
-    const expensesTotal = transactions
-      .filter(t => t.type === 'EXPENSE' && t.status === 'CONFIRMED')
+    const expensesTotal = transactionsToUse
+      .filter(t => t.type === 'EXPENSE')
       .reduce((sum, t) => sum + t.amount, 0);
       
     return {
@@ -103,15 +214,26 @@ export const ReportsDashboard = () => {
       totalExpenses: expensesTotal,
       netProfit: incomeTotal - expensesTotal,
     };
-  }, [transactions]);
+  }, [transactions, filteredTransactions, dateFiltered]);
 
   const eventPerformanceData = useMemo(() => {
-    if (!events || events.length === 0) return [];
+    const eventsToUse = dateFiltered ? filteredEvents : events;
+    const transactionsToUse = dateFiltered ? filteredTransactions : transactions;
     
-    return events.slice(0, 5).map(event => {
+    console.log('Debug eventos performance:', {
+      eventsToUse: eventsToUse?.length || 0,
+      transactionsToUse: transactionsToUse?.length || 0,
+      primeiroEvento: eventsToUse?.[0],
+      primeiraTransacao: transactionsToUse?.[0]
+    });
+    
+    if (!eventsToUse || eventsToUse.length === 0) return [];
+    
+    return eventsToUse.slice(0, 5).map(event => {
       const eventParticipants = allParticipants.filter(p => p.eventId === event.id);
-      const eventIncome = transactions
-        .filter(t => t.eventId === event.id && t.type === 'INCOME' && t.status === 'CONFIRMED')
+      // Remover filtro por status já que não existe na tabela
+      const eventIncome = transactionsToUse
+        .filter(t => t.eventId === event.id && t.type === 'INCOME')
         .reduce((sum, t) => sum + t.amount, 0);
         
       return {
@@ -121,10 +243,11 @@ export const ReportsDashboard = () => {
         taxaOcupacao: eventParticipants.length / (event.maxParticipants || 1) * 100
       };
     });
-  }, [events, allParticipants, transactions]);
+  }, [events, filteredEvents, allParticipants, transactions, filteredTransactions, dateFiltered]);
   
   const financialTimelineData = useMemo(() => {
-    if (!transactions || transactions.length === 0) return [];
+    const transactionsToUse = dateFiltered ? filteredTransactions : transactions;
+    if (!transactionsToUse || transactionsToUse.length === 0) return [];
     
     // Define proper types for the months object to avoid index errors
     interface MonthData {
@@ -134,7 +257,7 @@ export const ReportsDashboard = () => {
     
     const months: Record<string, MonthData> = {};
     
-    transactions.forEach(t => {
+    transactionsToUse.forEach(t => {
       const date = new Date(t.transactionDate);
       const monthYear = `${date.getMonth() + 1}/${date.getFullYear()}`;
       
@@ -142,12 +265,11 @@ export const ReportsDashboard = () => {
         months[monthYear] = { receitas: 0, despesas: 0 };
       }
       
-      if (t.status === 'CONFIRMED') {
-        if (t.type === 'INCOME') {
-          months[monthYear].receitas += t.amount;
-        } else {
-          months[monthYear].despesas += t.amount;
-        }
+      // Remover filtro por status já que não existe na tabela
+      if (t.type === 'INCOME') {
+        months[monthYear].receitas += t.amount;
+      } else {
+        months[monthYear].despesas += t.amount;
       }
     });
     
@@ -157,13 +279,31 @@ export const ReportsDashboard = () => {
       despesas: data.despesas,
       lucroLiquido: data.receitas - data.despesas
     }));
-  }, [transactions]);
+  }, [transactions, filteredTransactions, dateFiltered]);
   
   const eventTypeData = useMemo(() => {
-    if (!events || events.length === 0) return [];
+    const eventsToUse = dateFiltered ? filteredEvents : events;
+    if (!eventsToUse || eventsToUse.length === 0) return [];
     
-    const typeCount: Record<string, number> = events.reduce((acc: Record<string, number>, event) => {
-      const type = event.type === 'TOURNAMENT' ? 'Torneio' : 'Bolão';
+    const typeCount: Record<string, number> = eventsToUse.reduce((acc: Record<string, number>, event) => {
+      let type = 'Outro';
+      switch (event.type) {
+        case 'TOURNAMENT':
+          type = 'Torneio';
+          break;
+        case 'POOL':
+          type = 'Bolão';
+          break;
+        case 'SUPER8':
+          type = 'Super 8';
+          break;
+        case 'FRIENDLY':
+          type = 'Amistoso';
+          break;
+        case 'CHAMPIONSHIP':
+          type = 'Campeonato';
+          break;
+      }
       acc[type] = (acc[type] || 0) + 1;
       return acc;
     }, {});
@@ -172,13 +312,14 @@ export const ReportsDashboard = () => {
       name, 
       value 
     }));
-  }, [events]);
+  }, [events, filteredEvents, dateFiltered]);
   
   const categoriesData = useMemo(() => {
-    if (!events || events.length === 0) return [];
+    const eventsToUse = dateFiltered ? filteredEvents : events;
+    if (!eventsToUse || eventsToUse.length === 0) return [];
 
     // Explicitly type the accumulator
-    const categoryCount = events.reduce((acc: Record<string, number>, event) => {
+    const categoryCount = eventsToUse.reduce((acc: Record<string, number>, event) => {
       // Check if event.categories exists and is an array
       if (event.categories && Array.isArray(event.categories)) {
         event.categories.forEach(category => {
@@ -198,7 +339,7 @@ export const ReportsDashboard = () => {
         name,
         value
       }));
-  }, [events]);
+  }, [events, filteredEvents, dateFiltered]);
 
   if (isLoading || eventsLoading || participantsLoading || financialsLoading) {
     return (
@@ -220,8 +361,15 @@ export const ReportsDashboard = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-brand-blue">Relatórios e Análises</h1>
-        <Button onClick={() => setIsLoading(true)} variant="outline" disabled={isLoading}>
+        <div>
+          <h1 className="text-2xl font-bold text-brand-blue">Relatórios e Análises</h1>
+          {dateFiltered && (
+            <p className="text-sm text-green-600 mt-1">
+              📊 Exibindo dados filtrados de {startDate} até {endDate}
+            </p>
+          )}
+        </div>
+        <Button onClick={handleRefreshData} variant="outline" disabled={isLoading}>
           <RefreshCw size={18} className={`mr-2 ${isLoading ? 'animate-spin' : ''}`} />
           Atualizar Dados
         </Button>
@@ -231,12 +379,19 @@ export const ReportsDashboard = () => {
         <div className="flex items-center">
           <Calendar size={18} className="text-brand-purple mr-2" />
           <span className="font-medium text-brand-blue">Período:</span>
+          {dateFiltered && (
+            <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+              Filtro Ativo
+            </span>
+          )}
         </div>
         
         <div className="flex flex-col sm:flex-row gap-2 mt-2 sm:mt-0">
           <div className="relative">
             <input
               type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
               className="pl-3 pr-4 py-2 border border-brand-gray rounded-lg appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-brand-green"
             />
           </div>
@@ -244,16 +399,30 @@ export const ReportsDashboard = () => {
           <div className="relative">
             <input
               type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
               className="pl-3 pr-4 py-2 border border-brand-gray rounded-lg appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-brand-green"
             />
           </div>
           <Button 
+            onClick={applyDateFilter}
             className="ml-2" 
             disabled={isLoading}
           >
             <Filter size={16} className="mr-1" />
             Aplicar
           </Button>
+          {dateFiltered && (
+            <Button 
+              onClick={clearDateFilter}
+              variant="outline"
+              className="ml-2" 
+              disabled={isLoading}
+            >
+              <X size={16} className="mr-1" />
+              Limpar
+            </Button>
+          )}
         </div>
       </div>
       
@@ -380,7 +549,7 @@ export const ReportsDashboard = () => {
                   dataKey="value"
                   nameKey="name"
                 >
-                  {eventTypeData.map((entry, index) => (
+                  {eventTypeData.map((_, index) => (
                     <Cell key={`cell-${index}`} fill={index === 0 ? '#00C49F' : '#8884d8'} />
                   ))}
                 </Pie>

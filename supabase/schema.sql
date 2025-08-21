@@ -39,7 +39,8 @@ CREATE TYPE public."event_type" AS ENUM (
 	'TOURNAMENT',
 	'POOL',
 	'FRIENDLY',
-	'CHAMPIONSHIP');
+	'CHAMPIONSHIP',
+	'SUPER8');
 
 -- DROP TYPE public.gtrgm;
 
@@ -132,7 +133,8 @@ CREATE TYPE public."tournament_format" AS ENUM (
 	'DOUBLE_ELIMINATION',
 	'ROUND_ROBIN',
 	'SWISS',
-	'GROUP_STAGE_ELIMINATION');
+	'GROUP_STAGE_ELIMINATION',
+	'SUPER8');
 
 -- DROP TYPE public."transaction_type";
 

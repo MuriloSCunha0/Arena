@@ -24,8 +24,25 @@ import { ParticipantsList } from '../../components/events/ParticipantsList';
 import { TournamentBracket } from '../../components/events/TournamentBracket';
 import { EventFinancial } from '../../components/events/EventFinancial';
 import { RegistrationLink } from '../../components/events/RegistrationLink';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/Tabs'; // Assuming Tabs component exists
-import { Event, EventType, TeamFormationType } from '../../types'; // Import TeamFormationType
+import { EventType, TeamFormationType } from '../../types'; // Import TeamFormationType
+
+// Helper function to get event type configuration
+const getEventTypeConfig = (type: EventType) => {
+  switch (type) {
+    case EventType.TOURNAMENT:
+      return { label: 'Torneio', color: 'bg-blue-100 text-blue-800' };
+    case EventType.POOL:
+      return { label: 'Pool', color: 'bg-green-100 text-green-800' };
+    case EventType.FRIENDLY:
+      return { label: 'Amistoso', color: 'bg-purple-100 text-purple-800' };
+    case EventType.CHAMPIONSHIP:
+      return { label: 'Campeonato', color: 'bg-orange-100 text-orange-800' };
+    case EventType.SUPER8:
+      return { label: 'Super 8', color: 'bg-red-100 text-red-800' };
+    default:
+      return { label: type, color: 'bg-gray-100 text-gray-800' };
+  }
+};
 
 type TabType = 'details' | 'participants' | 'bracket' | 'financials' | 'registration';
 
@@ -36,7 +53,7 @@ export const EventDetail: React.FC = () => {
 
   // Use getByIdWithOrganizer to fetch event with organizer data
   const { currentEvent, getByIdWithOrganizer, deleteEvent, loading, error } = useEventsStore();
-  const { fetchParticipantsByEvent, eventParticipants } = useParticipantsStore();
+  const { fetchParticipantsByEvent } = useParticipantsStore();
   const { fetchTransactionsByEvent, fetchEventSummary } = useFinancialsStore();
   const { courts, fetchCourts } = useCourtsStore(); // Get courts data
   const addNotification = useNotificationStore(state => state.addNotification);
@@ -161,7 +178,12 @@ export const EventDetail: React.FC = () => {
             <ChevronLeft size={20} />
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-brand-blue">{currentEvent.title}</h1>
+            <div className="flex items-center gap-3 mb-2">
+              <h1 className="text-2xl font-bold text-brand-blue">{currentEvent.title}</h1>
+              <span className={`px-3 py-1 text-xs font-medium rounded-full ${getEventTypeConfig(currentEvent.type).color}`}>
+                {getEventTypeConfig(currentEvent.type).label}
+              </span>
+            </div>
             <div className="flex items-center text-sm text-gray-500 mt-1">
               <Calendar size={16} className="mr-1" />
               <span>{formatDate(currentEvent.date)} • {currentEvent.time}</span>

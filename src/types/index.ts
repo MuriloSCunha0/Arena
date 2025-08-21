@@ -125,15 +125,24 @@ export interface Court {
   id: string;
   name: string;
   location: string;
-  type: 'PADEL' | 'BEACH_TENNIS' | 'OTHER';
-  status: 'AVAILABLE' | 'MAINTENANCE' | 'BOOKED';
+  type: 'PADEL' | 'BEACH_TENNIS' | 'TENNIS' | 'FUTSAL' | 'VOLLEYBALL' | 'OTHER';
+  status: 'AVAILABLE' | 'OCCUPIED' | 'MAINTENANCE' | 'INACTIVE';
   surface?: string;
   indoor: boolean;
+  lighting?: boolean;    // Campo do banco
   active: boolean;
   imageUrl?: string;
   description?: string;
   createdAt: string;
   updatedAt: string;
+  // Campos com nomes corretos do banco
+  lengthMeters?: number;   // length_meters no banco
+  widthMeters?: number;    // width_meters no banco
+  hourlyRate?: number;     // hourly_rate no banco
+  images?: string[];       // jsonb no banco
+  equipment?: string[];    // jsonb no banco
+  address?: any;           // jsonb no banco
+  settings?: any;          // jsonb no banco
 }
 
 export interface CourtReservation {

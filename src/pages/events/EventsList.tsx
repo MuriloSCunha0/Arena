@@ -5,6 +5,42 @@ import { useEventsStore, useParticipantsStore } from '../../store';
 import { useNotificationStore } from '../../components/ui/Notification';
 import { EventType } from '../../types';
 
+// Helper function para mapear tipos de evento
+const getEventTypeConfig = (eventType: EventType) => {
+  switch (eventType) {
+    case EventType.TOURNAMENT:
+      return {
+        label: 'Torneio',
+        color: 'bg-gradient-to-r from-brand-green/10 to-emerald-50 text-brand-green border-brand-green/20'
+      };
+    case EventType.POOL:
+      return {
+        label: 'Bolão',
+        color: 'bg-gradient-to-r from-brand-purple/10 to-purple-50 text-brand-purple border-brand-purple/20'
+      };
+    case EventType.SUPER8:
+      return {
+        label: 'Super 8',
+        color: 'bg-gradient-to-r from-brand-orange/10 to-orange-50 text-brand-orange border-brand-orange/20'
+      };
+    case EventType.CHAMPIONSHIP:
+      return {
+        label: 'Campeonato',
+        color: 'bg-gradient-to-r from-brand-blue/10 to-blue-50 text-brand-blue border-brand-blue/20'
+      };
+    case EventType.FRIENDLY:
+      return {
+        label: 'Amistoso',
+        color: 'bg-gradient-to-r from-gray-400/10 to-gray-50 text-gray-600 border-gray-400/20'
+      };
+    default:
+      return {
+        label: 'Evento',
+        color: 'bg-gradient-to-r from-gray-400/10 to-gray-50 text-gray-600 border-gray-400/20'
+      };
+  }
+};
+
 export const EventsList = () => {
   const { events, loading: eventsLoading, error, fetchEvents } = useEventsStore();
   const { allParticipants, loading: participantsLoading, fetchAllParticipants } = useParticipantsStore();
@@ -70,8 +106,9 @@ export const EventsList = () => {
     
     // Filter by event type
     const matchesType = filterType === 'all' || 
-      (filterType === 'tournament' && event.type === EventType.TOURNAMENT) ||
-      (filterType === 'pool' && event.type === EventType.POOL);
+      (filterType === 'tournament' && (event.type === EventType.TOURNAMENT || event.type === EventType.SUPER8)) ||
+      (filterType === 'pool' && event.type === EventType.POOL) ||
+      (filterType === 'super8' && event.type === EventType.SUPER8);
     
     return matchesSearch && matchesType;
   });
@@ -150,12 +187,8 @@ export const EventsList = () => {
                   <span>{event.location}</span>
                 </div>
               </div>
-              <span className={`text-xs px-3 py-1.5 rounded-full font-semibold border ${
-                event.type === EventType.TOURNAMENT 
-                  ? 'bg-gradient-to-r from-brand-green/10 to-emerald-50 text-brand-green border-brand-green/20' 
-                  : 'bg-gradient-to-r from-brand-purple/10 to-purple-50 text-brand-purple border-brand-purple/20'
-              }`}>
-                {event.type === EventType.TOURNAMENT ? 'Torneio' : 'Bolão'}
+              <span className={`text-xs px-3 py-1.5 rounded-full font-semibold border ${getEventTypeConfig(event.type).color}`}>
+                {getEventTypeConfig(event.type).label}
               </span>
             </div>
           </div>
@@ -342,6 +375,7 @@ export const EventsList = () => {
                 <option value="all">Todos os tipos</option>
                 <option value="tournament">Torneios</option>
                 <option value="pool">Bolões</option>
+                <option value="super8">Super 8</option>
               </select>
               <ChevronDown size={20} className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none text-gray-400" />
             </div>

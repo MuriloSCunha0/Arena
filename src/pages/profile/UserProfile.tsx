@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { 
   User, 
   Phone, 
@@ -37,7 +36,6 @@ interface UserStats {
 
 export const UserProfile = () => {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [showInvites, setShowInvites] = useState(false);
@@ -291,7 +289,7 @@ export const UserProfile = () => {
                   <Button 
                     variant="outline" 
                     className="flex items-center justify-center gap-2"
-                    onClick={() => navigate('/meus-torneios')}
+                    onClick={() => window.location.href = '/meus-torneios'}
                   >
                     <Trophy size={18} />
                     <span className="hidden sm:inline">Meus Torneios</span>
@@ -301,7 +299,7 @@ export const UserProfile = () => {
                   <Button 
                     variant="primary" 
                     className="flex items-center justify-center gap-2 bg-gradient-to-r from-brand-green to-green-600"
-                    onClick={() => navigate('/eventos-disponiveis')}
+                    onClick={() => window.location.href = '/eventos-disponiveis'}
                   >
                     <Calendar size={18} />
                     <span className="hidden sm:inline">Ver Eventos</span>

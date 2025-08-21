@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 // Import the shared CreateParticipantDTO
-import { Participant, CreateParticipantDTO } from '../types';
-import { ParticipantsService } from '../services';
+import { Participant, CreateParticipantDTO, TransactionType, PaymentStatus, PaymentMethod } from '../types';
+import { ParticipantsService, FinancialsService, EventsService } from '../services';
 import { traduzirErroSupabase } from '../lib/supabase';
 import { withCacheRetry, isCacheError } from '../utils/cacheUtils';
 
@@ -43,9 +43,23 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
   fetchAllParticipants: async () => {
     set({ loading: true, error: null });
     try {
+      console.log('🔍 [ParticipantsStore] Buscando todos os participantes...');
+      
       const participants = await ParticipantsService.getAll();
-      set({ allParticipants: participants, loading: false });    } catch (error) {      
-      console.error('Erro ao buscar todos os participantes:', error);
+      
+      console.log(`✅ [ParticipantsStore] Participantes carregados:`, {
+        total: participants.length,
+        primeiros3: participants.slice(0, 3).map(p => ({
+          id: p.id,
+          name: p.name,
+          eventId: p.eventId,
+          paymentStatus: p.paymentStatus
+        }))
+      });
+      
+      set({ allParticipants: participants, loading: false });
+    } catch (error) {      
+      console.error('❌ [ParticipantsStore] Erro ao buscar todos os participantes:', error);
       set({
         error: traduzirErroSupabase(error) || 'Falha ao buscar todos os participantes',
         loading: false
@@ -99,12 +113,43 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
   updateParticipantPayment: async (id: string, status: 'PENDING' | 'CONFIRMED') => {
     set({ loading: true, error: null });
     try {
+      // Primeiro, buscar os dados do participante para ter as informações necessárias
+      const currentParticipant = get().eventParticipants.find(p => p.id === id);
+      if (!currentParticipant) {
+        throw new Error('Participante não encontrado');
+      }
+
       // Usar withCacheRetry para operação robusta
       const updatedParticipant = await withCacheRetry(
         () => ParticipantsService.updatePaymentStatus(id, status),
         2,
         'atualizar pagamento do participante'
       );
+
+      // Se o status foi alterado para CONFIRMED, criar transação financeira automaticamente
+      if (status === 'CONFIRMED' && currentParticipant.paymentStatus !== 'CONFIRMED') {
+        try {
+          // Buscar informações do evento para obter o preço
+          const event = await EventsService.getById(currentParticipant.eventId);
+          if (event) {
+            // Criar transação financeira de receita (sem campo status pois não existe na tabela)
+            await FinancialsService.create({
+              eventId: currentParticipant.eventId,
+              participantId: id,
+              amount: event.price,
+              type: TransactionType.INCOME,
+              description: `Pagamento de inscrição - ${currentParticipant.name}`,
+              paymentMethod: PaymentMethod.OTHER, // Default method since participant doesn't have this field
+              status: PaymentStatus.CONFIRMED, // Mantido para compatibilidade com interface
+              transactionDate: new Date().toISOString()
+            });
+          }
+        } catch (financeError) {
+          console.error('Erro ao criar transação financeira:', financeError);
+          // Não falha a operação principal, apenas logga o erro
+          // A transação pode ser criada manualmente se necessário
+        }
+      }
 
       // Atualiza o participante na lista
       const eventParticipants = get().eventParticipants.map(participant =>

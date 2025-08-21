@@ -265,7 +265,6 @@ export const EventForm = () => {
                   <Select id="format" {...field} error={!!errors.format}>
                     <option value={TournamentFormat.GROUP_STAGE_ELIMINATION}>Grupos + Eliminatória</option>
                     <option value={TournamentFormat.SINGLE_ELIMINATION}>Eliminatória Simples</option>
-                    <option value={TournamentFormat.ROUND_ROBIN}>Todos contra Todos</option>
                     <option value={TournamentFormat.SUPER8}>Super 8 (Individual)</option>
                   </Select>
                 )}
@@ -373,7 +372,7 @@ export const EventForm = () => {
               />
             </div>
 
-            {watch('type') === EventType.TOURNAMENT && (
+            {(watch('type') === EventType.TOURNAMENT || watch('type') === EventType.SUPER8) && (
               <>
                 <div>
                   <Label htmlFor="settings.groupSize">Tamanho dos Grupos</Label>

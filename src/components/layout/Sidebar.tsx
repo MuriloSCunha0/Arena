@@ -10,7 +10,6 @@ import {
   LogOut,
   BarChart3,
   MapPin,
-  TestTube,
   ChevronLeft,
   ChevronRight,
   X
@@ -236,7 +235,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = true, onClose }) => {
             />
           </div>
 
-          {/* Seção de Desenvolvimento */}
+          {/* Seção de Desenvolvimento - OCULTA
           {!isCollapsed && (
             <div className="pt-4">
               <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-3">
@@ -250,6 +249,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = true, onClose }) => {
             label="Ambiente de Testes" 
             isCollapsed={isCollapsed}
           />
+          */}
           
           {/* Seção de Sistema */}
           {!isCollapsed && (

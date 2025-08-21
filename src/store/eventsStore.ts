@@ -30,12 +30,25 @@ export const useEventsStore = create<EventsState>((set, get) => ({
   fetchEvents: async () => {
     set({ loading: true, error: null });
     try {
+      console.log('🔍 [EventsStore] Iniciando busca de eventos...');
+      
       // Usar withCacheRetry para operação robusta
       const events = await withCacheRetry(
         () => EventsService.getAll(),
         2,
         'buscar eventos'
       );
+      
+      console.log(`✅ [EventsStore] Eventos carregados:`, {
+        total: events.length,
+        primeiros3: events.slice(0, 3).map(e => ({
+          id: e.id,
+          title: e.title,
+          date: e.date,
+          status: e.status
+        }))
+      });
+      
       set({ events, loading: false });
     } catch (error) {
       console.error('Error fetching events:', error);

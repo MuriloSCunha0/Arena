@@ -5,6 +5,42 @@ import { useEventsStore, useParticipantsStore, useFinancialsStore } from '../sto
 import { useNotificationStore } from '../components/ui/Notification';
 import { EventType, Participant } from '../types';
 
+// Helper function para mapear tipos de evento
+const getEventTypeConfig = (eventType: EventType) => {
+  switch (eventType) {
+    case EventType.TOURNAMENT:
+      return {
+        label: 'Torneio',
+        color: 'bg-gradient-to-r from-brand-green/20 to-emerald-100 text-brand-green border border-brand-green/20'
+      };
+    case EventType.POOL:
+      return {
+        label: 'Bolão',
+        color: 'bg-gradient-to-r from-brand-purple/20 to-purple-100 text-brand-purple border border-brand-purple/20'
+      };
+    case EventType.SUPER8:
+      return {
+        label: 'Super 8',
+        color: 'bg-gradient-to-r from-brand-orange/20 to-orange-100 text-brand-orange border border-brand-orange/20'
+      };
+    case EventType.CHAMPIONSHIP:
+      return {
+        label: 'Campeonato',
+        color: 'bg-gradient-to-r from-brand-blue/20 to-blue-100 text-brand-blue border border-brand-blue/20'
+      };
+    case EventType.FRIENDLY:
+      return {
+        label: 'Amistoso',
+        color: 'bg-gradient-to-r from-gray-400/20 to-gray-100 text-gray-600 border border-gray-400/20'
+      };
+    default:
+      return {
+        label: 'Evento',
+        color: 'bg-gradient-to-r from-gray-400/20 to-gray-100 text-gray-600 border border-gray-400/20'
+      };
+  }
+};
+
 const StatCard = ({ 
   title, 
   value, 
@@ -64,23 +100,20 @@ const StatCard = ({
 const EventCard = ({ 
   title, 
   date, 
-  type, 
-  participants,
+  eventType, 
   participantCount,
   maxParticipants,
-  id,
-  status = 'active'
+  id
 }: { 
   title: string, 
   date: string, 
-  type: string, 
-  participants: string,
+  eventType: EventType, 
   participantCount: number,
   maxParticipants: number,
-  id: string,
-  status?: 'active' | 'upcoming' | 'full'
+  id: string
 }) => {
   const occupancyPercentage = Math.min(100, Math.round((participantCount / maxParticipants) * 100));
+  const eventConfig = getEventTypeConfig(eventType);
   
   const getStatusConfig = () => {
     if (occupancyPercentage >= 100) return { color: 'bg-red-500', text: 'Lotado', bgColor: 'bg-red-50 border-red-200' };
@@ -102,12 +135,8 @@ const EventCard = ({
             <p className="text-sm text-gray-500 mt-1">{date}</p>
           </div>
           <div className="ml-3 flex flex-col items-end gap-2">
-            <span className={`text-xs px-3 py-1 rounded-full font-medium ${
-              type === 'Torneio' 
-                ? 'bg-gradient-to-r from-brand-green/20 to-emerald-100 text-brand-green border border-brand-green/20' 
-                : 'bg-gradient-to-r from-brand-purple/20 to-purple-100 text-brand-purple border border-brand-purple/20'
-            }`}>
-              {type}
+            <span className={`text-xs px-3 py-1 rounded-full font-medium ${eventConfig.color}`}>
+              {eventConfig.label}
             </span>
           </div>
         </div>
@@ -222,9 +251,21 @@ export const Dashboard = () => {
     // Add a null check before sorting
     if (!events || events.length === 0) return [];
     
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Zerar horas para comparação apenas de data
+    
     return [...events]
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-      .slice(0, 3);
+      .filter(event => {
+        const eventDate = new Date(event.date);
+        eventDate.setHours(0, 0, 0, 0);
+        return eventDate >= today; // Apenas eventos de hoje em diante
+      })
+      .sort((a, b) => {
+        const dateA = new Date(a.date).getTime();
+        const dateB = new Date(b.date).getTime();
+        return dateA - dateB; // Ordenar do mais próximo para o mais distante
+      })
+      .slice(0, 3); // Pegar apenas os 3 mais próximos
   }, [events]);
   
   // Calcular métricas financeiras de maneira otimizada
@@ -278,10 +319,32 @@ export const Dashboard = () => {
     return { totalConfirmed, totalPending, avgPerEvent };
   }, [allParticipants, events, participantsLoaded]);
 
-  // Format date for display
+  // Format date for display with friendly terms
   const formatDate = (dateString: string, timeString: string) => {
-    const date = new Date(dateString);
-    return `${date.toLocaleDateString('pt-BR')} - ${timeString}`;
+    const eventDate = new Date(dateString);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    const eventDateOnly = new Date(eventDate);
+    eventDateOnly.setHours(0, 0, 0, 0);
+    
+    if (eventDateOnly.getTime() === today.getTime()) {
+      return `Hoje - ${timeString}`;
+    } else if (eventDateOnly.getTime() === tomorrow.getTime()) {
+      return `Amanhã - ${timeString}`;
+    } else {
+      const diffTime = eventDateOnly.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays <= 7) {
+        return `Em ${diffDays} dia${diffDays > 1 ? 's' : ''} - ${timeString}`;
+      } else {
+        return `${eventDate.toLocaleDateString('pt-BR')} - ${timeString}`;
+      }
+    }
   };
   
   // Format currency
@@ -404,11 +467,11 @@ export const Dashboard = () => {
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-green"></div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div className="p-5 rounded-xl bg-gradient-to-br from-brand-green/10 to-emerald-50 border border-emerald-200 hover:shadow-sm transition-shadow">
                   <p className="text-sm text-emerald-700 font-medium">Torneios</p>
                   <p className="text-2xl font-bold text-emerald-800 mt-1">
-                    {events.filter(e => e.type === EventType.TOURNAMENT).length}
+                    {events.filter(e => e.type === EventType.TOURNAMENT || e.type === EventType.SUPER8).length}
                   </p>
                   <p className="text-xs text-emerald-600 mt-1">eventos ativos</p>
                 </div>
@@ -418,6 +481,13 @@ export const Dashboard = () => {
                     {events.filter(e => e.type === EventType.POOL).length}
                   </p>
                   <p className="text-xs text-purple-600 mt-1">eventos ativos</p>
+                </div>
+                <div className="p-5 rounded-xl bg-gradient-to-br from-brand-orange/10 to-orange-50 border border-orange-200 hover:shadow-sm transition-shadow">
+                  <p className="text-sm text-orange-700 font-medium">Super 8</p>
+                  <p className="text-2xl font-bold text-orange-800 mt-1">
+                    {events.filter(e => e.type === EventType.SUPER8).length}
+                  </p>
+                  <p className="text-xs text-orange-600 mt-1">eventos ativos</p>
                 </div>
               </div>
             )}
@@ -461,8 +531,7 @@ export const Dashboard = () => {
                     id={event.id}
                     title={event.title} 
                     date={formatDate(event.date, event.time)} 
-                    type={event.type === EventType.TOURNAMENT ? 'Torneio' : 'Bolão'}
-                    participants={`${eventParticipantCount}/${event.maxParticipants} inscritos`}
+                    eventType={event.type}
                     participantCount={eventParticipantCount}
                     maxParticipants={event.maxParticipants || 0}
                   />
