@@ -93,9 +93,9 @@ export const TorneiosEmAndamento: React.FC = () => {
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-      <div className="border-b border-gray-200 px-6 py-4">
-        <h2 className="text-xl font-semibold flex items-center text-gray-900">
-          <Trophy className="mr-3 text-red-500" size={20} />
+      <div className="border-b border-gray-200 px-4 py-3">
+        <h2 className="text-lg font-semibold flex items-center text-gray-900">
+          <Trophy className="mr-2 text-red-500" size={18} />
           Acontecendo Agora
           <span className="ml-2 px-2 py-1 bg-red-100 text-red-600 text-xs font-medium rounded-full">
             AO VIVO
@@ -106,16 +106,16 @@ export const TorneiosEmAndamento: React.FC = () => {
         </p>
       </div>
       
-      <div className="p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+      <div className="p-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {tournaments.map(tournament => (
             <div 
               key={tournament.id} 
-              className="bg-gradient-to-br from-red-50 to-orange-50 rounded-xl border-2 border-red-200 overflow-hidden hover:shadow-lg transition-all duration-200 group"
+              className="bg-gradient-to-br from-red-50 to-orange-50 rounded-lg border-2 border-red-200 overflow-hidden hover:shadow-lg transition-all duration-200 group"
             >
               {/* Banner Image */}
               {tournament.banner_image_url && (
-                <div className="h-40 overflow-hidden">
+                <div className="h-24 overflow-hidden">
                   <img 
                     src={tournament.banner_image_url} 
                     alt={tournament.title}
@@ -124,11 +124,11 @@ export const TorneiosEmAndamento: React.FC = () => {
                 </div>
               )}
               
-              <div className="p-6">
+              <div className="p-3">
                 {/* Status Badge */}
-                <div className="flex items-center justify-between mb-3">
-                  <span className="px-3 py-1 bg-red-500 text-white text-xs font-medium rounded-full flex items-center">
-                    <div className="w-2 h-2 bg-white rounded-full mr-2 animate-pulse"></div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="px-2 py-1 bg-red-500 text-white text-xs font-medium rounded-full flex items-center">
+                    <div className="w-1.5 h-1.5 bg-white rounded-full mr-1 animate-pulse"></div>
                     AO VIVO
                   </span>
                   <span className="text-xs text-gray-500 font-medium">
@@ -139,39 +139,31 @@ export const TorneiosEmAndamento: React.FC = () => {
                   </span>
                 </div>
 
-                <h3 className="font-semibold text-lg mb-4 text-gray-900 line-clamp-2">
+                <h3 className="font-semibold text-base mb-3 text-gray-900 line-clamp-1">
                   {tournament.title}
                 </h3>
                 
-                <div className="space-y-3 mb-6">
+                <div className="space-y-1 mb-3">
                   <div className="flex items-center text-gray-600">
-                    <div className="p-1.5 bg-green-100 rounded-lg mr-3">
-                      <Calendar size={14} className="text-green-600" />
-                    </div>
-                    <span className="text-sm font-medium">{formatDate(tournament.date)}</span>
+                    <Calendar size={12} className="text-green-600 mr-2 flex-shrink-0" />
+                    <span className="text-xs font-medium truncate">{formatDate(tournament.date)}</span>
                   </div>
                   
                   <div className="flex items-center text-gray-600">
-                    <div className="p-1.5 bg-blue-100 rounded-lg mr-3">
-                      <MapPin size={14} className="text-blue-600" />
-                    </div>
-                    <span className="text-sm line-clamp-1">{tournament.location}</span>
+                    <MapPin size={12} className="text-blue-600 mr-2 flex-shrink-0" />
+                    <span className="text-xs truncate">{tournament.location}</span>
                   </div>
                   
                   <div className="flex items-center text-gray-600">
-                    <div className="p-1.5 bg-purple-100 rounded-lg mr-3">
-                      <Users size={14} className="text-purple-600" />
-                    </div>
-                    <span className="text-sm">
+                    <Users size={12} className="text-purple-600 mr-2 flex-shrink-0" />
+                    <span className="text-xs truncate">
                       {getParticipantsCount(tournament)} participantes
                     </span>
                   </div>
 
                   <div className="flex items-center text-gray-600">
-                    <div className="p-1.5 bg-yellow-100 rounded-lg mr-3">
-                      <DollarSign size={14} className="text-yellow-600" />
-                    </div>
-                    <span className="text-sm font-medium">
+                    <DollarSign size={12} className="text-yellow-600 mr-2 flex-shrink-0" />
+                    <span className="text-xs font-medium truncate">
                       Taxa: R$ {tournament.entry_fee?.toFixed(2) || '0.00'}
                     </span>
                   </div>
@@ -180,9 +172,10 @@ export const TorneiosEmAndamento: React.FC = () => {
                 <Link to={`/torneio/${tournament.id}/acompanhar`} className="block">
                   <Button 
                     variant="primary" 
-                    className="w-full bg-red-600 hover:bg-red-700 flex items-center justify-center"
+                    size="sm"
+                    className="w-full bg-red-600 hover:bg-red-700 flex items-center justify-center text-xs"
                   >
-                    <Eye size={16} className="mr-2" />
+                    <Eye size={14} className="mr-1" />
                     Acompanhar Torneio
                   </Button>
                 </Link>

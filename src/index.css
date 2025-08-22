@@ -1,3 +1,95 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Design System Base Classes */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  body {
+    @apply font-sans antialiased;
+  }
+}
+
+@layer components {
+  /* Container padronizado */
+  .container-app {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+  
+  /* Cards padronizados */
+  .card-base {
+    @apply bg-white rounded-xl border border-gray-100 shadow-card;
+  }
+  
+  .card-hover {
+    @apply transition-all duration-200 hover:shadow-card-hover hover:-translate-y-0.5;
+  }
+  
+  .card-elevated {
+    @apply shadow-card-elevated;
+  }
+  
+  /* Tipografia padronizada */
+  .heading-page {
+    @apply text-2xl font-bold text-brand-blue;
+  }
+  
+  .heading-section {
+    @apply text-xl font-semibold text-gray-900;
+  }
+  
+  .heading-card {
+    @apply text-lg font-medium text-gray-900;
+  }
+  
+  .text-description {
+    @apply text-sm text-gray-500;
+  }
+  
+  .text-muted {
+    @apply text-xs text-gray-400;
+  }
+  
+  /* Estados padronizados */
+  .state-success {
+    @apply bg-emerald-50 text-emerald-700 border-emerald-200;
+  }
+  
+  .state-warning {
+    @apply bg-amber-50 text-amber-700 border-amber-200;
+  }
+  
+  .state-error {
+    @apply bg-red-50 text-red-700 border-red-200;
+  }
+  
+  .state-info {
+    @apply bg-blue-50 text-blue-700 border-blue-200;
+  }
+  
+  /* Loading states */
+  .loading-skeleton {
+    @apply animate-pulse bg-gray-200 rounded;
+  }
+  
+  /* Focus states padronizados */
+  .focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-brand-green focus:ring-offset-2;
+  }
+  
+  /* Spacing padronizado para seções */
+  .section-spacing {
+    @apply space-y-6;
+  }
+  
+  .section-spacing-sm {
+    @apply space-y-4;
+  }
+  
+  .section-spacing-lg {
+    @apply space-y-8;
+  }
+}

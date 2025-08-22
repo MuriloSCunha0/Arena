@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Download, Filter, User, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
+import { PageHeader } from '../../components/ui/PageHeader';
 import { useParticipantsStore } from '../../store';
 import { useNotificationStore } from '../../components/ui/Notification';
 
@@ -162,33 +163,36 @@ export const ParticipantsList = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-brand-blue">Participantes</h1>
-        <Button onClick={exportParticipants}>
-          <Download size={18} className="mr-2" />
-          Exportar Dados
-        </Button>
-      </div>
+    <div className="section-spacing">
+      <PageHeader
+        title="Participantes"
+        description="Gerencie todos os participantes dos seus eventos"
+        actions={
+          <Button onClick={exportParticipants} loading={isProcessing}>
+            <Download size={18} className="mr-2" />
+            Exportar Dados
+          </Button>
+        }
+      />
       
-      <div className="bg-white p-6 rounded-lg shadow border border-brand-gray">
+      <div className="card-base p-6">
         <div className="flex flex-col md:flex-row gap-4 mb-6">
           <div className="relative flex-grow">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
             <input
               type="text"
               placeholder="Buscar por nome, email ou telefone..."
-              className="pl-10 pr-4 py-2 border border-brand-gray rounded-lg w-full focus:outline-none focus:ring-2 focus:ring-brand-green"
+              className="pl-10 pr-4 py-2.5 border border-brand-gray rounded-xl w-full focus-ring"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
           
-          <div className="flex flex-col sm:flex-row gap-2">
+          <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative">
               <Filter size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
               <select
-                className="pl-9 pr-4 py-2 border border-brand-gray rounded-lg appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-brand-green"
+                className="pl-9 pr-8 py-2.5 border border-brand-gray rounded-xl appearance-none bg-white focus-ring min-w-[180px]"
                 value={paymentFilter}
                 onChange={(e) => setPaymentFilter(e.target.value)}
               >
@@ -201,7 +205,7 @@ export const ParticipantsList = () => {
             <div className="relative">
               <Filter size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
               <select
-                className="pl-9 pr-4 py-2 border border-brand-gray rounded-lg appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-brand-green"
+                className="pl-9 pr-8 py-2.5 border border-brand-gray rounded-xl appearance-none bg-white focus-ring min-w-[180px]"
                 value={eventFilter}
                 onChange={(e) => setEventFilter(e.target.value)}
               >

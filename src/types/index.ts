@@ -67,6 +67,7 @@ export interface Participant {
   partnerInviteStatus?: 'PENDING' | 'ACCEPTED' | 'DECLINED' | null;
   paymentStatus: 'PENDING' | 'CONFIRMED';
   partnerPaymentStatus?: 'PENDING' | 'CONFIRMED' | null;
+  paymentMethod?: 'pix' | 'credit_card' | 'cash' | 'bank_transfer' | null; // ✅ NOVO
   paymentId?: string;
   paymentDate?: string;
   paymentAmount?: number;
@@ -89,8 +90,9 @@ export interface Participant {
   matchesLost?: number;
   setsWon?: number;
   setsLost?: number;
-  registrationNotes?: string;
+  registrationNotes?: string; // ✅ NOVO
   medicalNotes?: string;
+  notes?: string;             // ✅ NOVO - Para compatibilidade
   metadata?: Record<string, any>;
 }
 

@@ -5,9 +5,10 @@ import {
   Calendar,
   MapPin,
   Target,
-  Loader,
+  Loader2,
   RefreshCw,
   Trophy,
+  ChevronLeft
 } from 'lucide-react';
 import { formatDate } from '../../utils/formatters';
 import { Button } from '../../components/ui/Button';
@@ -165,53 +166,6 @@ export const AcompanharTorneio: React.FC = () => {
     }
   };
 
-  // Função para gerar estatísticas fictícias mais realistas
-  const generateRealisticStats = (participant: any, index: number) => {
-    // Base hash do nome para consistência
-    const nameHash = participant.name.split('').reduce((a: number, b: string) => {
-      a = ((a << 5) - a) + b.charCodeAt(0);
-      return a & a;
-    }, 0);
-    
-    const random = (min: number, max: number) => {
-      const seed = Math.abs(nameHash + index);
-      return min + (seed % (max - min + 1));
-    };
-
-    // Gerar experiência baseada no hash do nome
-    const experience = random(1, 8); // Anos de experiência
-    const skillLevel = random(1, 5); // Nível de habilidade
-    
-    // Torneios disputados baseado na experiência
-    const tournamentsPlayed = Math.max(1, experience * random(2, 8));
-    
-    // Pódios baseado no nível de habilidade e experiência
-    const podiumChance = Math.min(0.4, (skillLevel * experience) / 25);
-    const podiums = Math.floor(tournamentsPlayed * podiumChance);
-    
-    // Vitórias em torneios (só os melhores ganham)
-    const winChance = Math.min(0.15, (skillLevel * experience) / 40);
-    const wins = Math.floor(tournamentsPlayed * winChance);
-    
-    // Posição final atual no torneio
-    const currentPosition = participant.final_position || random(1, 16);
-    
-    // Status baseado na posição
-    let status = 'Em andamento';
-    if (currentPosition <= 3) status = 'Classificado';
-    else if (currentPosition > 8) status = 'Eliminado';
-    
-    return {
-      tournamentsPlayed,
-      podiums,
-      wins,
-      currentPosition,
-      status,
-      experience,
-      skillLevel
-    };
-  };
-
   const renderParticipantes = () => {
     if (!tournament?.participants || tournament.participants.length === 0) {
       return (
@@ -222,125 +176,282 @@ export const AcompanharTorneio: React.FC = () => {
       );
     }
 
+    // Função para buscar estatísticas de uma dupla usando matches_data (mesma lógica das outras abas)
+    const getTeamStats = (participantName: string) => {
+      if (!tournament?.tournament?.matches_data) {
+        console.log('❌ Nenhum matches_data disponível');
+        return {
+          wins: 0,
+          losses: 0,
+          gamesWon: 0,
+          gamesLost: 0,
+          points: 0,
+          position: null
+        };
+      }
+
+      const matchesData = tournament.tournament.matches_data;
+      console.log('🔍 Procurando por:', participantName);
+      console.log('📊 Matches Data:', matchesData);
+      
+      // Primeiro, encontrar o ID do participante
+      const participant = tournament?.participants?.find(p => p.name === participantName);
+      if (!participant) {
+        console.log('❌ Participante não encontrado:', participantName);
+        return {
+          wins: 0,
+          losses: 0,
+          gamesWon: 0,
+          gamesLost: 0,
+          points: 0,
+          position: null
+        };
+      }
+
+      console.log('� Participante encontrado:', participant);
+      
+      // Calcular estatísticas baseado nas partidas (mesma lógica do renderRanking)
+      const teams: Record<string, any> = {};
+      
+      // Processar todas as partidas completadas
+      matchesData.forEach((match: any) => {
+        if (!match.completed) return;
+        
+        const team1Key = match.team1?.join('|') || '';
+        const team2Key = match.team2?.join('|') || '';
+        
+        // Verificar se o participante está em uma das duplas desta partida
+        const isInTeam1 = match.team1?.includes(participant.id);
+        const isInTeam2 = match.team2?.includes(participant.id);
+        
+        if (!isInTeam1 && !isInTeam2) return; // Participante não está nesta partida
+        
+        // Inicializar times se necessário
+        if (!teams[team1Key] && match.team1) {
+          teams[team1Key] = {
+            teamId: match.team1,
+            stats: { 
+              wins: 0, 
+              losses: 0, 
+              gamesWon: 0, 
+              gamesLost: 0, 
+              gameDifference: 0,
+              matchesPlayed: 0
+            }
+          };
+        }
+        
+        if (!teams[team2Key] && match.team2) {
+          teams[team2Key] = {
+            teamId: match.team2,
+            stats: { 
+              wins: 0, 
+              losses: 0, 
+              gamesWon: 0, 
+              gamesLost: 0, 
+              gameDifference: 0,
+              matchesPlayed: 0
+            }
+          };
+        }
+        
+        // Calcular estatísticas
+        const score1 = match.score1 || 0;
+        const score2 = match.score2 || 0;
+        
+        if (teams[team1Key]) {
+          teams[team1Key].stats.gamesWon += score1;
+          teams[team1Key].stats.gamesLost += score2;
+          teams[team1Key].stats.matchesPlayed++;
+          
+          if (score1 > score2) {
+            teams[team1Key].stats.wins++;
+          } else {
+            teams[team1Key].stats.losses++;
+          }
+          
+          teams[team1Key].stats.gameDifference = teams[team1Key].stats.gamesWon - teams[team1Key].stats.gamesLost;
+        }
+        
+        if (teams[team2Key]) {
+          teams[team2Key].stats.gamesWon += score2;
+          teams[team2Key].stats.gamesLost += score1;
+          teams[team2Key].stats.matchesPlayed++;
+          
+          if (score2 > score1) {
+            teams[team2Key].stats.wins++;
+          } else {
+            teams[team2Key].stats.losses++;
+          }
+          
+          teams[team2Key].stats.gameDifference = teams[team2Key].stats.gamesWon - teams[team2Key].stats.gamesLost;
+        }
+      });
+      
+      // Encontrar a dupla do participante
+      for (const [teamKey, teamData] of Object.entries(teams)) {
+        if (teamData.teamId && teamData.teamId.includes(participant.id)) {
+          console.log('✅ Estatísticas encontradas para', participantName, ':', teamData.stats);
+          
+          // Calcular pontos (3 por vitória, 0 por derrota, como no Beach Tennis)
+          const points = teamData.stats.wins * 3;
+          
+          return {
+            wins: teamData.stats.wins,
+            losses: teamData.stats.losses,
+            gamesWon: teamData.stats.gamesWon,
+            gamesLost: teamData.stats.gamesLost,
+            points: points,
+            position: null, // A posição será calculada no ranking geral
+            teamKey: teamKey
+          };
+        }
+      }
+
+      console.log('❌ Nenhuma estatística encontrada para:', participantName);
+      return {
+        wins: 0,
+        losses: 0,
+        gamesWon: 0,
+        gamesLost: 0,
+        points: 0,
+        position: null
+      };
+    };
+
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-        {tournament.participants.map((participant, index) => {
-          const stats = generateRealisticStats(participant, index);
+        {tournament.participants.map((participant) => {
+          // Buscar estatísticas da dupla no standings_data
+          const teamStats = getTeamStats(participant.name);
+          
+          // Determinar status baseado na posição final ou standings
+          let status = 'Em andamento';
+          let statusColor = 'bg-yellow-100 text-yellow-800';
+          
+          if (participant.final_position) {
+            if (participant.final_position <= 3) {
+              status = 'Pódio';
+              statusColor = 'bg-green-100 text-green-800';
+            } else {
+              status = 'Eliminado';
+              statusColor = 'bg-red-100 text-red-800';
+            }
+          } else if (teamStats.position) {
+            if (teamStats.position <= 3) {
+              status = 'Classificado';
+              statusColor = 'bg-green-100 text-green-800';
+            } else if (teamStats.position > 8) {
+              status = 'Eliminado';
+              statusColor = 'bg-red-100 text-red-800';
+            }
+          }
           
           return (
-          <div key={participant.id} className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4 hover:shadow-md transition-shadow">
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-gray-900 text-sm sm:text-base mb-1 truncate">
-                  {participant.name}
-                </h3>
-                {participant.partner_name && (
-                  <p className="text-xs sm:text-sm text-gray-600 truncate">
-                    Parceiro(a): {participant.partner_name}
-                  </p>
-                )}
-                {participant.team_name && (
-                  <p className="text-xs text-blue-600 font-medium mt-1 truncate">
-                    {participant.team_name}
-                  </p>
-                )}
-              </div>
-              {participant.seed_number && (
-                <span className="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded font-medium flex-shrink-0 ml-2">
-                  #{participant.seed_number}
-                </span>
-              )}
-            </div>
-            
-            {/* Categorias e nível de habilidade */}
-            {(participant.category || participant.skill_level) && (
-              <div className="mb-3 flex flex-wrap gap-1">
-                {participant.category && (
-                  <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
-                    {participant.category}
+            <div key={participant.id} className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4 hover:shadow-md transition-shadow">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-gray-900 text-sm sm:text-base mb-1 truncate">
+                    {participant.name}
+                  </h3>
+                  {participant.partner_name && (
+                    <p className="text-xs sm:text-sm text-gray-600 truncate">
+                      Parceiro(a): {participant.partner_name}
+                    </p>
+                  )}
+                  {participant.team_name && (
+                    <p className="text-xs text-blue-600 font-medium mt-1 truncate">
+                      {participant.team_name}
+                    </p>
+                  )}
+                </div>
+                {participant.seed_number && (
+                  <span className="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded font-medium flex-shrink-0 ml-2">
+                    #{participant.seed_number}
                   </span>
                 )}
-                {participant.skill_level && (
-                  <span className="text-xs bg-purple-100 text-purple-600 px-2 py-1 rounded">
-                    {participant.skill_level}
-                  </span>
-                )}
-              </div>
-            )}
-            
-            {/* Estatísticas do participante */}
-            <div className="bg-gray-50 p-2 sm:p-3 rounded-lg">
-              <h4 className="text-xs font-medium text-gray-700 mb-2">Estatísticas do Torneio</h4>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Jogos:</span>
-                  <span className="font-medium">{participant.matches_played || 0}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Vitórias:</span>
-                  <span className="font-medium text-green-600">{participant.matches_won || 0}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Derrotas:</span>
-                  <span className="font-medium text-red-600">{participant.matches_lost || 0}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Sets:</span>
-                  <span className="font-medium">{participant.sets_won || 0}-{participant.sets_lost || 0}</span>
-                </div>
               </div>
               
-              {/* Estatísticas históricas realistas */}
-              <div className="mt-2 pt-2 border-t border-gray-200">
-                <div className="grid grid-cols-3 gap-1 sm:gap-2 text-xs">
-                  <div className="text-center">
-                    <span className="block text-gray-500 text-xs">Torneios</span>
-                    <span className="font-medium text-blue-600">{stats.tournamentsPlayed}</span>
+              {/* Categorias e nível de habilidade */}
+              {(participant.category || participant.skill_level) && (
+                <div className="mb-3 flex flex-wrap gap-1">
+                  {participant.category && (
+                    <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                      {participant.category}
+                    </span>
+                  )}
+                  {participant.skill_level && (
+                    <span className="text-xs bg-purple-100 text-purple-600 px-2 py-1 rounded">
+                      {participant.skill_level}
+                    </span>
+                  )}
+                </div>
+              )}
+              
+              {/* Estatísticas do torneio atual */}
+              <div className="bg-gray-50 p-2 sm:p-3 rounded-lg">
+                <h4 className="text-xs font-medium text-gray-700 mb-2">Estatísticas da Dupla</h4>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Jogos:</span>
+                    <span className="font-medium">{teamStats.wins + teamStats.losses}</span>
                   </div>
-                  <div className="text-center">
-                    <span className="block text-gray-500 text-xs">Pódios</span>
-                    <span className="font-medium text-yellow-600">{stats.podiums}</span>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Vitórias:</span>
+                    <span className="font-medium text-green-600">{teamStats.wins}</span>
                   </div>
-                  <div className="text-center">
-                    <span className="block text-gray-500 text-xs">Vitórias</span>
-                    <span className="font-medium text-green-600">{stats.wins}</span>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Derrotas:</span>
+                    <span className="font-medium text-red-600">{teamStats.losses}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Games:</span>
+                    <span className="font-medium">{teamStats.gamesWon}-{teamStats.gamesLost}</span>
                   </div>
                 </div>
                 
-                {/* Experiência e nível */}
-                <div className="mt-2 flex flex-col sm:flex-row justify-between text-xs gap-1">
-                  <span className="text-gray-500">Exp: {stats.experience} anos</span>
-                  <span className="text-gray-500">Nível: {stats.skillLevel}/5</span>
+                {/* Pontos e saldo de games */}
+                <div className="mt-2 pt-2 border-t border-gray-200">
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Pontos:</span>
+                      <span className="font-medium text-blue-600">{teamStats.points}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Saldo:</span>
+                      <span className={`font-medium ${
+                        (teamStats.gamesWon - teamStats.gamesLost) > 0 ? 'text-green-600' : 
+                        (teamStats.gamesWon - teamStats.gamesLost) < 0 ? 'text-red-600' : 'text-gray-600'
+                      }`}>
+                        {teamStats.gamesWon - teamStats.gamesLost > 0 ? '+' : ''}{teamStats.gamesWon - teamStats.gamesLost}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Status atual e posição */}
-            <div className="mt-3">
-              <div className="flex items-center justify-between">
-                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                  stats.status === 'Classificado' ? 'bg-green-100 text-green-800' :
-                  stats.status === 'Eliminado' ? 'bg-red-100 text-red-800' :
-                  'bg-yellow-100 text-yellow-800'
-                }`}>
-                  {stats.status}
-                </span>
-                
-                {stats.currentPosition && (
-                  <span className={`text-xs font-medium ${
-                    stats.currentPosition <= 3 ? 'text-yellow-600' :
-                    stats.currentPosition <= 8 ? 'text-blue-600' :
-                    'text-gray-600'
-                  }`}>
-                    {stats.currentPosition <= 3 && stats.currentPosition === 1 ? '🥇' :
-                     stats.currentPosition === 2 ? '🥈' :
-                     stats.currentPosition === 3 ? '🥉' : ''} 
-                    {stats.currentPosition}ª pos
+              {/* Status atual e posição */}
+              <div className="mt-3">
+                <div className="flex items-center justify-between">
+                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${statusColor}`}>
+                    {status}
                   </span>
-                )}
+                  
+                  {(participant.final_position || teamStats.position) && (
+                    <span className={`text-xs font-medium ${
+                      (participant.final_position || teamStats.position || 0) <= 3 ? 'text-yellow-600' :
+                      (participant.final_position || teamStats.position || 0) <= 8 ? 'text-blue-600' :
+                      'text-gray-600'
+                    }`}>
+                      {(participant.final_position || teamStats.position) === 1 ? '🥇' :
+                       (participant.final_position || teamStats.position) === 2 ? '🥈' :
+                       (participant.final_position || teamStats.position) === 3 ? '🥉' : ''} 
+                      {participant.final_position || teamStats.position}ª posição
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
           );
         })}
       </div>
@@ -1166,21 +1277,39 @@ export const AcompanharTorneio: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader className="w-8 h-8 text-brand-blue animate-spin" />
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="flex items-center space-x-2">
+          <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+          <span>Carregando torneio...</span>
+        </div>
       </div>
     );
   }
 
   if (!tournament) {
     return (
-      <div className="text-center py-12">
-        <Trophy className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-        <h2 className="text-xl font-semibold text-gray-900 mb-2">Dados do torneio indisponíveis</h2>
-        <p className="text-gray-500 mb-6">Este evento ainda não possui dados de torneio associados.</p>
-        <Button onClick={() => navigate('/eventos-disponiveis')} variant="primary">
-          Voltar aos Eventos
-        </Button>
+      <div className="min-h-screen bg-gray-50">
+        <div className="max-w-6xl mx-auto px-4 py-6">
+          <div className="mb-6">
+            <Button
+              variant="outline"
+              onClick={() => navigate('/meus-torneios')}
+              className="flex items-center"
+            >
+              <ChevronLeft size={16} className="mr-2" />
+              Voltar
+            </Button>
+          </div>
+          
+          <div className="text-center py-12">
+            <Trophy className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">Torneio não encontrado</h2>
+            <p className="text-gray-500 mb-6">Este torneio ainda não possui dados disponíveis ou não foi encontrado.</p>
+            <Button onClick={() => navigate('/meus-torneios')} variant="primary">
+              Voltar aos Meus Torneios
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }

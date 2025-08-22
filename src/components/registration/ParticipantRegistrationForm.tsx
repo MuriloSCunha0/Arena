@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAuth } from '../../hooks/useAuth';
-import { EventRegistrationService } from '../../services/eventRegistrationService';
+import { GuaranteedRegistrationService } from '../../services/guaranteedRegistrationService';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
@@ -57,23 +57,33 @@ export const ParticipantRegistrationForm = ({
     setLoading(true);
     
     try {
-      const result = await EventRegistrationService.registerForEvent({
-        userId: user.id,
+      console.log('🚨 [ParticipantRegistrationForm] INICIANDO INSCRIÇÃO GARANTIDA');
+      
+      // ✅ USAR SERVIÇO GARANTIDO que SEMPRE salva na tabela participants
+      const result = await GuaranteedRegistrationService.guaranteeParticipantSaved(
+        user.id,
         eventId,
-        partnerName: data.partnerName,
-        phoneNumber: data.phoneNumber,
-        category: data.category,
-        paymentMethod: data.paymentMethod as any,
-        notes: data.notes
-      });
+        {
+          name: user.full_name || user.email || 'Nome não informado',
+          email: user.email,
+          phone: data.phoneNumber,
+          cpf: '', // Será coletado posteriormente se necessário
+          partnerName: data.partnerName,
+          category: data.category,
+          paymentMethod: data.paymentMethod as any,
+          notes: data.notes
+        }
+      );
       
       if (result.success) {
-        onSuccess(result.id);
+        console.log('✅ [ParticipantRegistrationForm] SUCESSO - Participante salvo:', result.participant);
+        onSuccess(result.participantId);
       } else {
+        console.error('❌ [ParticipantRegistrationForm] Falha na inscrição');
         onError('Erro ao processar inscrição. Por favor, tente novamente.');
       }
     } catch (error) {
-      console.error('Registration error:', error);
+      console.error('❌ [ParticipantRegistrationForm] Erro crítico:', error);
       onError(error instanceof Error ? error.message : 'Erro ao processar inscrição');
     } finally {
       setLoading(false);

@@ -4,6 +4,8 @@ import { Search, Users, Calendar, Clock, ChevronDown, Plus, MapPin, Ticket, Eye,
 import { useEventsStore, useParticipantsStore } from '../../store';
 import { useNotificationStore } from '../../components/ui/Notification';
 import { EventType } from '../../types';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { Button } from '../../components/ui/Button';
 
 // Helper function para mapear tipos de evento
 const getEventTypeConfig = (eventType: EventType) => {
@@ -292,95 +294,97 @@ export const EventsList = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <div className="max-w-7xl mx-auto p-6 space-y-8">
-        {/* Header Section */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-          <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
-              Eventos & Torneios
-            </h1>
-            <p className="text-gray-600 mt-1">Gerencie e acompanhe todos os seus eventos</p>
-          </div>
+    <div className="section-spacing">
+      {/* Header Section */}
+      <PageHeader
+        title="Eventos & Torneios"
+        description="Gerencie e acompanhe todos os seus eventos"
+        actions={
           <Link to="/eventos/novo">
-            <button className="bg-gradient-to-r from-brand-green to-emerald-600 hover:from-brand-green/90 hover:to-emerald-600/90 text-white px-6 py-3 rounded-xl font-medium shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-0.5 flex items-center gap-2">
-              <Plus size={20} />
+            <Button>
+              <Plus size={20} className="mr-2" />
               Novo Evento
-            </button>
+            </Button>
           </Link>
-        </div>
+        }
+      />
 
-        {/* Stats Overview */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-lg bg-gradient-to-br from-brand-green/20 to-emerald-100">
-                <Calendar className="text-brand-green" size={24} />
-              </div>
-              <div>
-                <p className="text-sm text-gray-600 font-medium">Total de Eventos</p>
-                <p className="text-2xl font-bold text-gray-900">{events.length}</p>
-              </div>
+      {/* Stats Overview */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+        <div className="card-base p-6">
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-xl bg-gradient-to-br from-brand-green/20 to-emerald-100">
+              <Calendar className="text-brand-green" size={24} />
             </div>
-          </div>
-          
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-lg bg-gradient-to-br from-brand-purple/20 to-purple-100">
-                <Users className="text-brand-purple" size={24} />
-              </div>
-              <div>
-                <p className="text-sm text-gray-600 font-medium">Total Participantes</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {Object.values(eventParticipantCounts).reduce((sum, counts) => sum + counts.total, 0)}
-                </p>
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-lg bg-gradient-to-br from-brand-blue/20 to-blue-100">
-                <TrendingUp className="text-brand-blue" size={24} />
-              </div>
-              <div>
-                <p className="text-sm text-gray-600 font-medium">Pagamentos Confirmados</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {Object.values(eventParticipantCounts).reduce((sum, counts) => sum + counts.confirmed, 0)}
-                </p>
-              </div>
+            <div>
+              <p className="text-description font-medium">Total de Eventos</p>
+              <p className="text-2xl font-bold text-gray-900">{events.length}</p>
             </div>
           </div>
         </div>
+        
+        <div className="card-base p-6">
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-xl bg-gradient-to-br from-brand-purple/20 to-purple-100">
+              <Users className="text-brand-purple" size={24} />
+            </div>
+            <div>
+              <p className="text-description font-medium">Total Participantes</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {Object.values(eventParticipantCounts).reduce((sum, counts) => sum + counts.total, 0)}
+              </p>
+            </div>
+          </div>
+        </div>
+        
+        <div className="card-base p-6">
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-xl bg-gradient-to-br from-brand-blue/20 to-blue-100">
+              <TrendingUp className="text-brand-blue" size={24} />
+            </div>
+            <div>
+              <p className="text-description font-medium">Pagamentos Confirmados</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {Object.values(eventParticipantCounts).reduce((sum, counts) => sum + counts.confirmed, 0)}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
 
-        {/* Search and Filter Section */}
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-          <div className="flex flex-col lg:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-              <input
-                type="text"
-                placeholder="Buscar eventos por nome ou local..."
-                className="pl-12 pr-4 py-3 border border-gray-200 rounded-xl w-full focus:outline-none focus:ring-2 focus:ring-brand-green focus:border-transparent transition-all"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-            <div className="relative w-full lg:w-64">
-              <select
-                className="w-full appearance-none bg-white border border-gray-200 rounded-xl px-4 py-3 pr-10 focus:outline-none focus:ring-2 focus:ring-brand-green focus:border-transparent transition-all"
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value)}
-              >
-                <option value="all">Todos os tipos</option>
-                <option value="tournament">Torneios</option>
-                <option value="pool">Bolões</option>
-                <option value="super8">Super 8</option>
-              </select>
-              <ChevronDown size={20} className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none text-gray-400" />
-            </div>
+      {/* Search and Filter Section */}
+      <div className="card-base p-6">
+        <div className="flex flex-col lg:flex-row gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+            <input
+              type="text"
+              placeholder="Buscar eventos por nome ou local..."
+              className="pl-12 pr-4 py-3 border border-brand-gray rounded-xl w-full focus-ring transition-all"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <div className="relative w-full lg:w-64">
+            <select
+              className="w-full appearance-none bg-white border border-brand-gray rounded-xl px-4 py-3 pr-10 focus-ring transition-all"
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+            >
+              <option value="all">Todos os tipos</option>
+              <option value="tournament">Torneios</option>
+              <option value="pool">Bolões</option>
+              <option value="super8">Super 8</option>
+            </select>
+            <ChevronDown size={20} className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none text-gray-400" />
+          </div>
+          <div className="flex items-center">
+            <span className="text-description whitespace-nowrap">
+              {filteredEvents.length} eventos encontrados
+            </span>
           </div>
         </div>
+      </div>
 
         {/* Events Grid */}
         {loading ? (
@@ -420,6 +424,5 @@ export const EventsList = () => {
           </div>
         )}
       </div>
-    </div>
   );
 };

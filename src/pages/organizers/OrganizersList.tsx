@@ -12,6 +12,7 @@ import {
   Percent
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
+import { PageHeader } from '../../components/ui/PageHeader';
 import { useOrganizersStore } from '../../store';
 import { useNotificationStore } from '../../components/ui/Notification';
 import { Organizer } from '../../types';
@@ -73,29 +74,28 @@ export const OrganizersList: React.FC = () => {
   }
   
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-brand-blue">Organizadores</h1>
-          <p className="text-gray-500">Gerencie os organizadores de eventos da sua arena</p>
-        </div>
-        
-        <Link to="/organizadores/novo">
-          <Button>
-            <UserPlus size={18} className="mr-1" />
-            Novo Organizador
-          </Button>
-        </Link>
-      </div>
+    <div className="section-spacing">
+      <PageHeader
+        title="Organizadores"
+        description="Gerencie os organizadores de eventos da sua arena"
+        actions={
+          <Link to="/organizadores/novo">
+            <Button>
+              <UserPlus size={18} className="mr-2" />
+              Novo Organizador
+            </Button>
+          </Link>
+        }
+      />
       
-      <div className="bg-white rounded-lg shadow border border-brand-gray p-6">
+      <div className="card-base p-6">
         <div className="flex mb-6">
           <div className="relative flex-grow">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
             <input
               type="text"
               placeholder="Buscar organizadores..."
-              className="pl-10 pr-4 py-2 border border-brand-gray rounded-lg w-full focus:outline-none focus:ring-2 focus:ring-brand-green"
+              className="pl-10 pr-4 py-2.5 border border-brand-gray rounded-xl w-full focus-ring"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />

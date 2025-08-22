@@ -41,14 +41,23 @@ export const MeusTorneios = () => {
     let fetched = false;
     const fetchTournaments = async () => {
       if (!user || fetched) return;
+      
+      console.log('🔍 [MeusTorneios] Iniciando busca de torneios para user:', user.id);
       setLoading(true);
       try {
         const result = await getParticipantTournaments(user.id);
+        console.log('🔍 [MeusTorneios] Resultado da busca:', result);
+        
         setUpcomingTournaments(result.upcomingTournaments);
         setPastTournaments(result.pastTournaments);
         fetched = true;
+        
+        console.log('✅ [MeusTorneios] Torneios carregados:', {
+          upcoming: result.upcomingTournaments.length,
+          past: result.pastTournaments.length
+        });
       } catch (error) {
-        console.error('Error fetching tournaments:', error);
+        console.error('❌ [MeusTorneios] Error fetching tournaments:', error);
         addNotification({
           type: 'error',
           message: 'Erro ao carregar seus torneios'
@@ -180,54 +189,69 @@ export const MeusTorneios = () => {
           </div>
           
           <div className="p-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-              {upcomingTournaments.map((tournament) => (
-                <div 
-                  key={tournament.id} 
-                  className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border border-blue-200 overflow-hidden hover:shadow-lg transition-all duration-200"
-                >
-                  <div className="p-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <h3 className="text-lg font-bold text-gray-900 line-clamp-2">
-                        {tournament.title}
-                      </h3>
-                      <div className="p-2 bg-blue-100 rounded-lg">
-                        <Trophy size={16} className="text-blue-600" />
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-3 mb-6">
-                      <div className="flex items-center text-gray-600">
-                        <Calendar size={16} className="mr-3 text-green-600" />
-                        <span className="text-sm font-medium">{formatDate(tournament.date)}</span>
-                      </div>
-                      <div className="flex items-center text-gray-600">
-                        <MapPin size={16} className="mr-3 text-red-500" />
-                        <span className="text-sm">{tournament.location}</span>
-                      </div>
-                      {tournament.partner_name && (
-                        <div className="flex items-center text-gray-600">
-                          <Users size={16} className="mr-3 text-purple-600" />
-                          <span className="text-sm">Parceiro: {tournament.partner_name}</span>
+            {upcomingTournaments.length > 0 ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                {upcomingTournaments.map((tournament) => (
+                  <div 
+                    key={tournament.id} 
+                    className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border border-blue-200 overflow-hidden hover:shadow-lg transition-all duration-200"
+                  >
+                    <div className="p-6">
+                      <div className="flex items-start justify-between mb-4">
+                        <h3 className="text-lg font-bold text-gray-900 line-clamp-2">
+                          {tournament.title}
+                        </h3>
+                        <div className="p-2 bg-blue-100 rounded-lg">
+                          <Trophy size={16} className="text-blue-600" />
                         </div>
-                      )}
-                    </div>
-                    
-                    <Link 
-                      to={`/eventos/${tournament.id}`}
-                      className="block w-full"
-                    >
-                      <Button 
-                        variant="primary" 
-                        className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                      </div>
+                      
+                      <div className="space-y-3 mb-6">
+                        <div className="flex items-center text-gray-600">
+                          <Calendar size={16} className="mr-3 text-green-600" />
+                          <span className="text-sm font-medium">{formatDate(tournament.date)}</span>
+                        </div>
+                        <div className="flex items-center text-gray-600">
+                          <MapPin size={16} className="mr-3 text-red-500" />
+                          <span className="text-sm">{tournament.location}</span>
+                        </div>
+                        {tournament.partner_name && (
+                          <div className="flex items-center text-gray-600">
+                            <Users size={16} className="mr-3 text-purple-600" />
+                            <span className="text-sm">Parceiro: {tournament.partner_name}</span>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <Link 
+                        to={`/eventos/${tournament.id}`}
+                        className="block w-full"
                       >
-                        Ver detalhes
-                      </Button>
-                    </Link>
+                        <Button 
+                          variant="primary" 
+                          className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                        >
+                          Ver detalhes
+                        </Button>
+                      </Link>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12">
+                <Clock className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Nenhum torneio próximo</h3>
+                <p className="text-gray-600 mb-4">
+                  Você ainda não está inscrito em nenhum torneio futuro.
+                </p>
+                <Link to="/eventos">
+                  <Button variant="primary">
+                    Explorar Eventos Disponíveis
+                  </Button>
+                </Link>
+              </div>
+            )}
           </div>
         </div>
 
@@ -241,56 +265,71 @@ export const MeusTorneios = () => {
           </div>
           
           <div className="p-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-              {pastTournaments.map((tournament) => (
-                <div 
-                  key={tournament.id} 
-                  className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl border border-gray-200 overflow-hidden hover:shadow-lg transition-all duration-200"
-                >
-                  <div className="p-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <h3 className="text-lg font-bold text-gray-900 line-clamp-2">
-                        {tournament.title}
-                      </h3>
-                      {tournament.final_position && Number(tournament.final_position) <= 3 ? (
-                        <div className="p-2 bg-yellow-100 rounded-lg">
-                          <Medal size={16} className="text-yellow-600" />
-                        </div>
-                      ) : (
-                        <div className="p-2 bg-gray-100 rounded-lg">
-                          <Trophy size={16} className="text-gray-600" />
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div className="space-y-3 mb-6">
-                      <div className="flex items-center text-gray-600">
-                        <Calendar size={16} className="mr-3 text-green-600" />
-                        <span className="text-sm font-medium">{formatDate(tournament.date)}</span>
+            {pastTournaments.length > 0 ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                {pastTournaments.map((tournament) => (
+                  <div 
+                    key={tournament.id} 
+                    className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl border border-gray-200 overflow-hidden hover:shadow-lg transition-all duration-200"
+                  >
+                    <div className="p-6">
+                      <div className="flex items-start justify-between mb-4">
+                        <h3 className="text-lg font-bold text-gray-900 line-clamp-2">
+                          {tournament.title}
+                        </h3>
+                        {tournament.final_position && Number(tournament.final_position) <= 3 ? (
+                          <div className="p-2 bg-yellow-100 rounded-lg">
+                            <Medal size={16} className="text-yellow-600" />
+                          </div>
+                        ) : (
+                          <div className="p-2 bg-gray-100 rounded-lg">
+                            <Trophy size={16} className="text-gray-600" />
+                          </div>
+                        )}
                       </div>
-                      <div className="flex items-center text-gray-600">
-                        <MapPin size={16} className="mr-3 text-red-500" />
-                        <span className="text-sm">{tournament.location}</span>
-                      </div>
-                      {tournament.partner_name && (
+                      
+                      <div className="space-y-3 mb-6">
                         <div className="flex items-center text-gray-600">
-                          <Users size={16} className="mr-3 text-purple-600" />
-                          <span className="text-sm">Parceiro: {tournament.partner_name}</span>
+                          <Calendar size={16} className="mr-3 text-green-600" />
+                          <span className="text-sm font-medium">{formatDate(tournament.date)}</span>
                         </div>
-                      )}
-                      {tournament.final_position && (
-                        <div className="flex items-center font-medium">
-                          <Medal size={16} className="mr-3 text-yellow-600" />
-                          <span className="text-sm text-yellow-700 bg-yellow-100 px-2 py-1 rounded-full">
-                            {tournament.final_position}º lugar
-                          </span>
+                        <div className="flex items-center text-gray-600">
+                          <MapPin size={16} className="mr-3 text-red-500" />
+                          <span className="text-sm">{tournament.location}</span>
                         </div>
-                      )}
+                        {tournament.partner_name && (
+                          <div className="flex items-center text-gray-600">
+                            <Users size={16} className="mr-3 text-purple-600" />
+                            <span className="text-sm">Parceiro: {tournament.partner_name}</span>
+                          </div>
+                        )}
+                        {tournament.final_position && (
+                          <div className="flex items-center font-medium">
+                            <Medal size={16} className="mr-3 text-yellow-600" />
+                            <span className="text-sm text-yellow-700 bg-yellow-100 px-2 py-1 rounded-full">
+                              {tournament.final_position}º lugar
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12">
+                <Trophy className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Nenhum torneio concluído</h3>
+                <p className="text-gray-600 mb-4">
+                  Você ainda não participou de nenhum torneio.
+                </p>
+                <Link to="/eventos">
+                  <Button variant="primary">
+                    Participar do Primeiro Torneio
+                  </Button>
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       </div>

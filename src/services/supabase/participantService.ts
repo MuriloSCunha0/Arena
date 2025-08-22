@@ -44,16 +44,38 @@ export const ParticipantService = {
   // Registrar um participante individual em um evento
   async registerIndividual(userId: string, eventId: string, userData: Partial<Participant>): Promise<Participant> {
     try {
-      // Verificar se o evento existe
+      console.log('🔍 [ParticipantService] INICIANDO INSCRIÇÃO INDIVIDUAL:', { 
+        userId, 
+        eventId, 
+        userData: { name: userData.name, email: userData.email } 
+      });
+
+      // ✅ CRÍTICO: Verificar se o evento existe e está aberto
       const { data: event, error: eventError } = await supabase
         .from('events')
-        .select('team_formation, title, price')
+        .select('id, title, team_formation, entry_fee, status, current_participants, max_participants')
         .eq('id', eventId)
         .single();
         
-      if (eventError) throw new Error('Evento não encontrado');
-      
-      // Verificar se o usuário já está inscrito
+      if (eventError) {
+        console.error('❌ [ParticipantService] Evento não encontrado:', eventError);
+        throw new Error('Evento não encontrado');
+      }
+
+      console.log('✅ [ParticipantService] Evento encontrado:', {
+        title: event.title,
+        status: event.status,
+        currentParticipants: event.current_participants,
+        maxParticipants: event.max_participants
+      });
+
+      // ✅ CRÍTICO: Verificar se evento está aberto para inscrições
+      if (!['DRAFT', 'PUBLISHED', 'OPEN'].includes(event.status)) {
+        console.error('❌ [ParticipantService] Evento não está aberto:', event.status);
+        throw new Error('Este evento não está mais aberto para inscrições');
+      }
+
+      // ✅ CRÍTICO: Verificar se já está inscrito (evitar duplicatas)
       const { data: existingParticipant, error: participantError } = await supabase
         .from('participants')
         .select('id')
@@ -61,30 +83,176 @@ export const ParticipantService = {
         .eq('event_id', eventId)
         .maybeSingle();
         
-      if (existingParticipant) throw new Error('Você já está inscrito neste evento');
+      if (existingParticipant) {
+        console.warn('⚠️ [ParticipantService] Usuário já inscrito:', existingParticipant.id);
+        throw new Error('Você já está inscrito neste evento');
+      }
+
+      // ✅ CRÍTICO: Verificar se evento não está lotado
+      if (event.current_participants >= event.max_participants) {
+        console.error('❌ [ParticipantService] Evento lotado:', {
+          current: event.current_participants,
+          max: event.max_participants
+        });
+        throw new Error('Este evento já atingiu o número máximo de participantes');
+      }
+
+      // ✅ CRÍTICO: Preparar dados COMPLETOS para inserção IMEDIATA
+      const participantData = {
+        user_id: userId,
+        event_id: eventId,
+        name: userData.name || 'Nome não informado',
+        email: userData.email || null,
+        phone: userData.phone || null,
+        cpf: userData.cpf || null,
+        birth_date: userData.birthDate || null,
+        partner_name: userData.partnerName || null,
+        category: userData.category || 'open',
+        skill_level: userData.skillLevel || null,
+        payment_status: 'PENDING',
+        payment_method: userData.paymentMethod || null,
+        payment_amount: event.entry_fee || 0,
+        registration_notes: userData.notes || null,
+        medical_notes: userData.medicalNotes || null,
+        registered_at: new Date().toISOString(),
+        metadata: userData.metadata || {}
+      };
+
+      console.log('🔍 [ParticipantService] Dados preparados para INSERÇÃO IMEDIATA:', participantData);
       
-      // Criar participante
+      // ✅ CRÍTICO: SALVAR IMEDIATAMENTE na tabela participants
       const { data, error } = await supabase
         .from('participants')
-        .insert({
-          user_id: userId,
-          event_id: eventId,
-          name: userData.name,
-          email: userData.email,
-          phone: userData.phone,
-          cpf: userData.cpf,
-          birth_date: userData.birthDate,
-          payment_status: 'PENDING',
-          registered_at: new Date().toISOString()
-        })
-        .select()
+        .insert(participantData)
+        .select(`
+          id,
+          user_id,
+          event_id,
+          name,
+          email,
+          phone,
+          cpf,
+          birth_date,
+          partner_name,
+          category,
+          payment_status,
+          payment_amount,
+          registered_at
+        `)
         .single();
         
-      if (error) throw error;
+      if (error) {
+        console.error('❌ [ParticipantService] ERRO CRÍTICO ao inserir participante:', error);
+        throw error;
+      }
+
+      console.log('✅ [ParticipantService] PARTICIPANTE SALVO COM SUCESSO na tabela participants:', data);
+
+      // ✅ CRÍTICO: VERIFICAÇÃO IMEDIATA se foi salvo corretamente
+      const { data: verification, error: verifyError } = await supabase
+        .from('participants')
+        .select('*')
+        .eq('id', data.id)
+        .single();
+
+      if (verifyError || !verification) {
+        console.error('❌ [ParticipantService] FALHA NA VERIFICAÇÃO pós-inserção:', verifyError);
+        throw new Error('Erro crítico: participante não foi salvo corretamente');
+      }
+
+      console.log('✅ [ParticipantService] VERIFICAÇÃO CONFIRMADA - Participante está na tabela:', verification);
+
+      // ✅ Verificar se contador foi atualizado
+      const { data: updatedEvent } = await supabase
+        .from('events')
+        .select('current_participants')
+        .eq('id', eventId)
+        .single();
+
+      if (updatedEvent) {
+        console.log('📊 [ParticipantService] Contador atualizado:', {
+          before: event.current_participants,
+          after: updatedEvent.current_participants
+        });
+      }
       
-      return transformParticipant(data);
+      return transformParticipant(verification);
     } catch (error) {
-      console.error('Error registering participant:', error);
+      console.error('❌ [ParticipantService] ERRO CRÍTICO na inscrição:', error);
+      throw error;
+    }
+  },
+
+  // ✅ MÉTODO GARANTIDO: Salvar participante imediatamente na tabela
+  async saveParticipantImmediate(participantData: {
+    userId: string;
+    eventId: string;
+    name: string;
+    email?: string;
+    phone?: string;
+    cpf?: string;
+    birthDate?: string;
+    partnerName?: string;
+    category?: string;
+    skillLevel?: string;
+    paymentMethod?: string;
+    notes?: string;
+    medicalNotes?: string;
+  }): Promise<any> {
+    try {
+      console.log('🚨 [ParticipantService] SALVAMENTO GARANTIDO INICIADO:', participantData);
+
+      // ✅ INSERÇÃO DIRETA E IMEDIATA
+      const insertData = {
+        user_id: participantData.userId,
+        event_id: participantData.eventId,
+        name: participantData.name,
+        email: participantData.email || null,
+        phone: participantData.phone || null,
+        cpf: participantData.cpf || null,
+        birth_date: participantData.birthDate || null,
+        partner_name: participantData.partnerName || null,
+        category: participantData.category || 'open',
+        skill_level: participantData.skillLevel || null,
+        payment_status: 'PENDING',
+        payment_method: participantData.paymentMethod || null,
+        registration_notes: participantData.notes || null,
+        medical_notes: participantData.medicalNotes || null,
+        registered_at: new Date().toISOString(),
+        metadata: {}
+      };
+
+      console.log('🚨 [ParticipantService] DADOS PARA INSERÇÃO GARANTIDA:', insertData);
+
+      const { data, error } = await supabase
+        .from('participants')
+        .insert(insertData)
+        .select('*')
+        .single();
+
+      if (error) {
+        console.error('🚨 [ParticipantService] ERRO CRÍTICO na inserção garantida:', error);
+        throw error;
+      }
+
+      console.log('✅ [ParticipantService] PARTICIPANTE SALVO COM GARANTIA:', data);
+
+      // ✅ VERIFICAÇÃO TRIPLA
+      const { data: triple_check } = await supabase
+        .from('participants')
+        .select('*')
+        .eq('id', data.id)
+        .single();
+
+      if (!triple_check) {
+        throw new Error('FALHA CRÍTICA: Participante não encontrado após inserção');
+      }
+
+      console.log('✅ [ParticipantService] VERIFICAÇÃO TRIPLA CONFIRMADA:', triple_check);
+      return triple_check;
+
+    } catch (error) {
+      console.error('🚨 [ParticipantService] ERRO CRÍTICO no salvamento garantido:', error);
       throw error;
     }
   },
@@ -277,15 +445,29 @@ export const ParticipantService = {
     }
   },
 
-  // Obter torneios do participante
   // Obter torneios do participante (futuros e passados)
   async getParticipantTournaments(userId: string): Promise<{
     upcomingTournaments: any[],
     pastTournaments: any[]
   }> {
     try {
-      // Buscar participações do usuário
-      // Buscar pela relação 'events' (conforme FK event_id -> events.id)
+      console.log('🔍 [ParticipantService] Buscando torneios do usuário:', userId);
+      
+      // Verificar se o usuário existe
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .select('id, full_name, email')
+        .eq('id', userId)
+        .single();
+
+      if (userError || !user) {
+        console.error('❌ [ParticipantService] Usuário não encontrado:', userError);
+        return { upcomingTournaments: [], pastTournaments: [] };
+      }
+
+      console.log('✅ [ParticipantService] Usuário encontrado:', user.full_name);
+
+      // Buscar participações do usuário com join explícito
       const { data: participations, error } = await supabase
         .from('participants')
         .select(`
@@ -293,23 +475,62 @@ export const ParticipantService = {
           event_id,
           partner_name,
           final_position,
-          events(id, title, date, location, status)
+          registered_at,
+          payment_status,
+          events!inner(
+            id,
+            title,
+            date,
+            location,
+            status,
+            entry_fee
+          )
         `)
-        .eq('user_id', userId);
+        .eq('user_id', userId)
+        .order('registered_at', { ascending: false });
 
-      if (error) throw error;
-      if (!participations) return { upcomingTournaments: [], pastTournaments: [] };
+      console.log('🔍 [ParticipantService] Participações encontradas:', participations);
+      console.log('🔍 [ParticipantService] Erro na query:', error);
+
+      if (error) {
+        console.error('❌ [ParticipantService] Erro ao buscar participações:', error);
+        throw error;
+      }
+
+      if (!participations || participations.length === 0) {
+        console.log('� [ParticipantService] Nenhuma participação encontrada para este usuário');
+        return { upcomingTournaments: [], pastTournaments: [] };
+      }
 
       // Mapear participações para estrutura esperada
-      const now = new Date();
+      const today = new Date().toISOString().split('T')[0];
+      console.log('🔍 [ParticipantService] Data atual para comparação:', today);
+      
       const upcomingTournaments: any[] = [];
       const pastTournaments: any[] = [];
 
       participations.forEach((p: any) => {
-        // events pode vir como array ou objeto
-        let event = p.events;
-        if (Array.isArray(event)) event = event[0];
-        if (!event) return;
+        // Verificar se o evento está presente
+        if (!p.events) {
+          console.warn('⚠️ [ParticipantService] Participação sem evento associado:', {
+            participationId: p.id,
+            eventId: p.event_id
+          });
+          return;
+        }
+        
+        const event = p.events;
+        const eventDate = event.date;
+        const isUpcoming = eventDate >= today;
+        
+        console.log('🔍 [ParticipantService] Analisando evento:', {
+          eventId: event.id,
+          title: event.title,
+          date: eventDate,
+          today,
+          isUpcoming
+        });
+        
         const tournament = {
           id: event.id,
           title: event.title,
@@ -317,12 +538,18 @@ export const ParticipantService = {
           location: event.location,
           partner_name: p.partner_name,
           final_position: p.final_position,
-          upcoming: new Date(event.date) >= now
+          upcoming: isUpcoming,
+          payment_status: p.payment_status,
+          entry_fee: event.entry_fee,
+          event_status: event.status
         };
-        if (tournament.upcoming) {
+        
+        if (isUpcoming) {
           upcomingTournaments.push(tournament);
+          console.log('✅ [ParticipantService] Adicionado aos próximos:', tournament.title);
         } else {
           pastTournaments.push(tournament);
+          console.log('✅ [ParticipantService] Adicionado aos passados:', tournament.title);
         }
       });
 
@@ -330,9 +557,16 @@ export const ParticipantService = {
       upcomingTournaments.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       pastTournaments.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
+      console.log('🔍 [ParticipantService] Resultado final:', {
+        upcomingCount: upcomingTournaments.length,
+        pastCount: pastTournaments.length,
+        upcomingTournaments,
+        pastTournaments
+      });
+
       return { upcomingTournaments, pastTournaments };
     } catch (error) {
-      console.error('Error fetching participant tournaments:', error);
+      console.error('❌ [ParticipantService] Erro ao buscar torneios do participante:', error);
       // Retorne vazio para não travar a tela
       return { upcomingTournaments: [], pastTournaments: [] };
     }

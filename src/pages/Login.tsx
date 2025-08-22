@@ -68,23 +68,25 @@ export const Login: React.FC = () => {
     <div className="min-h-screen bg-brand-sand flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
-          <Award className="w-16 h-16 text-brand-green" />
+          <div className="w-16 h-16 bg-gradient-to-br from-brand-green to-brand-green-light rounded-xl flex items-center justify-center shadow-lg">
+            <Award className="w-10 h-10 text-white" />
+          </div>
         </div>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-brand-blue">
           Arena Conexão
         </h2>
-        <p className="mt-2 text-center text-sm text-brand-purple">
+        <p className="mt-2 text-center text-description">
           Plataforma de Torneios de Beach Tênis
         </p>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-brand-gray">
-          <h3 className="text-xl font-bold text-center mb-6 text-brand-blue">
+        <div className="card-base p-8">
+          <h3 className="heading-section text-center mb-6">
             Login
           </h3>
           
-          <form className="space-y-5" onSubmit={handleSubmit}>
+          <form className="section-spacing" onSubmit={handleSubmit}>
             <Input
               label="Email"
               type="email"
@@ -103,14 +105,14 @@ export const Login: React.FC = () => {
 
             <Button
               type="submit"
-              className="w-full"
+              fullWidth
               loading={loading}
             >
               Entrar
             </Button>
             
             <div className="text-center mt-4">
-              <p className="text-sm text-gray-600">
+              <p className="text-description">
                 Não tem uma conta?{' '}
                 <button 
                   type="button"

@@ -96,18 +96,20 @@ export const Register = () => {
     <div className="min-h-screen bg-brand-sand flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
-          <Award className="w-16 h-16 text-brand-green" />
+          <div className="w-16 h-16 bg-gradient-to-br from-brand-green to-brand-green-light rounded-xl flex items-center justify-center shadow-lg">
+            <Award className="w-10 h-10 text-white" />
+          </div>
         </div>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-brand-blue">
           Arena Conexão
         </h2>
-        <p className="mt-2 text-center text-sm text-brand-purple">
+        <p className="mt-2 text-center text-description">
           Plataforma de gerenciamento de torneios e bolões de Beach Tênis
         </p>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-brand-gray">
+        <div className="card-base p-8">
           <button 
             onClick={() => navigate('/login')}
             className="flex items-center text-brand-blue mb-6 hover:text-brand-green transition-colors"
@@ -116,17 +118,17 @@ export const Register = () => {
             Voltar para login
           </button>
           
-          <h3 className="text-xl font-bold text-center mb-6 text-brand-blue">
+          <h3 className="heading-section text-center mb-6">
             Cadastre-se
           </h3>
           
           {success && (
-            <div className="mb-4 p-2 bg-green-50 border border-green-200 text-green-700 rounded">
+            <div className="mb-4 p-3 state-success rounded-xl border">
               {success}
             </div>
           )}
           
-          <form className="space-y-5" onSubmit={handleSubmit}>
+          <form className="section-spacing" onSubmit={handleSubmit}>
             <Input
               label="Nome completo"
               type="text"
@@ -235,21 +237,21 @@ export const Register = () => {
             )}
 
             {error && (
-              <div className="text-sm text-brand-orange text-center">
+              <div className="p-3 state-error rounded-xl border">
                 {error}
               </div>
             )}
 
             <Button
               type="submit"
-              className="w-full"
+              fullWidth
               loading={loading}
             >
               Cadastrar
             </Button>
             
-            <div className="text-center mt-4">
-              <p className="text-sm text-gray-600">
+            <div className="text-center">
+              <p className="text-description">
                 Já tem uma conta?{' '}
                 <button 
                   type="button"

@@ -37,10 +37,14 @@ const AdminProfile = lazy(() => import('./pages/profile/AdminProfile').then(modu
 const Convites = lazy(() => import('./pages/participante/Convites').then(module => ({ default: module.Convites })));
 // Acompanhar torneio
 const AcompanharTorneio = lazy(() => import('./pages/participante/AcompanharTorneio').then(module => ({ default: module.AcompanharTorneio })));
+// Detalhes do torneio para participantes
+const TournamentDetail = lazy(() => import('./pages/participante/TournamentDetail').then(module => ({ default: module.TournamentDetail })));
 // Debug components
 const PaymentStatusTest = lazy(() => import('./pages/debug/PaymentStatusTest').then(module => ({ default: module.default })));
 // Transmissão de torneio para telão
 const TransmissionPage = lazy(() => import('./pages/transmission/TransmissionPage').then(module => ({ default: module.default })));
+// Página de diagnóstico para debug
+const DiagnosticoDados = lazy(() => import('./pages/DiagnosticoDados').then(module => ({ default: module.DiagnosticoDados })));
 
 // Componente de fallback para o lazy loading
 const LoadingFallback = () => (
@@ -103,6 +107,7 @@ const ProtectedApp = () => {
             <Route path="/quadras" element={<CourtsManagement />} />
             <Route path="/testes" element={<TestTournamentManager />} />
             <Route path="/debug/payment-test" element={<PaymentStatusTest />} />
+            <Route path="/debug/dados" element={<DiagnosticoDados />} />
             <Route path="/organizadores" element={<OrganizersList />} />
             <Route path="/organizadores/novo" element={<OrganizerForm />} />
             <Route path="/organizadores/:id/editar" element={<OrganizerForm />} />
@@ -125,6 +130,7 @@ const ProtectedApp = () => {
             <Route path="/evento-registro/:eventId" element={<EventoRegistro />} />
             <Route path="/inscricao/:eventId" element={<EventRegistration />} />
             <Route path="/torneio/:eventId/acompanhar" element={<AcompanharTorneio />} />
+            <Route path="/eventos/:eventId" element={<TournamentDetail />} />
             <Route path="/participante/convites" element={<Convites />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

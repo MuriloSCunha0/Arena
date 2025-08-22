@@ -38,7 +38,15 @@ export const EventosDisponiveis = () => {
         
         // Usar o ParticipanteService em vez de chamar Supabase diretamente
         const data = await ParticipanteService.getEventosDisponiveis();
-        console.log('Eventos carregados:', data);
+        console.log('🔍 [EventosDisponiveis] Eventos carregados:', data);
+        console.log('🔍 [EventosDisponiveis] Tipo dos dados:', typeof data);
+        console.log('🔍 [EventosDisponiveis] É array?', Array.isArray(data));
+        console.log('🔍 [EventosDisponiveis] Length:', data?.length);
+        
+        if (data && data.length > 0) {
+          console.log('🔍 [EventosDisponiveis] Primeiro evento:', data[0]);
+        }
+        
         setEvents(data);
       } catch (error) {
         console.error('Error fetching events:', error);
@@ -57,6 +65,13 @@ export const EventosDisponiveis = () => {
   const goToRegistration = (eventId: string) => {
     navigate(`/inscricao/${eventId}`);
   };
+
+  // Log para debug da renderização
+  console.log('🖼️ [EventosDisponiveis] Renderizando com:', {
+    loading,
+    eventsLength: events.length,
+    events: events
+  });
 
   if (loading) {
     return (
@@ -82,50 +97,45 @@ export const EventosDisponiveis = () => {
       </div>
 
       {events.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {events.map((event) => (
             <div key={event.id} className="bg-white rounded-lg shadow border border-brand-gray overflow-hidden hover:shadow-md transition-shadow">
               {event.banner_image_url ? (
                 <div 
-                  className="h-40 bg-center bg-cover"
+                  className="h-24 bg-center bg-cover"
                   style={{ backgroundImage: `url(${event.banner_image_url})` }}
                 />
               ) : (
-                <div className="h-40 bg-gradient-to-r from-brand-green to-brand-blue flex items-center justify-center">
-                  <Trophy className="h-16 w-16 text-white" />
+                <div className="h-24 bg-gradient-to-r from-brand-green to-brand-blue flex items-center justify-center">
+                  <Trophy className="h-8 w-8 text-white" />
                 </div>
               )}
               
-              <div className="p-4">
-                <h3 className="font-semibold text-lg text-brand-blue mb-2">{event.title}</h3>
+              <div className="p-3">
+                <h3 className="font-semibold text-base text-brand-blue mb-2 line-clamp-1">{event.title}</h3>
                 
-                <div className="space-y-2 text-sm text-gray-600 mb-4">
+                <div className="space-y-1 text-xs text-gray-600 mb-3">
                   <div className="flex items-center">
-                    <Calendar size={16} className="mr-2 text-brand-green" />
-                    {formatDate(event.date)}
+                    <Calendar size={14} className="mr-2 text-brand-green flex-shrink-0" />
+                    <span className="truncate">{formatDate(event.date)}</span>
                   </div>
                   <div className="flex items-center">
-                    <MapPin size={16} className="mr-2 text-brand-green" />
-                    {event.location}
+                    <MapPin size={14} className="mr-2 text-brand-green flex-shrink-0" />
+                    <span className="truncate">{event.location}</span>
                   </div>
                   <div className="flex items-center">
-                    <DollarSign size={16} className="mr-2 text-brand-green" />
-                    {(event.entry_fee || event.price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    <DollarSign size={14} className="mr-2 text-brand-green flex-shrink-0" />
+                    <span className="truncate">{(event.entry_fee || event.price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
                   </div>
                 </div>
                 
-                {event.description && (
-                  <p className="text-sm text-gray-500 mb-4 line-clamp-2">
-                    {event.description}
-                  </p>
-                )}
-                
                 <Button
                   onClick={() => goToRegistration(event.id)}
-                  className="w-full flex items-center justify-center"
+                  className="w-full flex items-center justify-center text-sm py-2"
+                  size="sm"
                 >
                   <span>Inscrever-se</span>
-                  <ArrowRight size={16} className="ml-2" />
+                  <ArrowRight size={14} className="ml-2" />
                 </Button>
               </div>
             </div>

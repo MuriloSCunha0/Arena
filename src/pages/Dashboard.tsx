@@ -58,37 +58,37 @@ const StatCard = ({
   subtitle?: string,
   trend?: { value: number, isPositive: boolean } | null
 }) => (
-  <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-200 p-6 border border-gray-100 group">
+  <div className="card-base card-hover p-6 group">
     <div className="flex items-start justify-between">
       <div className="flex-1">
-        <div className="flex items-center gap-2 mb-2">
-          <div className={`p-2 rounded-lg ${color} group-hover:scale-110 transition-transform duration-200`}>
-            <Icon className="text-white" size={16} />
+        <div className="flex items-center gap-3 mb-3">
+          <div className={`p-3 rounded-xl ${color} group-hover:scale-110 transition-transform duration-200 shadow-lg`}>
+            <Icon className="text-white" size={20} />
           </div>
-          <p className="text-gray-600 text-sm font-medium">{title}</p>
+          <p className="text-description font-medium">{title}</p>
         </div>
         
         {loading ? (
-          <div className="mt-2">
-            <div className="animate-pulse">
-              <div className="h-8 bg-gray-200 rounded w-24 mb-2"></div>
-              <div className="h-3 bg-gray-200 rounded w-16"></div>
-            </div>
+          <div className="section-spacing-sm">
+            <div className="loading-skeleton h-8 w-24 mb-2"></div>
+            <div className="loading-skeleton h-3 w-16"></div>
           </div>
         ) : (
           <>
-            <div className="flex items-baseline gap-2">
+            <div className="flex items-baseline gap-2 mb-2">
               <p className="text-3xl font-bold text-gray-900">{value}</p>
               {trend && (
-                <span className={`text-sm font-medium flex items-center gap-1 ${
-                  trend.isPositive ? 'text-emerald-600' : 'text-red-500'
+                <span className={`text-sm font-medium flex items-center gap-1 px-2 py-1 rounded-full ${
+                  trend.isPositive 
+                    ? 'text-emerald-600 bg-emerald-50' 
+                    : 'text-red-500 bg-red-50'
                 }`}>
                   {trend.isPositive ? '↗' : '↘'} {Math.abs(trend.value).toFixed(1)}%
                 </span>
               )}
             </div>
             {subtitle && (
-              <p className="text-xs text-gray-500 mt-2 leading-relaxed">{subtitle}</p>
+              <p className="text-muted leading-relaxed">{subtitle}</p>
             )}
           </>
         )}
@@ -126,22 +126,22 @@ const EventCard = ({
 
   return (
     <Link to={`/eventos/${id}`} className="group block">
-      <div className="bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 p-5 border border-gray-100 group-hover:border-gray-200 transform group-hover:-translate-y-1">
+      <div className="card-base card-hover p-5 group transform group-hover:-translate-y-1">
         <div className="flex justify-between items-start mb-4">
-          <div className="flex-1">
-            <h3 className="font-semibold text-gray-900 group-hover:text-brand-green transition-colors line-clamp-2 text-lg">
+          <div className="flex-1 min-w-0">
+            <h3 className="heading-card group-hover:text-brand-green transition-colors line-clamp-2">
               {title}
             </h3>
-            <p className="text-sm text-gray-500 mt-1">{date}</p>
+            <p className="text-description mt-1">{date}</p>
           </div>
-          <div className="ml-3 flex flex-col items-end gap-2">
-            <span className={`text-xs px-3 py-1 rounded-full font-medium ${eventConfig.color}`}>
+          <div className="ml-3 flex flex-col items-end gap-2 flex-shrink-0">
+            <span className={`text-xs px-3 py-1 rounded-full font-medium border ${eventConfig.color}`}>
               {eventConfig.label}
             </span>
           </div>
         </div>
         
-        <div className={`rounded-lg p-4 ${statusConfig.bgColor} transition-all duration-200`}>
+        <div className={`rounded-xl p-4 border transition-all duration-200 ${statusConfig.bgColor}`}>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center text-gray-700">
               <Users size={18} className="mr-2 text-gray-600" />
@@ -495,15 +495,15 @@ export const Dashboard = () => {
         </div>
 
         {/* Upcoming Events Section */}
-        <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-100">
+        <div className="card-base p-6">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <div className="p-3 rounded-xl bg-gradient-to-br from-brand-blue/20 to-blue-100">
                 <Calendar className="text-brand-blue" size={24} />
               </div>
               <div>
-                <h2 className="text-xl font-semibold text-gray-900">Próximos Eventos</h2>
-                <p className="text-gray-500 text-sm">Eventos programados para os próximos dias</p>
+                <h2 className="heading-section">Próximos Eventos</h2>
+                <p className="text-description">Eventos programados para os próximos dias</p>
               </div>
             </div>
             <Link to="/eventos" className="text-brand-blue hover:text-brand-blue/80 text-sm font-medium transition-colors">
