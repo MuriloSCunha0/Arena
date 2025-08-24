@@ -10,11 +10,25 @@ export const BeachTennisService = {
   /**
    * Converte BeachTennisScore para formato score1/score2 simples
    * Para Beach Tennis em 1 set, usa os games diretamente
+   * NOVA REGRA: Em caso de tiebreak (6-6), o vencedor recebe +1 no placar final
    */
   convertBeachTennisScoreToSimpleScore: (beachScore: BeachTennisScore): { score1: number; score2: number } => {
     // Para o Beach Tennis em formato de 1 set, mostrar os games diretamente
     if (beachScore.sets.length > 0) {
       const firstSet = beachScore.sets[0];
+      
+      // NOVA LÓGICA: Se houve tiebreak (6-6), o vencedor ganha +1 no placar
+      if (firstSet.tiebreak && firstSet.team1Games === 6 && firstSet.team2Games === 6) {
+        if (firstSet.tiebreak.team1Points > firstSet.tiebreak.team2Points) {
+          // Team 1 ganhou o tiebreak: 7-6
+          return { score1: 7, score2: 6 };
+        } else {
+          // Team 2 ganhou o tiebreak: 6-7
+          return { score1: 6, score2: 7 };
+        }
+      }
+      
+      // Caso normal (sem tiebreak ou não foi 6-6): usar games diretamente
       return { 
         score1: firstSet.team1Games, 
         score2: firstSet.team2Games 
@@ -26,17 +40,15 @@ export const BeachTennisService = {
     let team2Sets = 0;
 
     beachScore.sets.forEach(set => {
-      if (set.tiebreak) {
-        // Se tem tiebreak, considerar que chegou em 6-6
-        if (set.team1Games === 6 && set.team2Games === 6) {
-          if (set.tiebreak.team1Points > set.tiebreak.team2Points) {
-            team1Sets++;
-          } else if (set.tiebreak.team2Points > set.tiebreak.team1Points) {
-            team2Sets++;
-          }
+      if (set.tiebreak && set.team1Games === 6 && set.team2Games === 6) {
+        // NOVA LÓGICA: Tiebreak em 6-6 - vencedor ganha o set
+        if (set.tiebreak.team1Points > set.tiebreak.team2Points) {
+          team1Sets++;
+        } else if (set.tiebreak.team2Points > set.tiebreak.team1Points) {
+          team2Sets++;
         }
       } else {
-        // Set normal - quem ganhou mais games
+        // Set normal - quem ganhou mais games (mínimo 4 games para validar)
         if (set.team1Games > set.team2Games && set.team1Games >= 4) {
           team1Sets++;
         } else if (set.team2Games > set.team1Games && set.team2Games >= 4) {

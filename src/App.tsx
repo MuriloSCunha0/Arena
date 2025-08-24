@@ -37,8 +37,6 @@ const AdminProfile = lazy(() => import('./pages/profile/AdminProfile').then(modu
 const Convites = lazy(() => import('./pages/participante/Convites').then(module => ({ default: module.Convites })));
 // Acompanhar torneio
 const AcompanharTorneio = lazy(() => import('./pages/participante/AcompanharTorneio').then(module => ({ default: module.AcompanharTorneio })));
-// Detalhes do torneio para participantes
-const TournamentDetail = lazy(() => import('./pages/participante/TournamentDetail').then(module => ({ default: module.TournamentDetail })));
 // Debug components
 const PaymentStatusTest = lazy(() => import('./pages/debug/PaymentStatusTest').then(module => ({ default: module.default })));
 // Transmissão de torneio para telão
@@ -130,7 +128,6 @@ const ProtectedApp = () => {
             <Route path="/evento-registro/:eventId" element={<EventoRegistro />} />
             <Route path="/inscricao/:eventId" element={<EventRegistration />} />
             <Route path="/torneio/:eventId/acompanhar" element={<AcompanharTorneio />} />
-            <Route path="/eventos/:eventId" element={<TournamentDetail />} />
             <Route path="/participante/convites" element={<Convites />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

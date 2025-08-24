@@ -314,8 +314,7 @@ export const ParticipanteService = {
     }
   },
   
-  // Get all events available for registration
-  // Criteria: Any created event that hasn't started yet (no tournament groups/standings)
+  // Get available events for registration
   async getEventosDisponiveis(): Promise<Array<{
     id: string;
     title: string;
@@ -327,21 +326,30 @@ export const ParticipanteService = {
     description?: string;
   }>> {
     try {
-      // Buscar eventos disponíveis para inscrição
+      // Primeiro buscar eventos que estão abertos ou publicados e com data futura
       const today = new Date().toISOString().split('T')[0];
       console.log('🔍 [ParticipanteService] Data de hoje:', today);
+      console.log('🔍 [ParticipanteService] Status aceitos originalmente:', ['OPEN', 'PUBLISHED']);
       
-      // Status permitidos para inscrição: DRAFT (criado), PUBLISHED (publicado), OPEN (aberto)
-      // Filtrar apenas eventos com data futura (maior ou igual a hoje)
+      // Temporariamente, vamos buscar todos os eventos futuros para debug
+      const { data: allFutureEvents } = await supabase
+        .from('events')
+        .select('id, title, description, location, date, time, entry_fee, banner_image_url, status')
+        .gt('date', today)
+        .order('date', { ascending: true });
+      
+      console.log('🔍 [ParticipanteService] TODOS os eventos futuros (para debug):', allFutureEvents);
+      
       const { data, error } = await supabase
         .from('events')
         .select('id, title, description, location, date, time, entry_fee, banner_image_url, status')
-        .in('status', ['DRAFT', 'PUBLISHED', 'OPEN'])
-        .gte('date', today)
-        .order('date', { ascending: false });
+        .in('status', ['OPEN', 'PUBLISHED', 'DRAFT']) // ✅ Incluindo DRAFT temporariamente para teste
+        .gt('date', today)
+        .order('date', { ascending: true });
         
-      console.log('🔍 [ParticipanteService] Query realizada para status:', ['DRAFT', 'PUBLISHED', 'OPEN']);
-      console.log('🔍 [ParticipanteService] Filtrando eventos com data >= :', today);
+      console.log('🔍 [ParticipanteService] Query realizada com critérios:');
+      console.log('  - Status IN:', ['OPEN', 'PUBLISHED', 'DRAFT']);
+      console.log('  - Date >:', today);
       console.log('🔍 [ParticipanteService] Eventos encontrados na query:', data);
         
       if (error) throw error;
@@ -366,35 +374,31 @@ export const ParticipanteService = {
         // Se houver erro na consulta de torneios, ainda retornar os eventos
       }
 
-      // Filtrar eventos que estão disponíveis para inscrição
-      // Critério: evento criado + torneio não iniciado (sem standings_data preenchido)
+      // Filtrar eventos que não têm torneio iniciado
       const availableEvents = data.filter(event => {
         const tournament = tournaments?.find(t => t.event_id === event.id);
         
         console.log(`🔍 [ParticipanteService] Analisando evento ${event.title}:`, {
           eventId: event.id,
-          eventStatus: event.status,
-          eventDate: event.date,
           tournament: tournament,
           hasStandingsData: tournament?.standings_data ? Object.keys(tournament.standings_data).length > 0 : false
         });
         
-        // Se não há torneio associado, o evento está disponível para inscrição
+        // Se não há torneio associado, o evento está disponível
         if (!tournament) {
-          console.log(`✅ [ParticipanteService] Evento ${event.title} DISPONÍVEL: evento criado, sem torneio ainda`);
+          console.log(`✅ [ParticipanteService] Evento ${event.title} disponível: sem torneio`);
           return true;
         }
         
         // Se o torneio existe mas não foi iniciado (sem standings_data ou standings_data vazio)
-        // significa que ainda não tem grupos/chaves formadas, então pode se inscrever
         if (!tournament.standings_data || 
             Object.keys(tournament.standings_data).length === 0) {
-          console.log(`✅ [ParticipanteService] Evento ${event.title} DISPONÍVEL: torneio existe mas não iniciou`);
+          console.log(`✅ [ParticipanteService] Evento ${event.title} disponível: torneio não iniciado`);
           return true;
         }
         
-        // Se chegou aqui, o torneio já foi iniciado (tem standings/grupos)
-        console.log(`❌ [ParticipanteService] Evento ${event.title} NÃO DISPONÍVEL: torneio já iniciado com grupos`);
+        // Se chegou aqui, o torneio já foi iniciado
+        console.log(`❌ [ParticipanteService] Evento ${event.title} não disponível: torneio iniciado`);
         return false;
       });
       

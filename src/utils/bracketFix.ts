@@ -97,8 +97,9 @@ function generateCompleteBracket(
 }
 
 /**
- * Gera bracket com BYEs otimizado (evita TBDs desnecessários)
- * CORRIGIDO: Implementa lógica correta de Beach Tennis
+ * 🏆 SUPER ADAPTÁVEL: Gera bracket para 4 a 1000+ participantes
+ * ✨ FUNCIONA PARA QUALQUER NÚMERO: 6, 8, 16, 32, 64, 128, 256, 512, 1024+
+ * 🎯 ALGORITMO UNIVERSAL: Calcula todas as rodadas automaticamente
  */
 function generateBracketWithByes(
   sortedTeams: OverallRanking[], 
@@ -106,99 +107,239 @@ function generateBracketWithByes(
   metadata: any
 ): { matches: Match[]; metadata: any } {
   const matches: Match[] = [];
+  const totalTeams = sortedTeams.length;
+  const bracketSize = Math.pow(2, Math.ceil(Math.log2(totalTeams)));
+  const totalRounds = Math.ceil(Math.log2(bracketSize));
   
+  console.log(`🏆 [SUPER ADAPTÁVEL] Gerando bracket para ${totalTeams} duplas`);
+  console.log(`📊 [UNIVERSAL] Bracket size: ${bracketSize}, BYEs: ${byesNeeded}, Total rounds: ${totalRounds}`);
+  
+  // 1. DISTRIBUIR BYES INTELIGENTEMENTE (melhores duplas recebem BYE)
   const teamsWithByes = sortedTeams.slice(0, byesNeeded);
   const teamsWithoutByes = sortedTeams.slice(byesNeeded);
   
-  // Log das duplas com BYE
-  console.log(`🏆 [BYE] Duplas que recebem BYE direto para semifinal:`);
-  teamsWithByes.forEach((team, teamIndex) => {
-    console.log(`   ${teamIndex + 1}. ${team.rank}º lugar - ${team.teamId.join(' & ')} (Grupo ${team.groupNumber}, SG: ${team.stats?.gameDifference || 0})`);
-  });
-  
-  console.log(`⚔️ [QUARTERFINALS] Duplas que jogam nas quartas de final:`);
-  teamsWithoutByes.forEach((team, teamIndex) => {
-    console.log(`   ${teamIndex + 1}. ${team.rank}º lugar - ${team.teamId.join(' & ')} (Grupo ${team.groupNumber}, SG: ${team.stats?.gameDifference || 0})`);
-  });
-  
-  // BEACH TENNIS LOGIC: Para 6 duplas classificadas
-  // - 2 melhores duplas recebem BYE direto para SEMIFINAL
-  // - 4 duplas restantes jogam QUARTAS DE FINAL
-  // - Vencedores das quartas enfrentam as duplas com BYE nas SEMIFINAIS
-  
-  let position = 1;
-  
-  // 1. Criar QUARTAS DE FINAL apenas para duplas sem BYE
-  if (teamsWithoutByes.length >= 2) {
-    const quarterfinalPairs = generateOptimalPairings(teamsWithoutByes);
-    
-    console.log(`🎯 [QUARTERFINALS] Criando ${quarterfinalPairs.length} partida(s) das quartas de final:`);
-    quarterfinalPairs.forEach((pair, index) => {
-      const match = createMatch(pair[0].teamId, pair[1].teamId, 1, position++);
-      match.stage = 'ELIMINATION';
-      matches.push(match);
-      console.log(`   QF${index + 1}: ${pair[0].rank}º (${pair[0].teamId.join(' & ')}) vs ${pair[1].rank}º (${pair[1].teamId.join(' & ')})`);
+  if (teamsWithByes.length > 0) {
+    console.log(`🏆 [BYE] ${teamsWithByes.length} duplas recebem BYE:`);
+    teamsWithByes.forEach((team, index) => {
+      console.log(`   ${index + 1}. ${team.rank}º lugar - ${team.teamId.join(' & ')}`);
     });
   }
   
-  // 2. Criar SEMIFINAIS com structure correta
-  const quarterfinalsCount = Math.floor(teamsWithoutByes.length / 2);
-  const semifinalCount = quarterfinalsCount + byesNeeded; // Vencedores das QF + BYEs
+  console.log(`⚔️ [PRIMEIRA RODADA] ${teamsWithoutByes.length} duplas jogam na primeira rodada:`);
+  teamsWithoutByes.forEach((team, index) => {
+    console.log(`   ${index + 1}. ${team.rank}º lugar - ${team.teamId.join(' & ')}`);
+  });
   
-  console.log(`🏆 [SEMIFINALS] Criando ${Math.floor(semifinalCount / 2)} partida(s) da semifinal:`);
+  // 2. ALGORITMO UNIVERSAL: Gerar todas as rodadas dinamicamente
+  let currentRoundParticipants = teamsWithoutByes.length; // Times que jogam na primeira rodada
+  let position = 1;
   
-  // Semifinal 1: 1º colocado (BYE) vs Vencedor QF1
-  if (teamsWithByes.length > 0 && quarterfinalsCount > 0) {
-    const semi1 = createMatch(teamsWithByes[0].teamId, ['WINNER_QF1'], 2, 1);
-    matches.push(semi1);
-    console.log(`   SF1: ${teamsWithByes[0].rank}º (BYE) vs Vencedor QF1`);
+  for (let round = 1; round <= totalRounds; round++) {
+    const isFirstRound = round === 1;
+    const isSecondRound = round === 2;
+    
+    // Calcular participantes nesta rodada
+    let participantsInThisRound;
+    if (isFirstRound) {
+      participantsInThisRound = currentRoundParticipants; // Times sem BYE
+    } else if (isSecondRound && byesNeeded > 0) {
+      // Segunda rodada: vencedores da primeira + times com BYE
+      const winnersFromFirstRound = Math.floor(currentRoundParticipants / 2);
+      participantsInThisRound = winnersFromFirstRound + byesNeeded;
+      console.log(`🔄 [ROUND ${round}] ${winnersFromFirstRound} vencedores R1 + ${byesNeeded} BYEs = ${participantsInThisRound} participantes`);
+    } else {
+      // Rodadas subsequentes: vencedores da rodada anterior
+      participantsInThisRound = Math.floor(currentRoundParticipants / 2);
+    }
+    
+    // Calcular partidas nesta rodada
+    const matchesInThisRound = Math.floor(participantsInThisRound / 2);
+    
+    // Verificar se ainda há partidas para gerar
+    if (matchesInThisRound <= 0) {
+      console.log(`✅ [ROUND ${round}] Bracket completo - ${participantsInThisRound} participante(s) restante(s)`);
+      break;
+    }
+    
+    const roundName = getRoundNameForGeneration(round, totalRounds);
+    console.log(`🎯 [ROUND ${round}] ${roundName}: ${matchesInThisRound} partida(s), ${participantsInThisRound} participantes`);
+    
+    // Gerar partidas da rodada
+    for (let matchIdx = 0; matchIdx < matchesInThisRound; matchIdx++) {
+      let team1: string[] | null = null;
+      let team2: string[] | null = null;
+      let completed = false;
+      let winnerId: 'team1' | 'team2' | null = null;
+      let score1: number | null = null;
+      let score2: number | null = null;
+      
+      if (isFirstRound) {
+        // 🔥 PRIMEIRA RODADA: Usar duplas reais
+        const team1Index = matchIdx * 2;
+        const team2Index = matchIdx * 2 + 1;
+        
+        if (team1Index < teamsWithoutByes.length) {
+          team1 = teamsWithoutByes[team1Index].teamId;
+        }
+        if (team2Index < teamsWithoutByes.length) {
+          team2 = teamsWithoutByes[team2Index].teamId;
+        }
+        
+        // Verificar BYE automático (times ímpares)
+        if (team1 && !team2) {
+          completed = true;
+          winnerId = 'team1';
+          score1 = 1;
+          score2 = 0;
+          console.log(`     Match ${matchIdx + 1}: ${team1.join(' & ')} (BYE automático)`);
+        } else if (team1 && team2) {
+          console.log(`     Match ${matchIdx + 1}: ${team1.join(' & ')} vs ${team2.join(' & ')}`);
+        }
+        
+      } else if (isSecondRound && byesNeeded > 0) {
+        // 🔥 SEGUNDA RODADA: Misturar BYEs com vencedores da primeira
+        
+        // Determinar se esta partida envolve BYEs ou vencedores
+        if (matchIdx * 2 < byesNeeded) {
+          // Partida entre times com BYE
+          const bye1Index = matchIdx * 2;
+          const bye2Index = matchIdx * 2 + 1;
+          
+          if (bye1Index < teamsWithByes.length) {
+            team1 = teamsWithByes[bye1Index].teamId;
+          }
+          if (bye2Index < teamsWithByes.length) {
+            team2 = teamsWithByes[bye2Index].teamId;
+          }
+          
+          if (team1 && team2) {
+            console.log(`     Match ${matchIdx + 1}: ${team1.join(' & ')} (BYE) vs ${team2.join(' & ')} (BYE)`);
+          } else if (team1 && !team2) {
+            // BYE ímpar: avança automaticamente
+            completed = true;
+            winnerId = 'team1';
+            score1 = 1;
+            score2 = 0;
+            console.log(`     Match ${matchIdx + 1}: ${team1.join(' & ')} (BYE único)`);
+          }
+        } else {
+          // Partida entre vencedores da primeira rodada ou mista BYE vs vencedor
+          const slotIndex = matchIdx * 2;
+          const slot1 = slotIndex - byesNeeded;
+          const slot2 = slotIndex + 1 - byesNeeded;
+          
+          // Misturar BYEs restantes com vencedores
+          if (slotIndex < byesNeeded && slotIndex + 1 >= byesNeeded) {
+            // Partida mista: último BYE vs primeiro vencedor
+            team1 = teamsWithByes[slotIndex].teamId;
+            team2 = [`WINNER_R1_1`];
+            console.log(`     Match ${matchIdx + 1}: ${team1.join(' & ')} (BYE) vs Vencedor R1-1`);
+          } else if (slot1 >= 0 && slot2 >= 0) {
+            // Partida entre vencedores
+            team1 = [`WINNER_R1_${slot1 + 1}`];
+            team2 = [`WINNER_R1_${slot2 + 1}`];
+            console.log(`     Match ${matchIdx + 1}: Vencedor R1-${slot1 + 1} vs Vencedor R1-${slot2 + 1}`);
+          }
+        }
+        
+      } else {
+        // 🔥 RODADAS SUBSEQUENTES: Usar placeholders dos vencedores
+        team1 = [`WINNER_R${round-1}_${matchIdx * 2 + 1}`];
+        team2 = [`WINNER_R${round-1}_${matchIdx * 2 + 2}`];
+        console.log(`     Match ${matchIdx + 1}: Vencedor R${round-1}-${matchIdx * 2 + 1} vs Vencedor R${round-1}-${matchIdx * 2 + 2}`);
+      }
+      
+      // Criar partida
+      const match = createMatch(team1, team2, round, position++);
+      match.stage = 'ELIMINATION';
+      match.completed = completed;
+      match.winnerId = winnerId;
+      match.score1 = score1;
+      match.score2 = score2;
+      
+      matches.push(match);
+    }
+    
+    // Atualizar participantes para próxima rodada
+    currentRoundParticipants = participantsInThisRound;
   }
   
-  // Semifinal 2: 2º colocado (BYE) vs Vencedor QF2  
-  if (teamsWithByes.length > 1 && quarterfinalsCount > 1) {
-    const semi2 = createMatch(teamsWithByes[1].teamId, ['WINNER_QF2'], 2, 2);
-    matches.push(semi2);
-    console.log(`   SF2: ${teamsWithByes[1].rank}º (BYE) vs Vencedor QF2`);
-  }
+  console.log(`🏆 [SUPER ADAPTÁVEL] Bracket finalizado: ${matches.length} partidas em ${totalRounds} rodadas`);
   
-  // 3. Criar FINAL
-  const final = createMatch(['WINNER_SF1'], ['WINNER_SF2'], 3, 1);
-  matches.push(final);
-  console.log(`🥇 [FINAL] Vencedor SF1 vs Vencedor SF2`);
+  // Resumo detalhado por rodada
+  const matchesByRound = matches.reduce((acc, match) => {
+    acc[match.round] = (acc[match.round] || 0) + 1;
+    return acc;
+  }, {} as Record<number, number>);
   
-  console.log(`🏆 [WITH_BYES] Bracket finalizado: ${matches.length} partidas total`);
-  console.log(`   - ${quarterfinalsCount} Quartas de Final`);
-  console.log(`   - ${Math.floor(semifinalCount / 2)} Semifinais`);
-  console.log(`   - 1 Final`);
+  console.log(`📊 [RESUMO FINAL] Partidas por rodada:`, matchesByRound);
+  
+  // Validação final
+  const expectedTotalMatches = totalTeams - 1; // N teams require N-1 matches to eliminate all but one
+  console.log(`✅ [VALIDAÇÃO] Total partidas: ${matches.length}, Esperado: ${expectedTotalMatches}`);
   
   return { matches, metadata };
 }
 
 /**
+ * Função auxiliar para nomear rodadas durante a geração
+ */
+function getRoundNameForGeneration(round: number, totalRounds: number): string {
+  const roundFromEnd = totalRounds - round;
+  
+  switch (roundFromEnd) {
+    case 0: return 'Final';
+    case 1: return 'Semifinal';
+    case 2: return 'Quartas de Final';
+    case 3: return 'Oitavas de Final';
+    case 4: return 'Dezesseisavos de Final';
+    case 5: return 'Trinta e dois avos de Final';
+    default:
+      const participants = Math.pow(2, roundFromEnd + 1);
+      return `${participants}ª de Final`;
+  }
+}
+
+/**
  * Gera rodadas de avanço com número correto de partidas (substitui generateEmptyRounds)
+ * CORRIGIDO: Gera TODAS as rodadas necessárias para qualquer número de teams
  */
 function generateAdvancementRounds(matches: Match[], currentRoundTeams: number, startRound: number = 2): void {
   let round = startRound;
   let teamsInRound = currentRoundTeams;
   
+  console.log(`🔄 [generateAdvancementRounds] Starting with ${teamsInRound} teams in round ${round}`);
+  
   while (teamsInRound > 1) {
     const matchesInRound = Math.floor(teamsInRound / 2);
     
+    console.log(`🔄 [generateAdvancementRounds] Round ${round}: ${matchesInRound} matches (${teamsInRound} teams)`);
+    
+    if (matchesInRound <= 0) {
+      console.log(`⚠️ [generateAdvancementRounds] No matches needed for round ${round}, stopping`);
+      break;
+    }
+    
     for (let i = 0; i < matchesInRound; i++) {
-      // CORRIGIDO: Criar partidas com placeholders específicos ao invés de arrays vazios
-      const match = createMatch(['TBD'], ['TBD'], round, i + 1);
+      // CORRIGIDO: Criar partidas com null ao invés de placeholders ['TBD']
+      const match = createMatch(null, null, round, i + 1);
       matches.push(match);
       console.log(`🔄 [ADVANCE] R${round}-${i + 1}: Aguardando definição de confronto`);
     }
     
+    // Para próxima rodada, o número de teams é igual ao número de partidas desta rodada
     teamsInRound = matchesInRound;
     round++;
   }
+  
+  console.log(`✅ [generateAdvancementRounds] Completed: Generated ${round - startRound} additional rounds`);
 }
 
 /**
  * Pré-popula times que receberam BYE na segunda rodada
+ * TODO: Esta função não está sendo usada atualmente
  */
+/*
 function populateByeAdvancments(matches: Match[], teamsWithByes: OverallRanking[]): void {
   const secondRoundMatches = matches.filter(m => m.round === 2);
   
@@ -217,6 +358,7 @@ function populateByeAdvancments(matches: Match[], teamsWithByes: OverallRanking[
     }
   });
 }
+*/
 
 /**
  * Gera confrontos otimizados respeitando ranking e evitando mesmo grupo
@@ -276,7 +418,7 @@ function findOptimalOpponent(teams: OverallRanking[], currentIndex: number, used
 /**
  * Cria uma partida com estrutura padrão
  */
-function createMatch(team1: string[], team2: string[], round: number, position: number): Match {
+function createMatch(team1: string[] | null, team2: string[] | null, round: number, position: number): Match {
   return {
     id: generateUUID(),
     team1,
@@ -285,15 +427,16 @@ function createMatch(team1: string[], team2: string[], round: number, position: 
     position,
     score1: null,
     score2: null,
-    completed: false,
     winnerId: null,
+    completed: false,
     courtId: null,
     scheduledTime: null,
     stage: 'ELIMINATION',
     groupNumber: null,
-    eventId: '',
     tournamentId: '',
+    eventId: '',
     createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
+    updatedAt: new Date().toISOString()
+  } as Match;
 }
+   

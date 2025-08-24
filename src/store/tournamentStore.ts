@@ -39,6 +39,7 @@ interface TournamentState {
   // Add the new action to the interface
   generateBilateralEliminationBracket: (tournamentId: string) => Promise<void>;
   updateMatchResults: (matchId: string, score1: number, score2: number) => Promise<void>;
+  updateMatchTeams: (matchId: string, team1: string[] | null, team2: string[] | null) => Promise<void>;
   startTournament: (tournamentId: string) => Promise<void>;
   selectMatch: (match: Match | null) => void;
   updateMatchSchedule: (matchId: string, courtId: string | null, scheduledTime: string | null) => Promise<void>;
@@ -374,6 +375,51 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
       
       set({ error: errorMessage });
       throw new Error(errorMessage);
+    }
+  },
+
+  // Função para atualizar as equipes de uma partida (para avanço automático)
+  updateMatchTeams: async (matchId: string, team1: string[] | null, team2: string[] | null) => {
+    set({ error: null });
+    try {
+      console.log(`Updating match ${matchId} teams:`, { team1, team2 });
+      
+      const currentTournament = get().tournament;
+      if (!currentTournament || !currentTournament.matches) {
+        console.warn('No current tournament or matches found');
+        return;
+      }
+
+      // Atualizar a partida localmente
+      const updatedMatches = currentTournament.matches.map(match => {
+        if (match.id === matchId) {
+          const updatedMatch = {
+            ...match,
+            team1: team1,
+            team2: team2
+          };
+          console.log(`Updated match ${matchId} teams in state:`, updatedMatch);
+          return updatedMatch;
+        }
+        return match;
+      });
+
+      // Atualizar o estado do torneio
+      const updatedTournament = {
+        ...currentTournament,
+        matches: updatedMatches
+      };
+
+      set({ 
+        tournament: updatedTournament
+      });
+
+      console.log(`Successfully updated match ${matchId} teams in store`);
+
+    } catch (error) {
+      console.error('Error updating match teams for', matchId, ':', error);
+      set({ error: 'Erro ao atualizar equipes da partida' });
+      throw error;
     }
   },
 
