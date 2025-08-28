@@ -226,33 +226,10 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
           elimination_bracket: eliminationBracket
         });
 
-        // Detectar fase atual e processar dados conforme necessário
+        // Detectar fase atual 
         const phase = detectTournamentPhase(matches);
         console.log('🎯 Fase atual do torneio:', phase);
         setCurrentPhase(phase);
-
-        if (phase === 'ELIMINATION') {
-          // Processar partidas eliminatórias para exibição
-          const elimMatches = eliminationBracket
-            .map(match => ({
-              id: match.id,
-              round: match.round || 0,
-              position: match.position || 0,
-              team1Name: getTeamDisplayName(match.team1),
-              team2Name: getTeamDisplayName(match.team2),
-              score1: match.score1 || undefined,
-              score2: match.score2 || undefined,
-              completed: match.completed || false,
-              winner: match.winnerId || undefined,
-              isLive: Boolean(!match.completed && match.team1 && match.team2)
-            }))
-            .sort((a, b) => {
-              if (a.round !== b.round) return a.round - b.round;
-              return a.position - b.position;
-            });
-
-          setEliminationMatches(elimMatches);
-        }
       } else {
         console.log('⚠️ Nenhum torneio encontrado para este evento');
       }
@@ -266,6 +243,95 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
   };
 
   // Função para renderizar o bracket eliminatório
+  // Hook para calcular tamanhos adaptativos baseado no conteúdo
+  const useAdaptiveBracketSizing = () => {
+    const [sizing, setSizing] = useState({
+      cardWidth: 280,
+      cardHeight: 120,
+      gap: 32,
+      fontSize: 14,
+      roundGap: 40
+    });
+
+    useEffect(() => {
+      const calculateAdaptiveSizing = () => {
+        if (!eliminationMatches.length) return;
+
+        // Agrupar por rodadas para calcular dimensões
+        const rounds: { [round: number]: any[] } = {};
+        eliminationMatches.forEach(match => {
+          if (!rounds[match.round]) rounds[match.round] = [];
+          rounds[match.round].push(match);
+        });
+
+        const roundCount = Object.keys(rounds).length;
+        const maxMatchesInRound = Math.max(...Object.values(rounds).map(r => r.length));
+        
+        // Obter dimensões da viewport
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        
+        // Reservar espaço para header e padding
+        const availableWidth = viewportWidth - 100; // padding lateral
+        const availableHeight = viewportHeight - 200; // header + padding
+        
+        // Calcular tamanhos adaptativos
+        let cardWidth = Math.min(280, (availableWidth - (roundCount * 40)) / roundCount);
+        let cardHeight = Math.min(120, (availableHeight - 80) / Math.max(maxMatchesInRound, 4));
+        let gap = Math.max(8, Math.min(32, availableHeight / (maxMatchesInRound * 8)));
+        let roundGap = Math.max(20, Math.min(40, availableWidth / (roundCount * 8)));
+        let fontSize = Math.max(11, Math.min(14, cardWidth / 20));
+
+        // Ajustes específicos para telas muito pequenas
+        if (viewportWidth < 768) {
+          cardWidth = Math.max(200, cardWidth * 0.8);
+          cardHeight = Math.max(80, cardHeight * 0.8);
+          gap = Math.max(4, gap * 0.6);
+          roundGap = Math.max(16, roundGap * 0.7);
+          fontSize = Math.max(10, fontSize * 0.9);
+        }
+
+        // Garantir que tudo caiba na tela
+        const totalWidth = (cardWidth * roundCount) + (roundGap * (roundCount - 1));
+        const totalHeight = (cardHeight * maxMatchesInRound) + (gap * (maxMatchesInRound - 1));
+
+        if (totalWidth > availableWidth) {
+          const scale = availableWidth / totalWidth;
+          cardWidth *= scale;
+          roundGap *= scale;
+        }
+
+        if (totalHeight > availableHeight) {
+          const scale = availableHeight / totalHeight;
+          cardHeight *= scale;
+          gap *= scale;
+        }
+
+        setSizing({
+          cardWidth: Math.floor(cardWidth),
+          cardHeight: Math.floor(cardHeight),
+          gap: Math.floor(gap),
+          fontSize: Math.floor(fontSize),
+          roundGap: Math.floor(roundGap)
+        });
+      };
+
+      calculateAdaptiveSizing();
+      
+      // Recalcular quando a janela redimensionar
+      const handleResize = () => {
+        setTimeout(calculateAdaptiveSizing, 100); // debounce
+      };
+      
+      window.addEventListener('resize', handleResize);
+      return () => window.removeEventListener('resize', handleResize);
+    }, [eliminationMatches]);
+
+    return sizing;
+  };
+
+  const adaptiveSizing = useAdaptiveBracketSizing();
+
   const renderEliminationBracket = () => {
     if (!eliminationMatches.length) {
       return (
@@ -287,36 +353,49 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
     const roundNumbers = Object.keys(rounds).map(Number).sort((a, b) => a - b);
     
     return (
-      <div className="bracket-container">
-        <div className="bracket-grid">
+      <div 
+        className="bracket-container adaptive-bracket"
+        style={{
+          '--card-width': `${adaptiveSizing.cardWidth}px`,
+          '--card-height': `${adaptiveSizing.cardHeight}px`,
+          '--gap': `${adaptiveSizing.gap}px`,
+          '--round-gap': `${adaptiveSizing.roundGap}px`,
+          '--font-size': `${adaptiveSizing.fontSize}px`
+        } as React.CSSProperties}
+      >
+        <div className="bracket-grid adaptive-grid">
           {roundNumbers.map(roundNum => (
-            <div key={roundNum} className="bracket-round">
-              <h3 className="round-title">
+            <div key={roundNum} className="bracket-round adaptive-round">
+              <h3 className="round-title adaptive-title">
                 {getRoundName(roundNum, roundNumbers.length)}
               </h3>
-              <div className="matches-column">
+              <div className="matches-column adaptive-column">
                 {rounds[roundNum].map(match => (
                   <div 
                     key={match.id} 
-                    className={`bracket-match ${match.isLive ? 'live-match' : ''} ${match.completed ? 'completed-match' : ''}`}
+                    className={`bracket-match adaptive-match ${match.isLive ? 'live-match' : ''} ${match.completed ? 'completed-match' : ''}`}
                   >
-                    <div className={`team ${match.winner === 'team1' ? 'winner' : ''}`}>
-                      <span className="team-name">{match.team1Name}</span>
+                    <div className={`team adaptive-team ${match.winner === 'team1' ? 'winner' : ''}`}>
+                      <span className="team-name adaptive-team-name" title={match.team1Name}>
+                        {match.team1Name || 'A definir'}
+                      </span>
                       {match.score1 !== undefined && (
-                        <span className="score">{match.score1}</span>
+                        <span className="score adaptive-score">{match.score1}</span>
                       )}
                     </div>
-                    <div className="vs-separator">vs</div>
-                    <div className={`team ${match.winner === 'team2' ? 'winner' : ''}`}>
-                      <span className="team-name">{match.team2Name}</span>
+                    <div className="vs-separator adaptive-vs">vs</div>
+                    <div className={`team adaptive-team ${match.winner === 'team2' ? 'winner' : ''}`}>
+                      <span className="team-name adaptive-team-name" title={match.team2Name}>
+                        {match.team2Name || 'A definir'}
+                      </span>
                       {match.score2 !== undefined && (
-                        <span className="score">{match.score2}</span>
+                        <span className="score adaptive-score">{match.score2}</span>
                       )}
                     </div>
                     {match.isLive && (
-                      <div className="live-indicator">
+                      <div className="live-indicator adaptive-live">
                         <div className="live-dot"></div>
-                        AO VIVO
+                        <span className="live-text">AO VIVO</span>
                       </div>
                     )}
                   </div>
@@ -343,23 +422,40 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
 
   // Função para obter nome da dupla
   const getTeamDisplayName = (teamIds: string[] | string | null | undefined): string => {
-    if (!teamIds) return 'TBD';
+    console.log('🏷️ getTeamDisplayName chamada:', { teamIds, participantsCount: participants.length });
+    
+    if (!teamIds) {
+      console.log('❌ Sem teamIds - retornando "A definir"');
+      return 'A definir';
+    }
     
     if (typeof teamIds === 'string') {
       const participant = participants.find(p => p.id === teamIds);
-      return participant?.name || 'Desconhecido';
+      const result = participant?.name || 'Desconhecido';
+      console.log('👤 String teamId:', { teamIds, found: !!participant, result });
+      return result;
     }
     
     if (Array.isArray(teamIds)) {
-      if (teamIds.length === 0) return 'TBD';
+      if (teamIds.length === 0) {
+        console.log('📭 Array vazio - retornando "A definir"');
+        return 'A definir';
+      }
+      
       const names = teamIds.map(id => {
         const participant = participants.find(p => p.id === id);
-        return participant?.name || 'Desconhecido';
+        const name = participant?.name || 'Desconhecido';
+        console.log(`👥 Participant ID ${id}:`, { found: !!participant, name });
+        return name;
       });
-      return names.join(' & ');
+      
+      const result = names.join(' & ');
+      console.log('👫 Array result:', { teamIds, names, result });
+      return result;
     }
     
-    return 'TBD';
+    console.log('❓ Tipo desconhecido - retornando "A definir"');
+    return 'A definir';
   };
 
   // Calcular rankings usando a mesma lógica do TournamentBracket
@@ -434,6 +530,50 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
   useEffect(() => {
     fetchTournamentData();
   }, [eventId]);
+
+  // Processar partidas eliminatórias quando participantes e torneio estão disponíveis
+  useEffect(() => {
+    if (tournament && participants.length > 0 && currentPhase === 'ELIMINATION') {
+      console.log('🏆 Processando partidas eliminatórias...', { 
+        eliminationBracketLength: tournament.elimination_bracket?.length || 0,
+        participantsLength: participants.length 
+      });
+      
+      const eliminationBracket = tournament.elimination_bracket || [];
+      
+      const elimMatches = eliminationBracket
+        .map(match => {
+          console.log('⚽ Processando match:', { 
+            id: match.id, 
+            team1: match.team1, 
+            team2: match.team2,
+            round: match.round 
+          });
+          
+          return {
+            id: match.id,
+            round: match.round || 0,
+            position: match.position || 0,
+            team1Name: getTeamDisplayName(match.team1),
+            team2Name: getTeamDisplayName(match.team2),
+            score1: match.score1 || undefined,
+            score2: match.score2 || undefined,
+            completed: match.completed || false,
+            winner: match.winnerId || undefined,
+            isLive: Boolean(!match.completed && match.team1 && match.team2)
+          };
+        })
+        .sort((a, b) => {
+          if (a.round !== b.round) return a.round - b.round;
+          return a.position - b.position;
+        });
+
+      console.log('✅ Elimination matches processados:', elimMatches);
+      setEliminationMatches(elimMatches);
+    } else if (currentPhase !== 'ELIMINATION') {
+      setEliminationMatches([]);
+    }
+  }, [tournament, participants, currentPhase]);
 
   useEffect(() => {
     if (!eventId) return;
