@@ -323,6 +323,8 @@ export const EventDetail: React.FC = () => {
                         <p className="text-gray-600">
                           {currentEvent.teamFormation === TeamFormationType.FORMED
                             ? 'Duplas formadas'
+                            : currentEvent.teamFormation === TeamFormationType.SUPER8
+                            ? 'Super 8 (Individual)'
                             : 'Duplas aleatórias'}
                         </p>
                       </div>

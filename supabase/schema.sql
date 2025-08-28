@@ -124,7 +124,8 @@ CREATE TYPE public."reservation_status" AS ENUM (
 CREATE TYPE public."team_formation_type" AS ENUM (
 	'FORMED',
 	'RANDOM',
-	'DRAFT');
+	'DRAFT',
+	'SUPER8');
 
 -- DROP TYPE public."tournament_format";
 

@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { Trophy } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import type { Match, Event, Participant } from '../../types';
-import { calculateGroupRankings, isMatchCompleted } from '../../utils/rankingUtils';
+import { calculateGroupRankings, isMatchCompleted, calculateSuper8IndividualRanking } from '../../utils/rankingUtils';
 import './TournamentTransmission.css';
 
 interface TournamentData {
@@ -460,6 +460,32 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
 
   // Calcular rankings usando a mesma lógica do TournamentBracket
   const rankings = useMemo(() => {
+    // Se for evento Super 8, mostrar ranking individual
+    if (event?.type === 'SUPER8') {
+      if (!tournament?.matches || participants.length === 0) return [];
+      const completedMatches = tournament.matches.filter(isMatchCompleted);
+      if (completedMatches.length === 0) return [];
+      const individualRanking = calculateSuper8IndividualRanking(completedMatches);
+      return individualRanking.map((player, index) => {
+        const participant = participants.find(p => p.id === player.playerId);
+        return {
+          teamId: player.playerId,
+          teamName: participant?.name || 'Desconhecido',
+          players: [player.playerId],
+          position: index + 1,
+          points: player.wins, // ou outro critério
+          wins: player.wins,
+          losses: player.losses,
+          setsWon: player.gamesWon,
+          setsLost: player.gamesLost,
+          setsDiff: player.gameDifference,
+          winRate: player.matchesPlayed > 0 ? (player.wins / player.matchesPlayed) * 100 : 0,
+          groupNumber: undefined,
+          isQualified: false
+        };
+      });
+    }
+
     console.log('📊 Calculando rankings:', { 
       hasTournament: !!tournament, 
       hasMatches: !!tournament?.matches,
@@ -473,7 +499,7 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
       return [];
     }
 
-  const completedMatches = tournament.matches.filter(isMatchCompleted);
+    const completedMatches = tournament.matches.filter(isMatchCompleted);
 
     console.log('⚽ Partidas para processar:', completedMatches.length);
 
@@ -525,7 +551,7 @@ const TournamentTransmission: React.FC<TournamentTransmissionProps> = ({ eventId
 
     console.log('🏆 Rankings calculados:', rankingsForDisplay);
     return rankingsForDisplay;
-  }, [tournament, participants]);
+  }, [tournament, participants, event]);
 
   useEffect(() => {
     fetchTournamentData();

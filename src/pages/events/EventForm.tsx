@@ -108,15 +108,25 @@ export const EventForm = () => {
   const watchedType = watch('type');
   const watchedFormat = watch('format');
 
-  // Sempre que o tipo for SUPER8, força o format para SUPER8 e teamFormation para RANDOM (individual)
+  // Quando o tipo for SUPER8, configura automaticamente o formato e formação de times
   useEffect(() => {
     if (watchedType === EventType.SUPER8) {
+      // Força o formato para SUPER8
       if (watchedFormat !== TournamentFormat.SUPER8) {
         setValue('format', TournamentFormat.SUPER8);
       }
-      setValue('teamFormation', TeamFormationType.RANDOM);
+      // Para Super 8, usar a formação específica SUPER8
+      setValue('teamFormation', TeamFormationType.SUPER8);
+    } else {
+      // Se mudou de SUPER8 para outro tipo, resetar para valores padrão
+      if (watch('teamFormation') === TeamFormationType.SUPER8) {
+        setValue('teamFormation', TeamFormationType.FORMED);
+      }
+      if (watchedFormat === TournamentFormat.SUPER8) {
+        setValue('format', TournamentFormat.GROUP_STAGE_ELIMINATION);
+      }
     }
-  }, [watchedType, watchedFormat, setValue]);
+  }, [watchedType, watchedFormat, setValue, watch]);
 
   const watchedFormData = watch();
 
@@ -333,6 +343,7 @@ export const EventForm = () => {
                   <Select id="teamFormation" {...field} error={!!errors.teamFormation}>
                     <option value={TeamFormationType.FORMED}>Duplas Formadas</option>
                     <option value={TeamFormationType.RANDOM}>Duplas Aleatórias</option>
+                    <option value={TeamFormationType.SUPER8}>Super 8 (Individual)</option>
                   </Select>
                 )}
               />

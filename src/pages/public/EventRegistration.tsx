@@ -402,7 +402,9 @@ export const EventRegistration: React.FC = () => {
           {event?.teamFormation && (
             <div className="mt-3 p-2 rounded bg-blue-50 text-blue-700 text-sm flex items-center">
               <Users size={16} className="mr-2" />
-              {event.teamFormation === 'FORMED' ? 'Duplas formadas' : 'Duplas aleatórias'}
+              {event.teamFormation === 'FORMED' ? 'Duplas formadas' : 
+               event.teamFormation === 'SUPER8' ? 'Super 8 (Individual)' : 
+               'Duplas aleatórias'}
             </div>
           )}
         </div>

@@ -11,6 +11,7 @@ export enum EventType {
 export enum TeamFormationType {
   FORMED = 'FORMED',
   RANDOM = 'RANDOM',
+  SUPER8 = 'SUPER8', // Formação específica para Super 8
 }
 
 export type EventStatus = 'DRAFT' | 'PUBLISHED' | 'OPEN' | 'CLOSED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'ONGOING';

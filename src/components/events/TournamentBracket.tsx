@@ -793,6 +793,8 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       // Passo 4: Determinar o tipo de formação de equipes baseado no evento
       const teamFormationType = currentEvent.team_formation === 'FORMED' 
         ? TeamFormationType.FORMED 
+        : currentEvent.team_formation === 'SUPER8'
+        ? TeamFormationType.SUPER8
         : TeamFormationType.RANDOM;
       
       // Passo 5: Formar equipes baseado na configuração do evento
@@ -807,6 +809,9 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       // Passo 6: Gerar nova estrutura automaticamente
       if (teamFormationType === TeamFormationType.FORMED) {
         await generateFormedStructure(eventId, teams, { forceReset: true });
+      } else if (teamFormationType === TeamFormationType.SUPER8) {
+        // Para Super 8, usar a lógica específica
+        await generateFormedStructure(eventId, eventParticipants.map(p => [p.id]), { forceReset: true });
       } else {
         await generateRandomStructure(eventId, teams, { forceReset: true });
       }
@@ -2131,6 +2136,9 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                           { groupSize: 3 }
                         );
                         await generateFormedStructure(eventId, teams, { forceReset: false });
+                      } else if (currentEvent?.team_formation === 'SUPER8') {
+                        // Para Super 8, usar participantes individuais
+                        await generateFormedStructure(eventId, eventParticipants.map(p => [p.id]), { forceReset: false });
                       } else {
                         await generateRandomStructure(eventId, [], { forceReset: false });
                       }
@@ -2424,6 +2432,16 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                               );
 
                               await generateFormedStructure(eventId, teams, {
+                                groupSize: 3,
+                                maxTeamsPerGroup: 4,
+                                autoCalculateGroups: false,
+                                forceReset: true
+                              });
+                            } else if (currentEvent?.team_formation === 'SUPER8') {
+                              console.log('🔥 [DEBUG] Gerando partidas para Super 8...');
+                              
+                              // Para Super 8, usar participantes individuais
+                              await generateFormedStructure(eventId, eventParticipants.map(p => [p.id]), {
                                 groupSize: 3,
                                 maxTeamsPerGroup: 4,
                                 autoCalculateGroups: false,
