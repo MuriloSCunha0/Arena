@@ -1,0 +1,113 @@
+{
+  "teams_count": 6,
+  "matches": [
+    {
+      "id": "test-3h3lz5uca",
+      "team1": [
+        "Player1A",
+        "Player1B"
+      ],
+      "team2": [
+        "Player2A",
+        "Player2B"
+      ],
+      "round": 1,
+      "position": 1,
+      "score1": null,
+      "score2": null,
+      "winnerId": null,
+      "completed": false,
+      "courtId": null,
+      "scheduledTime": null,
+      "stage": "ELIMINATION",
+      "groupNumber": null,
+      "tournamentId": "",
+      "eventId": "",
+      "createdAt": "2025-08-28T19:14:11.345Z",
+      "updatedAt": "2025-08-28T19:14:11.346Z"
+    },
+    {
+      "id": "test-prvmxm0ua",
+      "team1": [
+        "Player3A",
+        "Player3B"
+      ],
+      "team2": [
+        "Player4A",
+        "Player4B"
+      ],
+      "round": 1,
+      "position": 2,
+      "score1": null,
+      "score2": null,
+      "winnerId": null,
+      "completed": false,
+      "courtId": null,
+      "scheduledTime": null,
+      "stage": "ELIMINATION",
+      "groupNumber": null,
+      "tournamentId": "",
+      "eventId": "",
+      "createdAt": "2025-08-28T19:14:11.346Z",
+      "updatedAt": "2025-08-28T19:14:11.346Z"
+    },
+    {
+      "id": "test-6hoqoslz7",
+      "team1": [
+        "Player5A",
+        "Player5B"
+      ],
+      "team2": [
+        "Player6A",
+        "Player6B"
+      ],
+      "round": 1,
+      "position": 3,
+      "score1": null,
+      "score2": null,
+      "winnerId": null,
+      "completed": false,
+      "courtId": null,
+      "scheduledTime": null,
+      "stage": "ELIMINATION",
+      "groupNumber": null,
+      "tournamentId": "",
+      "eventId": "",
+      "createdAt": "2025-08-28T19:14:11.346Z",
+      "updatedAt": "2025-08-28T19:14:11.346Z"
+    },
+    {
+      "id": "test-u5i8s0258",
+      "team1": [
+        "Player1A",
+        "Player1B"
+      ],
+      "team2": [
+        "Player3A",
+        "Player3B"
+      ],
+      "round": 2,
+      "position": 1,
+      "score1": null,
+      "score2": null,
+      "winnerId": null,
+      "completed": false,
+      "courtId": null,
+      "scheduledTime": null,
+      "stage": "ELIMINATION",
+      "groupNumber": null,
+      "tournamentId": "",
+      "eventId": "",
+      "createdAt": "2025-08-28T19:14:11.346Z",
+      "updatedAt": "2025-08-28T19:14:11.346Z"
+    }
+  ],
+  "approach": "empty_slots",
+  "advantages": [
+    "Elimina dependência de placeholders",
+    "Slots vazios ocupam espaço mas não mostram \"TBD\"",
+    "Avanço matemático simples: R(n) posição P → R(n+1) posição ceil(P/2)",
+    "Interface mais limpa",
+    "Mais robusto e adaptativo"
+  ]
+}

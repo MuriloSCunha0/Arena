@@ -382,7 +382,7 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
   updateMatchTeams: async (matchId: string, team1: string[] | null, team2: string[] | null) => {
     set({ error: null });
     try {
-      console.log(`Updating match ${matchId} teams:`, { team1, team2 });
+      console.log(`🔄 [UPDATE TEAMS] Atualizando match ${matchId} teams no banco:`, { team1, team2 });
       
       const currentTournament = get().tournament;
       if (!currentTournament || !currentTournament.matches) {
@@ -390,7 +390,16 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
         return;
       }
 
-      // Atualizar a partida localmente
+      // 🔥 NOVA IMPLEMENTAÇÃO: Salvar no banco de dados via TournamentService
+      try {
+        const updatedMatch = await TournamentService.updateMatch(matchId, { team1, team2 });
+        console.log(`✅ [UPDATE TEAMS] Match ${matchId} atualizada no banco:`, updatedMatch);
+      } catch (dbError) {
+        console.error(`🚨 [UPDATE TEAMS] Erro ao salvar no banco:`, dbError);
+        // Continuar mesmo se houver erro no banco, para manter a funcionalidade local
+      }
+
+      // Atualizar a partida localmente também
       const updatedMatches = currentTournament.matches.map(match => {
         if (match.id === matchId) {
           const updatedMatch = {
@@ -398,7 +407,7 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
             team1: team1,
             team2: team2
           };
-          console.log(`Updated match ${matchId} teams in state:`, updatedMatch);
+          console.log(`✅ [UPDATE TEAMS] Match ${matchId} atualizada no estado local:`, updatedMatch);
           return updatedMatch;
         }
         return match;
@@ -414,7 +423,14 @@ export const useTournamentStore = create<TournamentState>((set, get) => ({
         tournament: updatedTournament
       });
 
-      console.log(`Successfully updated match ${matchId} teams in store`);
+      console.log(`✅ [UPDATE TEAMS] Match ${matchId} salva no banco e estado local`);
+      console.log(`📊 [UPDATE TEAMS] Estado atualizado - Total de matches: ${updatedMatches.length}`);
+      
+      // Log das matches das semifinais para debug
+      const semiMatches = updatedMatches.filter(m => m.round === 2);
+      semiMatches.forEach(match => {
+        console.log(`🏐 [UPDATE TEAMS] Semi R${match.round}_${match.position}: ${Array.isArray(match.team1) ? match.team1.join(' & ') : match.team1} vs ${Array.isArray(match.team2) ? match.team2.join(' & ') : match.team2}`);
+      });
 
     } catch (error) {
       console.error('Error updating match teams for', matchId, ':', error);

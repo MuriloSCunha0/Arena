@@ -185,6 +185,7 @@ import {
   generateBeachTennisEliminationStructure,
   applyBeachTennisTiebreakerCriteria 
 } from './beachTennisRules';
+import { updateEliminationBracketRobust } from './bracketAdvancement';
 
 // Export the interfaces that are being imported by other files using 'export type'
 export type { GroupRanking, OverallRanking } from '../types';
@@ -782,7 +783,7 @@ export function calculateRankingsForPlacement(
 export function updateEliminationBracket(
   matches: Match[],
   completedMatchId: string,
-  _winnerId: 'team1' | 'team2',
+  winnerId: 'team1' | 'team2',
   winnerTeam: string[]
 ): Match[] {
   try {
@@ -790,7 +791,14 @@ export function updateEliminationBracket(
     console.log(`🔄 [updateEliminationBracket] Winner team:`, winnerTeam);
     console.log(`🔄 [updateEliminationBracket] Total matches:`, matches.length);
     
-    // Find the completed match
+    // ✅ USAR NOVA LÓGICA ROBUSTA
+    try {
+      return updateEliminationBracketRobust(matches, completedMatchId, winnerId, winnerTeam);
+    } catch (importError) {
+      console.warn('⚠️ [updateEliminationBracket] Could not use robust logic, using fallback:', importError);
+    }
+    
+    // ✅ FALLBACK: Se a nova lógica falhar, usar lógica anterior
     const completedMatch = matches.find(m => m.id === completedMatchId);
     if (!completedMatch) {
       console.warn(`⚠️ [updateEliminationBracket] Completed match not found: ${completedMatchId}`);
@@ -1587,26 +1595,55 @@ export function determineMatchStage(match: any): 'GROUP' | 'ELIMINATION' {
   return 'GROUP';
 }
 
-// Função para salvar partida na coluna JSONB apropriada
+// Cache para dados do torneio para evitar múltiplas consultas
+const tournamentCache = new Map<string, {
+  data: any;
+  timestamp: number;
+  ttl: number;
+}>();
+
+// Função para salvar partida na coluna JSONB apropriada - OTIMIZADA
 export async function saveMatchByStage(match: Match): Promise<void> {
   const { supabase } = await import('../lib/supabase');
   
   try {
     console.log(`💾 Salvando partida ${match.id} (stage: ${match.stage}) no banco de dados...`);
     
-    // Buscar dados atuais do torneio
-    const { data: tournament, error: fetchError } = await supabase
-      .from('tournaments')
-      .select('matches_data, standings_data, elimination_bracket')
-      .eq('id', match.tournamentId)
-      .single();
+    // 🚀 OTIMIZAÇÃO: Usar cache para evitar múltiplas consultas
+    const cacheKey = match.tournamentId;
+    const now = Date.now();
+    const cached = tournamentCache.get(cacheKey);
     
-    if (fetchError) {
-      throw new Error(`Erro ao buscar torneio: ${fetchError.message}`);
-    }
+    let tournament: any;
     
-    if (!tournament) {
-      throw new Error('Torneio não encontrado');
+    // Cache válido por 5 segundos
+    if (cached && (now - cached.timestamp) < cached.ttl) {
+      tournament = cached.data;
+      console.log(`📋 Usando dados em cache para torneio ${match.tournamentId}`);
+    } else {
+      // Buscar dados atuais do torneio
+      const { data: tournamentData, error: fetchError } = await supabase
+        .from('tournaments')
+        .select('matches_data, standings_data, elimination_bracket')
+        .eq('id', match.tournamentId)
+        .single();
+      
+      if (fetchError) {
+        throw new Error(`Erro ao buscar torneio: ${fetchError.message}`);
+      }
+      
+      if (!tournamentData) {
+        throw new Error('Torneio não encontrado');
+      }
+      
+      tournament = tournamentData;
+      
+      // Armazenar no cache por 5 segundos
+      tournamentCache.set(cacheKey, {
+        data: tournament,
+        timestamp: now,
+        ttl: 5000
+      });
     }
     
     // Preparar dados atualizados baseado no stage
@@ -1701,8 +1738,120 @@ export async function saveMatchByStage(match: Match): Promise<void> {
     
     console.log(`✅ Partida ${match.id} salva com sucesso na coluna ${match.stage === 'GROUP' ? 'standings_data' : 'elimination_bracket'}`);
     
+    // 🚀 OTIMIZAÇÃO: Invalidar cache após salvamento bem-sucedido
+    tournamentCache.delete(cacheKey);
+    
   } catch (error) {
     console.error(`❌ Erro ao salvar partida ${match.id}:`, error);
+    throw error;
+  }
+}
+
+// 🚀 NOVA FUNÇÃO: Salvamento em lote para múltiplas partidas
+export async function saveMatchesByStage(matches: Match[], tournamentId: string): Promise<void> {
+  if (matches.length === 0) return;
+  
+  const { supabase } = await import('../lib/supabase');
+  
+  try {
+    console.log(`💾 Salvando ${matches.length} partidas em lote para torneio ${tournamentId}...`);
+    
+    // Buscar dados atuais do torneio apenas uma vez
+    const { data: tournament, error: fetchError } = await supabase
+      .from('tournaments')
+      .select('matches_data, standings_data, elimination_bracket')
+      .eq('id', tournamentId)
+      .single();
+    
+    if (fetchError || !tournament) {
+      throw new Error(`Erro ao buscar torneio: ${fetchError?.message || 'Torneio não encontrado'}`);
+    }
+    
+    // Separar partidas por stage
+    const groupMatches = matches.filter(m => m.stage === 'GROUP');
+    const eliminationMatches = matches.filter(m => m.stage === 'ELIMINATION');
+    
+    let updateData: any = {};
+    
+    // Atualizar partidas de grupo
+    if (groupMatches.length > 0) {
+      const standingsData = Array.isArray(tournament.standings_data) ? [...tournament.standings_data] : [];
+      
+      groupMatches.forEach(match => {
+        const index = standingsData.findIndex((m: any) => m.id === match.id);
+        if (index >= 0) {
+          standingsData[index] = match;
+        } else {
+          standingsData.push(match);
+        }
+      });
+      
+      updateData.standings_data = standingsData;
+    }
+    
+    // Atualizar partidas eliminatórias
+    if (eliminationMatches.length > 0) {
+      let eliminationBracket = tournament.elimination_bracket;
+      let eliminationMatchesArray: Match[];
+      let metadata: any = null;
+      
+      if (Array.isArray(eliminationBracket)) {
+        eliminationMatchesArray = [...eliminationBracket];
+      } else if (eliminationBracket && typeof eliminationBracket === 'object' && eliminationBracket.matches) {
+        eliminationMatchesArray = [...eliminationBracket.matches];
+        metadata = eliminationBracket.metadata;
+      } else {
+        eliminationMatchesArray = [];
+      }
+      
+      eliminationMatches.forEach(match => {
+        const index = eliminationMatchesArray.findIndex((m: any) => m.id === match.id);
+        if (index >= 0) {
+          eliminationMatchesArray[index] = match;
+        } else {
+          eliminationMatchesArray.push(match);
+        }
+      });
+      
+      updateData.elimination_bracket = metadata ? {
+        matches: eliminationMatchesArray,
+        metadata: metadata,
+        generatedAt: new Date().toISOString()
+      } : eliminationMatchesArray;
+    }
+    
+    // Atualizar matches_data com todas as partidas
+    const allMatchesData = Array.isArray(tournament.matches_data) ? [...tournament.matches_data] : [];
+    
+    matches.forEach(match => {
+      const index = allMatchesData.findIndex((m: any) => m.id === match.id);
+      if (index >= 0) {
+        allMatchesData[index] = match;
+      } else {
+        allMatchesData.push(match);
+      }
+    });
+    
+    updateData.matches_data = allMatchesData;
+    updateData.updated_at = new Date().toISOString();
+    
+    // Executar update no banco (apenas uma operação)
+    const { error: updateError } = await supabase
+      .from('tournaments')
+      .update(updateData)
+      .eq('id', tournamentId);
+    
+    if (updateError) {
+      throw new Error(`Erro ao salvar partidas: ${updateError.message}`);
+    }
+    
+    console.log(`✅ ${matches.length} partidas salvas com sucesso em lote`);
+    
+    // Invalidar cache
+    tournamentCache.delete(tournamentId);
+    
+  } catch (error) {
+    console.error(`❌ Erro ao salvar partidas em lote:`, error);
     throw error;
   }
 }

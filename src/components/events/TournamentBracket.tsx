@@ -496,45 +496,18 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       return map;
   }, [eventParticipants]);
 
-  // FUNÇÃO CORRIGIDA: getTeamDisplayName para exibir nomes de times corretamente
+  // Add the missing getTeamDisplayName function
   const getTeamDisplayName = (teamIds: string[] | null | undefined): string => {
     if (!teamIds || teamIds.length === 0) return 'TBD';
     
-    // 🔍 CORRIGIR: Tratar placeholders especiais (vencedores, BYEs, etc.)
+    // Handle single player teams (for byes or odd numbers)
     if (teamIds.length === 1) {
-      const singleValue = teamIds[0];
-      
-      // Placeholders de vencedores
-      if (singleValue.startsWith('WINNER_')) {
-        if (singleValue === 'WINNER_QF1') return 'Vencedor QF1';
-        if (singleValue === 'WINNER_QF2') return 'Vencedor QF2';
-        if (singleValue === 'WINNER_SF1') return 'Vencedor SF1';
-        if (singleValue === 'WINNER_SF2') return 'Vencedor SF2';
-        return singleValue.replace('WINNER_', 'Vencedor ');
-      }
-      
-      // IDs de participantes individuais (pode acontecer em casos especiais)
-      const participant = participantMap.get(singleValue);
-      if (participant) return participant;
-      
-      // Se não encontrou, mostrar que é desconhecido mas com mais clareza
-      return 'Aguardando Definição';
+      return participantMap.get(teamIds[0]) || 'Desconhecido';
     }
     
-    // Times normais (duplas)
-    if (teamIds.length >= 2) {
-      const names = teamIds
-        .map(id => participantMap.get(id) || `Jogador-${id.slice(-4)}`)
-        .filter(Boolean);
-      
-      if (names.length > 0) {
-        return names.join(' & ');
-      }
-    }
-    
-    // Fallback para casos não mapeados
-    console.warn(`🚨 getTeamDisplayName: time não reconhecido:`, teamIds);
-    return 'Aguardando Definição';
+    // Handle pairs
+    const names = teamIds.map(id => participantMap.get(id) || 'Desconhecido');
+    return names.join(' & ');
   };
 
   const bracketContainerRef = useRef<HTMLDivElement>(null);
@@ -580,89 +553,6 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       addNotification({ type: 'error', message: tournamentError });
     }
   }, [tournamentError, addNotification]);
-
-  // 🔄 useEffect para processar avanços retroativos quando o torneio carregar
-  useEffect(() => {
-    if (tournament && tournament.matches && tournament.matches.length > 0) {
-      // Verificar se há partidas de eliminação concluídas que precisam de avanço retroativo
-      const completedEliminationMatches = tournament.matches.filter(m => 
-        m.stage === 'ELIMINATION' && 
-        m.completed && 
-        m.score1 !== null && 
-        m.score2 !== null
-      );
-      
-      // Verificar se há placeholders que ainda não foram substituídos
-      const placeholderMatches = tournament.matches.filter(m => {
-        const team1String = Array.isArray(m.team1) ? m.team1.join(' ') : '';
-        const team2String = Array.isArray(m.team2) ? m.team2.join(' ') : '';
-        return team1String.includes('WINNER_') || team2String.includes('WINNER_') ||
-               team1String.includes('Vencedor') || team2String.includes('Vencedor');
-      });
-      
-      if (completedEliminationMatches.length > 0 && placeholderMatches.length > 0) {
-        console.log(`🔄 [RETROACTIVE CHECK] Partidas concluídas: ${completedEliminationMatches.length}, Placeholders: ${placeholderMatches.length}`);
-        
-        // Executar processamento retroativo após um pequeno delay
-        setTimeout(() => {
-          processRetroactiveAdvancements();
-        }, 1000);
-      }
-    }
-  }, [tournament]);
-
-  // 🚀 NOVO: useEffect para processar avanços automáticos quando confrontos são concluídos
-  useEffect(() => {
-    if (tournament && tournament.matches && tournament.matches.length > 0) {
-      // Monitorar changes nos resultados de partidas concluídas
-      const justCompletedMatches = tournament.matches.filter(m => 
-        m.stage === 'ELIMINATION' && 
-        m.completed && 
-        m.score1 !== null && 
-        m.score2 !== null &&
-        m.winnerId // Tem winnerId definido
-      );
-      
-      console.log(`🚀 [AUTO MONITOR] Monitorando ${justCompletedMatches.length} partidas concluídas para avanços automáticos`);
-      
-      // Processar avanços automáticos para partidas recém-concluídas
-      justCompletedMatches.forEach(async (completedMatch) => {
-        try {
-          console.log(`🚀 [AUTO MONITOR] Verificando avanços para match ${completedMatch.id}`);
-          
-          // Verificar se há placeholders que dependem desta partida
-          const dependentMatches = tournament.matches.filter(m => {
-            const team1String = Array.isArray(m.team1) ? m.team1.join(' ') : '';
-            const team2String = Array.isArray(m.team2) ? m.team2.join(' ') : '';
-            
-            const expectedPlaceholder1 = `WINNER_R${completedMatch.round}_${completedMatch.position}`;
-            const expectedPlaceholder2 = `Vencedor R${completedMatch.round}_${completedMatch.position}`;
-            
-            return team1String.includes(expectedPlaceholder1) || 
-                   team2String.includes(expectedPlaceholder1) ||
-                   team1String.includes(expectedPlaceholder2) || 
-                   team2String.includes(expectedPlaceholder2);
-          });
-          
-          if (dependentMatches.length > 0) {
-            console.log(`🚀 [AUTO MONITOR] Encontradas ${dependentMatches.length} partidas dependentes para ${completedMatch.id}`);
-            
-            // Processar avanços após um pequeno delay para evitar conflitos
-            setTimeout(async () => {
-              try {
-                await processRetroactiveAdvancements();
-                console.log(`✅ [AUTO MONITOR] Avanços processados para match ${completedMatch.id}`);
-              } catch (error) {
-                console.error(`🚨 [AUTO MONITOR] Erro ao processar avanços para ${completedMatch.id}:`, error);
-              }
-            }, 500);
-          }
-        } catch (error) {
-          console.error(`🚨 [AUTO MONITOR] Erro ao verificar match ${completedMatch.id}:`, error);
-        }
-      });
-    }
-  }, [tournament?.matches?.map(m => `${m.id}-${m.completed}-${m.winnerId}`).join(',')]);
 
 
   const handleGenerateFormedStructureWithConfig = async () => {
@@ -1071,9 +961,6 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     try {
       await updateMatchResults(matchId, score1, score2);
       
-      // 🔥 NOVO: Avanço automático após salvar resultado
-      await handleAutomaticAdvancement(matchId, score1, score2);
-      
         // Trigger animation for winner
         setTimeout(() => {
           const match = tournament?.matches.find(m => m.id === matchId);        if (match && match.round < eliminationRoundsArray.length) {
@@ -1102,311 +989,6 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       const errorMessage = err instanceof Error ? err.message : 'Erro ao atualizar resultado.';
       addNotification({ type: 'error', message: errorMessage });
       throw err;
-    }
-  };
-
-  // 🚀 NOVA FUNÇÃO: Processar avanços retroativos para partidas já concluídas
-  const processRetroactiveAdvancements = async () => {
-    if (!tournament) return;
-    
-    console.log(`🔄 [RETROACTIVE] ===== PROCESSANDO AVANÇOS RETROATIVOS =====`);
-    
-    try {
-      // Encontrar todas as partidas de eliminação concluídas
-      const completedEliminationMatches = tournament.matches.filter(m => 
-        m.stage === 'ELIMINATION' && 
-        m.completed && 
-        m.score1 !== null && 
-        m.score2 !== null &&
-        m.winnerId
-      );
-      
-      console.log(`🔄 [RETROACTIVE] Partidas concluídas encontradas: ${completedEliminationMatches.length}`);
-      
-      // Ordenar por rodada para processar em ordem
-      completedEliminationMatches.sort((a, b) => (a.round || 0) - (b.round || 0));
-      
-      for (const completedMatch of completedEliminationMatches) {
-        console.log(`🔄 [RETROACTIVE] Processando match ${completedMatch.id} (R${completedMatch.round}_${completedMatch.position})`);
-        
-        // Determinar vencedor
-        const winnerId = completedMatch.winnerId || (
-          (completedMatch.score1 || 0) > (completedMatch.score2 || 0) ? 'team1' : 'team2'
-        );
-        const winnerTeam = winnerId === 'team1' ? completedMatch.team1 : completedMatch.team2;
-        
-        if (!winnerTeam) {
-          console.warn(`⚠️ [RETROACTIVE] Winner team não identificado para match ${completedMatch.id}`);
-          continue;
-        }
-        
-        console.log(`🎯 [RETROACTIVE] Vencedor: ${winnerTeam}`);
-        
-        // Encontrar partidas dependentes
-        const dependentMatches = findDependentMatches(completedMatch, tournament.matches);
-        
-        console.log(`🔗 [RETROACTIVE] Partidas dependentes: ${dependentMatches.length}`);
-        
-        // Avançar vencedor para cada partida dependente
-        for (const dependentMatch of dependentMatches) {
-          console.log(`🚀 [RETROACTIVE] Avançando vencedor para match ${dependentMatch.id}`);
-          await advanceWinnerToMatch(winnerTeam, completedMatch, dependentMatch);
-        }
-      }
-      
-      console.log(`✅ [RETROACTIVE] ===== AVANÇOS RETROATIVOS CONCLUÍDOS =====`);
-      
-    } catch (error) {
-      console.error(`🚨 [RETROACTIVE] Erro no processamento retroativo:`, error);
-    }
-  };
-
-  // 🚀 NOVA FUNÇÃO: Avanço automático de vencedores
-  const handleAutomaticAdvancement = async (completedMatchId: string, score1: number, score2: number) => {
-    if (!tournament) return;
-    
-    console.log(`🏆 [AUTO ADVANCE] ===== INICIANDO AVANÇO AUTOMÁTICO =====`);
-    console.log(`🏆 [AUTO ADVANCE] Match: ${completedMatchId}, Scores: ${score1}-${score2}`);
-    
-    try {
-      // Encontrar a partida concluída
-      const completedMatch = tournament.matches.find(m => m.id === completedMatchId);
-      if (!completedMatch) {
-        console.warn(`⚠️ [AUTO ADVANCE] Match ${completedMatchId} não encontrada`);
-        return;
-      }
-      
-      console.log(`🔍 [AUTO ADVANCE] Match encontrada:`, {
-        id: completedMatch.id,
-        round: completedMatch.round,
-        position: completedMatch.position,
-        team1: completedMatch.team1,
-        team2: completedMatch.team2,
-        stage: completedMatch.stage
-      });
-      
-      // Determinar vencedor
-      const winnerId = score1 > score2 ? 'team1' : 'team2';
-      const winnerTeam = winnerId === 'team1' ? completedMatch.team1 : completedMatch.team2;
-      
-      if (!winnerTeam) {
-        console.warn(`⚠️ [AUTO ADVANCE] Winner team não identificado para match ${completedMatchId}`);
-        return;
-      }
-      
-      console.log(`🎯 [AUTO ADVANCE] Vencedor identificado:`, {
-        matchId: completedMatchId,
-        round: completedMatch.round,
-        position: completedMatch.position,
-        winnerId,
-        winnerTeam
-      });
-      
-      // Encontrar partidas que dependem desta
-      const dependentMatches = findDependentMatches(completedMatch, tournament.matches);
-      
-      console.log(`🔗 [AUTO ADVANCE] Partidas dependentes encontradas: ${dependentMatches.length}`);
-      dependentMatches.forEach((match, index) => {
-        console.log(`  ${index + 1}. Match ${match.id} (R${match.round}_${match.position}): ${match.team1} vs ${match.team2}`);
-      });
-      
-      // Avançar vencedor para cada partida dependente
-      for (const dependentMatch of dependentMatches) {
-        console.log(`🚀 [AUTO ADVANCE] Processando avanço para match ${dependentMatch.id}...`);
-        await advanceWinnerToMatch(winnerTeam, completedMatch, dependentMatch);
-      }
-      
-      // ✅ CORREÇÃO: Não recarregar dados imediatamente - deixar o avanço local funcionar
-      // await fetchTournament(eventId); // REMOVIDO: Isso sobrescreve as mudanças locais
-      
-      console.log(`✅ [AUTO ADVANCE] ===== AVANÇO AUTOMÁTICO CONCLUÍDO =====`);
-      console.log(`✅ [AUTO ADVANCE] ${dependentMatches.length} partidas processadas com sucesso`);
-      
-    } catch (error) {
-      console.error(`🚨 [AUTO ADVANCE] Erro no avanço automático:`, error);
-    }
-  };
-
-  // 🔍 FUNÇÃO: Encontrar partidas que dependem de uma partida específica
-  const findDependentMatches = (completedMatch: Match, allMatches: Match[]): Match[] => {
-    const dependentMatches: Match[] = [];
-    
-    // Buscar por placeholders que referenciam esta partida
-    const expectedPlaceholder1 = `WINNER_R${completedMatch.round}_${completedMatch.position}`;
-    const expectedPlaceholder2 = `Vencedor R${completedMatch.round}_${completedMatch.position}`;
-    const expectedPlaceholder3 = `WINNER_R${completedMatch.round}-${completedMatch.position}`;
-    const expectedPlaceholder4 = `Vencedor R${completedMatch.round}-${completedMatch.position}`;
-    
-    console.log(`🔍 [FIND DEPENDENT] Procurando por placeholders:`, [
-      expectedPlaceholder1, 
-      expectedPlaceholder2,
-      expectedPlaceholder3,
-      expectedPlaceholder4
-    ]);
-    
-    allMatches.forEach(match => {
-      // Verificar se team1 ou team2 contém o placeholder
-      const team1String = Array.isArray(match.team1) ? match.team1.join(' ') : '';
-      const team2String = Array.isArray(match.team2) ? match.team2.join(' ') : '';
-      
-      const hasPlaceholder = [
-        expectedPlaceholder1, 
-        expectedPlaceholder2,
-        expectedPlaceholder3,
-        expectedPlaceholder4
-      ].some(placeholder => 
-        team1String.includes(placeholder) || team2String.includes(placeholder)
-      );
-      
-      if (hasPlaceholder) {
-        dependentMatches.push(match);
-        console.log(`✅ [FIND DEPENDENT] Match dependente encontrada:`, {
-          id: match.id,
-          round: match.round,
-          team1: match.team1,
-          team2: match.team2
-        });
-      }
-    });
-    
-    return dependentMatches;
-  };
-
-  // 🚀 FUNÇÃO: Avançar vencedor para partida específica
-  const advanceWinnerToMatch = async (winnerTeam: string[], completedMatch: Match, targetMatch: Match) => {
-    try {
-      const expectedPlaceholders = [
-        `WINNER_R${completedMatch.round}_${completedMatch.position}`,
-        `Vencedor R${completedMatch.round}_${completedMatch.position}`,
-        `WINNER_R${completedMatch.round}-${completedMatch.position}`,
-        `Vencedor R${completedMatch.round}-${completedMatch.position}`
-      ];
-      
-      let updatedTeam1 = targetMatch.team1;
-      let updatedTeam2 = targetMatch.team2;
-      let hasChanges = false;
-      
-      // Verificar e substituir team1
-      if (Array.isArray(targetMatch.team1)) {
-        const team1String = targetMatch.team1.join(' ');
-        const hasPlaceholder = expectedPlaceholders.some(placeholder => 
-          team1String.includes(placeholder)
-        );
-        
-        if (hasPlaceholder) {
-          updatedTeam1 = winnerTeam;
-          hasChanges = true;
-          console.log(`🔄 [ADVANCE] Substituindo team1 em match ${targetMatch.id}:`, {
-            de: targetMatch.team1,
-            para: winnerTeam
-          });
-        }
-      }
-      
-      // Verificar e substituir team2
-      if (Array.isArray(targetMatch.team2)) {
-        const team2String = targetMatch.team2.join(' ');
-        const hasPlaceholder = expectedPlaceholders.some(placeholder => 
-          team2String.includes(placeholder)
-        );
-        
-        if (hasPlaceholder) {
-          updatedTeam2 = winnerTeam;
-          hasChanges = true;
-          console.log(`🔄 [ADVANCE] Substituindo team2 em match ${targetMatch.id}:`, {
-            de: targetMatch.team2,
-            para: winnerTeam
-          });
-        }
-      }
-      
-      // Atualizar apenas se houve mudança
-      if (hasChanges) {
-        await updateMatchTeamsLocal(targetMatch.id, updatedTeam1, updatedTeam2);
-        console.log(`✅ [ADVANCE] Match ${targetMatch.id} atualizada com sucesso`);
-      }
-      
-    } catch (error) {
-      console.error(`🚨 [ADVANCE] Erro ao avançar vencedor:`, error);
-    }
-  };
-
-  // 🔧 FUNÇÃO: Atualizar times de uma partida
-  const updateMatchTeamsLocal = async (matchId: string, team1: string[] | null, team2: string[] | null) => {
-    try {
-      console.log(`🔧 [UPDATE TEAMS] Atualizando match ${matchId}:`, { team1, team2 });
-      
-      // ✅ USAR STORE: Chamar função do store para atualizar
-      const storeUpdateMatchTeams = useTournamentStore.getState().updateMatchTeams;
-      if (storeUpdateMatchTeams) {
-        await storeUpdateMatchTeams(matchId, team1, team2);
-        console.log(`✅ [UPDATE TEAMS] Match ${matchId} atualizada via store`);
-      } else {
-        // ✅ FALLBACK: Atualizar localmente usando setState
-        await updateMatchTeamsDirectly(matchId, team1, team2);
-        console.log(`✅ [UPDATE TEAMS] Match ${matchId} atualizada localmente`);
-      }
-      
-      // 🚀 NOVO: Processar avanços automáticos após editar times
-      console.log(`🚀 [AUTO PROCESS] Processando avanços automáticos após edição de times...`);
-      await processRetroactiveAdvancements();
-      console.log(`✅ [AUTO PROCESS] Avanços automáticos processados após edição`);
-      
-    } catch (error) {
-      console.error(`🚨 [UPDATE TEAMS] Erro:`, error);
-      // ✅ FALLBACK FINAL: Atualizar localmente
-      await updateMatchTeamsDirectly(matchId, team1, team2);
-      
-      // 🚀 Ainda assim tentar processar avanços
-      try {
-        await processRetroactiveAdvancements();
-      } catch (advanceError) {
-        console.error(`🚨 [AUTO PROCESS] Erro no processamento automático:`, advanceError);
-      }
-    }
-  };
-
-  // 🔄 FUNÇÃO: Atualizar times diretamente no estado local
-  const updateMatchTeamsDirectly = async (matchId: string, team1: string[] | null, team2: string[] | null) => {
-    console.log(`🔄 [UPDATE DIRECT] Atualizando match ${matchId} diretamente:`, { team1, team2 });
-    
-    // Tentar usar o store para atualizar
-    try {
-      const { tournament: currentTournament } = useTournamentStore.getState();
-      if (!currentTournament || !currentTournament.matches) {
-        console.warn(`⚠️ [UPDATE DIRECT] Nenhum torneio ou partidas encontradas`);
-        return;
-      }
-      
-      const updatedMatches = currentTournament.matches.map(match => {
-        if (match.id === matchId) {
-          const updated = { ...match, team1, team2 };
-          console.log(`✅ [UPDATE DIRECT] Match ${matchId} atualizada:`, {
-            antes: { team1: match.team1, team2: match.team2 },
-            depois: { team1: updated.team1, team2: updated.team2 }
-          });
-          return updated;
-        }
-        return match;
-      });
-      
-      // Usar o store para definir o tournament atualizado
-      const updatedTournament = { ...currentTournament, matches: updatedMatches };
-      useTournamentStore.setState({ tournament: updatedTournament });
-      
-      console.log(`✅ [UPDATE DIRECT] Tournament atualizado via store`);
-      
-      // 🚀 NOVO: Processar avanços automáticos após atualização direta
-      console.log(`🚀 [AUTO PROCESS] Processando avanços automáticos após atualização direta...`);
-      try {
-        await processRetroactiveAdvancements();
-        console.log(`✅ [AUTO PROCESS] Avanços automáticos processados após atualização direta`);
-      } catch (advanceError) {
-        console.error(`🚨 [AUTO PROCESS] Erro no processamento automático após atualização direta:`, advanceError);
-      }
-      
-    } catch (error) {
-      console.error(`🚨 [UPDATE DIRECT] Erro ao atualizar via store:`, error);
     }
   };
 
@@ -2268,98 +1850,81 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     
   }, [eliminationMatches, matchWidth, matchHeight, horizontalGap]);
 
-  // FUNÇÃO OTIMIZADA: Calcular estrutura completa do bracket baseado nas duplas qualificadas
-  const calculateBracketStructure = () => {
-    // 1. Contar duplas qualificadas a partir dos rankings gerais
-    const qualifiedTeamsCount = overallGroupRankings.length;
-    console.log(`🏆 [calculateBracketStructure] Duplas qualificadas: ${qualifiedTeamsCount}`);
-    
-    if (qualifiedTeamsCount === 0) {
-      return {
-        totalRounds: 0,
-        bracketStructure: [],
-        bracketSize: 0,
-        byesNeeded: 0
-      };
-    }
-    
-    // 2. Calcular bracket size (próxima potência de 2)
-    const bracketSize = Math.pow(2, Math.ceil(Math.log2(qualifiedTeamsCount)));
-    const byesNeeded = bracketSize - qualifiedTeamsCount;
-    
-    // 3. Calcular número total de rodadas
-    const totalRounds = Math.ceil(Math.log2(bracketSize));
-    
-    // 4. Gerar estrutura completa das rodadas
-    const bracketStructure = [];
-    for (let round = 1; round <= totalRounds; round++) {
-      const matchesInRound = Math.floor(bracketSize / Math.pow(2, round));
-      const roundFromEnd = totalRounds - round;
-      
-      let roundName = '';
-      switch (roundFromEnd) {
-        case 0: roundName = 'Final'; break;
-        case 1: roundName = 'Semifinal'; break;
-        case 2: roundName = 'Quartas de Final'; break;
-        case 3: roundName = 'Oitavas de Final'; break;
-        case 4: roundName = 'Dezesseisavos de Final'; break;
-        case 5: roundName = 'Trinta e dois avos de Final'; break;
-        default: 
-          const participants = Math.pow(2, roundFromEnd + 1);
-          roundName = `${participants}ª de Final`;
-      }
-      
-      bracketStructure.push({
-        round,
-        roundName,
-        matchesCount: matchesInRound,
-        roundFromEnd,
-        isFirstRound: round === 1,
-        isFinalRound: round === totalRounds
-      });
-    }
-    
-    console.log(`🏆 [calculateBracketStructure] Bracket completo:`, {
-      qualifiedTeams: qualifiedTeamsCount,
-      bracketSize,
-      byesNeeded,
-      totalRounds,
-      structure: bracketStructure
-    });
-    
-    return {
-      totalRounds,
-      bracketStructure,
-      bracketSize,
-      byesNeeded,
-      qualifiedTeamsCount
-    };
-  };
-
-  // FUNÇÃO CORRIGIDA: getRoundName baseado na estrutura calculada
+  // Modified getRoundName function for proper tournament naming
   const getRoundName = (roundIndex: number, totalRounds: number) => {
-    const bracketInfo = calculateBracketStructure();
-    
-    // Se temos estrutura calculada, usar ela
-    if (bracketInfo.bracketStructure.length > 0 && roundIndex < bracketInfo.bracketStructure.length) {
-      const roundInfo = bracketInfo.bracketStructure[roundIndex];
-      console.log(`🏆 [getRoundName] Using calculated structure: ${roundInfo.roundName} (${roundInfo.matchesCount} partidas)`);
-      return roundInfo.roundName;
-    }
-    
-    // Fallback: usar lógica baseada na posição relativa ao final
+    // Calculate from the end to properly name the rounds
     const roundFromEnd = totalRounds - roundIndex - 1;
     
+    // 🔍 CORREÇÃO CRÍTICA: Analisar a estrutura real das partidas para nomear corretamente
+    const roundStats = eliminationMatches.reduce((stats, match) => {
+      const round = match.round || 0;
+      if (!stats[round]) stats[round] = 0;
+      stats[round]++;
+      return stats;
+    }, {} as Record<number, number>);
+    
+    const currentRound = roundIndex + 1; // Convert 0-based index to 1-based round number
+    const matchesInCurrentRound = roundStats[currentRound] || 0;
+    
+    console.log(`🏆 [getRoundName] Round ${currentRound}/${totalRounds}, roundFromEnd: ${roundFromEnd}`);
+    console.log(`🏆 [getRoundName] Matches in current round: ${matchesInCurrentRound}`);
+    console.log(`🏆 [getRoundName] Round stats:`, roundStats);
+    
+    // LÓGICA ESPECÍFICA PARA BEACH TENNIS COM BYES
+    // Analisar o padrão atual: Rodada 1 (2 partidas) + Rodada 2 (4 partidas)
+    
+    if (totalRounds === 2) {
+      const round1Matches = roundStats[1] || 0;
+      const round2Matches = roundStats[2] || 0;
+      
+      // Padrão típico: 2 partidas na primeira rodada + 4 na segunda = QF + SF
+      if (round1Matches === 2 && round2Matches === 4) {
+        if (currentRound === 1) return 'Quartas de Final'; // Primeira rodada = Quartas
+        if (currentRound === 2) return 'Semifinal'; // Segunda rodada = Semifinal
+      }
+      
+      // Padrão alternativo: 4 partidas na primeira + 2 na segunda = SF + Final 
+      if (round1Matches === 4 && round2Matches === 2) {
+        if (roundFromEnd === 0) return 'Final';
+        if (roundFromEnd === 1) return 'Semifinal';
+      }
+      
+      // Fallback para outros padrões com 2 rodadas
+      if (roundFromEnd === 0) return 'Final';
+      if (roundFromEnd === 1) return 'Semifinal';
+    }
+    
+    if (totalRounds === 3) {
+      if (roundFromEnd === 0) return 'Final';
+      if (roundFromEnd === 1) return 'Semifinal';
+      if (roundFromEnd === 2) return 'Quartas de Final';
+    }
+    
+    if (totalRounds === 4) {
+      if (roundFromEnd === 0) return 'Final';
+      if (roundFromEnd === 1) return 'Semifinal';
+      if (roundFromEnd === 2) return 'Quartas de Final';
+      if (roundFromEnd === 3) return 'Oitavas de Final';
+    }
+    
+    // FALLBACK: Lógica padrão baseada em roundFromEnd
     switch (roundFromEnd) {
-      case 0: return 'Final';
-      case 1: return 'Semifinal';
-      case 2: return 'Quartas de Final';
-      case 3: return 'Oitavas de Final';
-      case 4: return 'Dezesseisavos de Final';
-      case 5: return 'Trinta e dois avos de Final';
+      case 0:
+        return 'Final';
+      case 1:
+        return 'Semifinal';
+      case 2:
+        return 'Quartas de Final';
+      case 3:
+        return 'Oitavas de Final';
+      case 4:
+        return 'Dezesseisavos de Final';
+      case 5:
+        return 'Trinta e dois avos de Final';
       default:
+        // For very large tournaments, use generic naming
         const participants = Math.pow(2, roundFromEnd + 1);
-        return participants <= 64 ? `${participants}ª de Final` : `Rodada ${roundIndex + 1}`;
+        return `${participants}ª de Final`;
     }
   };
   // Add this function before the return statement in your component
@@ -2503,17 +2068,6 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
             >
               <RefreshCw size={16} className="mr-2" />
               Reiniciar
-            </Button>
-            
-            {/* 🔄 BOTÃO: Processar Avanços Retroativos */}
-            <Button 
-              variant="outline"
-              onClick={processRetroactiveAdvancements}
-              className="flex items-center bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
-              title="Processa avanços automáticos para partidas já concluídas"
-            >
-              <Trophy size={16} className="mr-2" />
-              Processar Avanços
             </Button>
           </div>
         </div>
@@ -2993,127 +2547,6 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
               })}
               </div>
             )}
-          </div>
-        )}
-
-        {/* 🏆 NOVA SEÇÃO: Projeção do Bracket Eliminatório */}
-        {isGroupStageComplete && overallGroupRankings.length > 0 && (
-          <div className="space-y-6">
-            {(() => {
-              const bracketInfo = calculateBracketStructure();
-              
-              if (bracketInfo.totalRounds === 0) return null;
-              
-              return (
-                <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-lg p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center">
-                      <Trophy className="h-6 w-6 text-purple-600 mr-3" />
-                      <h3 className="text-xl font-semibold text-purple-800">
-                        Projeção da Fase Eliminatória
-                      </h3>
-                    </div>
-                    <div className="text-sm text-purple-700 bg-purple-100 px-3 py-1 rounded-full">
-                      {bracketInfo.qualifiedTeamsCount} duplas qualificadas
-                    </div>
-                  </div>
-                  
-                  <div className="grid md:grid-cols-2 gap-6">
-                    {/* Informações Gerais */}
-                    <div className="bg-white rounded-lg p-4 border border-purple-100">
-                      <h4 className="font-semibold text-purple-800 mb-3">📊 Estrutura do Bracket</h4>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Duplas qualificadas:</span>
-                          <span className="font-medium">{bracketInfo.qualifiedTeamsCount}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Tamanho do bracket:</span>
-                          <span className="font-medium">{bracketInfo.bracketSize}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">BYEs necessários:</span>
-                          <span className="font-medium text-orange-600">{bracketInfo.byesNeeded}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Total de rodadas:</span>
-                          <span className="font-medium text-blue-600">{bracketInfo.totalRounds}</span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Estrutura das Rodadas */}
-                    <div className="bg-white rounded-lg p-4 border border-purple-100">
-                      <h4 className="font-semibold text-purple-800 mb-3">🗓️ Rodadas do Torneio</h4>
-                      <div className="space-y-2">
-                        {bracketInfo.bracketStructure.map((roundInfo, index) => (
-                          <div 
-                            key={roundInfo.round}
-                            className={`flex justify-between items-center py-2 px-3 rounded ${
-                              roundInfo.isFinalRound 
-                                ? 'bg-yellow-50 border border-yellow-200' 
-                                : roundInfo.isFirstRound
-                                ? 'bg-blue-50 border border-blue-200'
-                                : 'bg-gray-50'
-                            }`}
-                          >
-                            <div className="flex items-center">
-                              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold mr-3 ${
-                                roundInfo.isFinalRound 
-                                  ? 'bg-yellow-500 text-white' 
-                                  : roundInfo.isFirstRound
-                                  ? 'bg-blue-500 text-white'
-                                  : 'bg-gray-400 text-white'
-                              }`}>
-                                {roundInfo.round}
-                              </span>
-                              <span className="font-medium text-gray-800">
-                                {roundInfo.roundName}
-                              </span>
-                            </div>
-                            <span className="text-sm text-gray-600">
-                              {roundInfo.matchesCount} partida{roundInfo.matchesCount !== 1 ? 's' : ''}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Informação sobre BYEs */}
-                  {bracketInfo.byesNeeded > 0 && (
-                    <div className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                      <div className="flex items-center">
-                        <UserX className="h-5 w-5 text-orange-600 mr-2" />
-                        <span className="text-sm font-medium text-orange-800">
-                          {bracketInfo.byesNeeded} dupla{bracketInfo.byesNeeded !== 1 ? 's' : ''} receberá{bracketInfo.byesNeeded !== 1 ? 'ão' : ''} BYE automático
-                        </span>
-                      </div>
-                      <p className="text-xs text-orange-700 mt-1">
-                        As {bracketInfo.byesNeeded} melhores duplas do ranking geral avançarão automaticamente para a próxima rodada.
-                      </p>
-                    </div>
-                  )}
-                  
-                  {/* Botão para gerar eliminatória se ainda não foi gerada */}
-                  {eliminationMatches.length === 0 && (
-                    <div className="mt-4 pt-4 border-t border-purple-200">
-                      <Button 
-                        onClick={async () => {
-                          // Aqui você pode chamar a função para gerar a fase eliminatória
-                          console.log('🏆 Gerando fase eliminatória baseada na projeção...');
-                          // TODO: implementar geração da eliminatória
-                        }}
-                        className="w-full bg-purple-600 hover:bg-purple-700 text-white"
-                      >
-                        <Trophy className="w-4 h-4 mr-2" />
-                        Gerar Fase Eliminatória
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
           </div>
         )}
 
