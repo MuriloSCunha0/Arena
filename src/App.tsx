@@ -30,6 +30,7 @@ const TestTournamentManager = lazy(() => import('./components/testing/TestTourna
 const EventoRegistro = lazy(() => import('./pages/participante/EventoRegistro').then(module => ({ default: module.EventoRegistro })));
 // Componentes para participantes
 const EventosDisponiveis = lazy(() => import('./pages/participante/EventosDisponiveis').then(module => ({ default: module.EventosDisponiveis })));
+const AcontecendoAgora = lazy(() => import('./pages/participante/AcontecendoAgora'));
 const MeusTorneios = lazy(() => import('./pages/participante/MeusTorneios').then(module => ({ default: module.MeusTorneios })));
 const UserProfile = lazy(() => import('./pages/profile/UserProfile').then(module => ({ default: module.UserProfile })));
 const AdminProfile = lazy(() => import('./pages/profile/AdminProfile').then(module => ({ default: module.AdminProfile })));
@@ -124,6 +125,7 @@ const ProtectedApp = () => {
           <Routes>
             <Route path="/" element={<UserProfile />} />
             <Route path="/meus-torneios" element={<MeusTorneios />} />
+            <Route path="/acontecendo-agora" element={<AcontecendoAgora />} />
             <Route path="/eventos-disponiveis" element={<EventosDisponiveis />} />
             <Route path="/evento-registro/:eventId" element={<EventoRegistro />} />
             <Route path="/inscricao/:eventId" element={<EventRegistration />} />

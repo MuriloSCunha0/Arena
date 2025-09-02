@@ -13,7 +13,6 @@ import { formatDate } from '../../utils/formatters';
 import { Button } from '../../components/ui/Button';
 import { useNotificationStore } from '../../components/ui/Notification';
 import { ParticipanteService } from '../../services/participanteService';
-import { TorneiosEmAndamento } from '../../components/TorneiosEmAndamento';
 import { EventDiagnostic } from '../../components/debug/EventDiagnostic';
 import { QuickEventTest } from '../../components/debug/QuickEventTest';
 import { DebugEventsData } from '../../components/debug/DebugEventsData';
@@ -87,10 +86,7 @@ export const EventosDisponiveis = () => {
   }
 
   return (
-    <div className="space-y-8">
-      {/* Seção de Torneios em Andamento */}
-      <TorneiosEmAndamento />
-      
+    <div className="space-y-8">      
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-brand-blue">Eventos Disponíveis</h1>
         <div className="flex items-center gap-4">

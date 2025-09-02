@@ -314,7 +314,7 @@ export const ParticipanteService = {
     }
   },
   
-  // Get available events for registration
+  // Get available events for registration (only future events without started tournaments)
   async getEventosDisponiveis(): Promise<Array<{
     id: string;
     title: string;
@@ -326,103 +326,9 @@ export const ParticipanteService = {
     description?: string;
   }>> {
     try {
-      // Primeiro buscar eventos que estão abertos ou publicados e com data futura
-      const today = new Date().toISOString().split('T')[0];
-      console.log('🔍 [ParticipanteService] Data de hoje:', today);
-      console.log('🔍 [ParticipanteService] Status aceitos originalmente:', ['OPEN', 'PUBLISHED']);
+      console.log('🔍 [getEventosDisponiveis] Buscando eventos disponíveis para inscrição...');
       
-      // Temporariamente, vamos buscar todos os eventos futuros para debug
-      const { data: allFutureEvents } = await supabase
-        .from('events')
-        .select('id, title, description, location, date, time, entry_fee, banner_image_url, status')
-        .gt('date', today)
-        .order('date', { ascending: true });
-      
-      console.log('🔍 [ParticipanteService] TODOS os eventos futuros (para debug):', allFutureEvents);
-      
-      const { data, error } = await supabase
-        .from('events')
-        .select('id, title, description, location, date, time, entry_fee, banner_image_url, status')
-        .in('status', ['OPEN', 'PUBLISHED', 'DRAFT']) // ✅ Incluindo DRAFT temporariamente para teste
-        .gt('date', today)
-        .order('date', { ascending: true });
-        
-      console.log('🔍 [ParticipanteService] Query realizada com critérios:');
-      console.log('  - Status IN:', ['OPEN', 'PUBLISHED', 'DRAFT']);
-      console.log('  - Date >:', today);
-      console.log('🔍 [ParticipanteService] Eventos encontrados na query:', data);
-        
-      if (error) throw error;
-      
-      if (!data || data.length === 0) {
-        return [];
-      }
-
-      // Verificar quais eventos não têm torneio iniciado (não têm standings_data preenchido)
-      const eventIds = data.map(event => event.id);
-      console.log('🔍 [ParticipanteService] IDs dos eventos encontrados:', eventIds);
-      
-      const { data: tournaments, error: tournamentError } = await supabase
-        .from('tournaments')
-        .select('event_id, standings_data, status')
-        .in('event_id', eventIds);
-
-      console.log('🔍 [ParticipanteService] Torneios encontrados:', tournaments);
-
-      if (tournamentError) {
-        console.warn('Error checking tournaments:', tournamentError);
-        // Se houver erro na consulta de torneios, ainda retornar os eventos
-      }
-
-      // Filtrar eventos que não têm torneio iniciado
-      const availableEvents = data.filter(event => {
-        const tournament = tournaments?.find(t => t.event_id === event.id);
-        
-        console.log(`🔍 [ParticipanteService] Analisando evento ${event.title}:`, {
-          eventId: event.id,
-          tournament: tournament,
-          hasStandingsData: tournament?.standings_data ? Object.keys(tournament.standings_data).length > 0 : false
-        });
-        
-        // Se não há torneio associado, o evento está disponível
-        if (!tournament) {
-          console.log(`✅ [ParticipanteService] Evento ${event.title} disponível: sem torneio`);
-          return true;
-        }
-        
-        // Se o torneio existe mas não foi iniciado (sem standings_data ou standings_data vazio)
-        if (!tournament.standings_data || 
-            Object.keys(tournament.standings_data).length === 0) {
-          console.log(`✅ [ParticipanteService] Evento ${event.title} disponível: torneio não iniciado`);
-          return true;
-        }
-        
-        // Se chegou aqui, o torneio já foi iniciado
-        console.log(`❌ [ParticipanteService] Evento ${event.title} não disponível: torneio iniciado`);
-        return false;
-      });
-      
-      console.log('🔍 [ParticipanteService] Eventos disponíveis após filtro:', availableEvents);
-      
-      // Map the data to ensure compatibility
-      const events = availableEvents.map(event => ({
-        ...event,
-        price: event.entry_fee || 0,
-        entry_fee: event.entry_fee || 0
-      }));
-      
-      console.log('🔍 [ParticipanteService] Eventos finais mapeados:', events);
-      
-      return events;
-    } catch (error) {
-      console.error('Error fetching available events:', error);
-      throw error;
-    }
-  },
-
-  // Get tournaments that are currently in progress
-  async getTorneiosEmAndamento(): Promise<any[]> {
-    try {
+      // Buscar eventos ABERTOS para inscrição (incluindo eventos futuros e alguns atuais)
       const { data, error } = await supabase
         .from('events')
         .select(`
@@ -436,33 +342,267 @@ export const ParticipanteService = {
           banner_image_url, 
           status,
           current_participants,
-          tournaments(
-            id,
-            status,
-            standings_data,
-            groups_data,
-            brackets_data,
-            matches_data,
-            teams_data,
-            current_round,
-            total_rounds
-          )
+          max_participants,
+          type,
+          tournaments(id, status)
         `)
-        .in('status', ['IN_PROGRESS'])
+        .eq('status', 'OPEN') // Apenas eventos abertos
         .order('date', { ascending: true });
-
+        
       if (error) throw error;
       
-      return (data || []).map(event => ({
-        ...event,
+      if (!data || data.length === 0) {
+        console.log('🔍 [getEventosDisponiveis] Nenhum evento OPEN encontrado');
+        return [];
+      }
+
+      // Filtrar eventos que ainda estão disponíveis para inscrição (sem torneio STARTED)
+      const availableEvents = data.filter(event => {
+        const tournament = event.tournaments?.[0];
+        
+        // Se não há torneio, está disponível para inscrição
+        if (!tournament) {
+          console.log(`✅ [getEventosDisponiveis] Evento ${event.title}: Sem torneio - DISPONÍVEL`);
+          return true;
+        }
+        
+        // Se o torneio não foi iniciado (status diferente de STARTED), está disponível
+        const isAvailable = tournament.status !== 'STARTED';
+        
+        console.log(`🔍 [getEventosDisponiveis] Evento ${event.title}:`, {
+          tournamentStatus: tournament.status,
+          isAvailable
+        });
+        
+        return isAvailable;
+      });
+      
+      console.log(`🔍 [getEventosDisponiveis] Encontrados ${availableEvents.length} eventos disponíveis de ${data.length} eventos OPEN`);
+      
+      return availableEvents.map(event => ({
+        id: event.id,
+        title: event.title,
+        description: event.description,
+        location: event.location,
+        date: event.date,
+        time: event.time,
         price: event.entry_fee || 0,
         entry_fee: event.entry_fee || 0,
-        participantsCount: event.current_participants || 0,
-        tournament: event.tournaments?.[0] || null // Pode não ter tournament ainda
+        banner_image_url: event.banner_image_url,
+        current_participants: event.current_participants || 0,
+        max_participants: event.max_participants || 0,
+        type: event.type
       }));
+    } catch (error) {
+      console.error('Error fetching available events:', error);
+      throw error;
+    }
+  },
+
+  // Get tournaments that are currently in progress (based on tournament status = STARTED)
+  async getTorneiosEmAndamento(): Promise<any[]> {
+    try {
+      console.log('🔍 [getTorneiosEmAndamento] Buscando torneios com status STARTED...');
+      
+      // Buscar torneios com status STARTED e juntar com dados do evento e participantes
+      const { data, error } = await supabase
+        .from('tournaments')
+        .select(`
+          id,
+          event_id,
+          status,
+          stage,
+          standings_data,
+          groups_data,
+          brackets_data,
+          matches_data,
+          teams_data,
+          current_round,
+          total_rounds,
+          groups_count,
+          elimination_bracket,
+          events(
+            id,
+            title,
+            description,
+            location,
+            date,
+            time,
+            entry_fee,
+            banner_image_url,
+            status,
+            current_participants,
+            type
+          )
+        `)
+        .eq('status', 'STARTED')
+        .order('events(date)', { ascending: true });
+
+      if (error) {
+        console.error('🔍 [getTorneiosEmAndamento] Erro na query:', error);
+        throw error;
+      }
+      
+      console.log(`🔍 [getTorneiosEmAndamento] Encontrados ${data?.length || 0} torneios com status STARTED`);
+      
+      if (!data || data.length === 0) {
+        console.log('🔍 [getTorneiosEmAndamento] Nenhum torneio STARTED encontrado');
+        return [];
+      }
+      
+      // Mapear os dados para o formato esperado pelo componente
+      const ongoingTournaments = data
+        .filter(tournament => tournament.events) // Garantir que o evento existe
+        .map(tournament => {
+          const event = Array.isArray(tournament.events) ? tournament.events[0] : tournament.events;
+          
+          console.log(`🔍 [getTorneiosEmAndamento] Processando torneio ${tournament.id} do evento ${event?.title}:`, {
+            tournamentStatus: tournament.status,
+            hasMatches: tournament.matches_data?.length || 0,
+            hasStandings: tournament.standings_data ? Object.keys(tournament.standings_data).length : 0,
+            hasTeams: tournament.teams_data ? Object.keys(tournament.teams_data).length : 0
+          });
+          
+          return {
+            id: event?.id,
+            title: event?.title,
+            description: event?.description,
+            location: event?.location,
+            date: event?.date,
+            time: event?.time,
+            price: event?.entry_fee || 0,
+            entry_fee: event?.entry_fee || 0,
+            banner_image_url: event?.banner_image_url,
+            status: event?.status,
+            participantsCount: event?.current_participants || 0,
+            type: event?.type,
+            tournament: {
+              id: tournament.id,
+              status: tournament.status,
+              stage: tournament.stage,
+              current_round: tournament.current_round,
+              total_rounds: tournament.total_rounds,
+              groups_count: tournament.groups_count,
+              standings_data: tournament.standings_data,
+              groups_data: tournament.groups_data,
+              brackets_data: tournament.brackets_data,
+              matches_data: tournament.matches_data,
+              teams_data: tournament.teams_data,
+              elimination_bracket: tournament.elimination_bracket
+            }
+          };
+        });
+      
+      console.log(`🔍 [getTorneiosEmAndamento] Retornando ${ongoingTournaments.length} torneios em andamento`);
+      
+      return ongoingTournaments;
     } catch (error) {
       console.error('Error fetching ongoing tournaments:', error);
       throw error;
+    }
+  },
+
+  // Get participant names by IDs with improved structure
+  async getParticipantNames(participantIds: string[]): Promise<Record<string, string>> {
+    try {
+      if (!participantIds || participantIds.length === 0) {
+        return {};
+      }
+
+      console.log('🔍 [getParticipantNames] Buscando nomes para IDs:', participantIds);
+
+      // Usar a nova view participant_users se disponível, senão fallback para join manual
+      let query = supabase
+        .from('participants')
+        .select('id, name, user_id, users(full_name)')
+        .in('id', participantIds);
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Error fetching participant names:', error);
+        return {};
+      }
+
+      console.log('🔍 [getParticipantNames] Dados retornados do Supabase:', data);
+
+      const nameMap: Record<string, string> = {};
+      const missingNames: { id: string, user_id: string }[] = [];
+      
+      if (data) {
+        data.forEach(participant => {
+          console.log('🔍 [getParticipantNames] Processando participante:', participant);
+          
+          // Prioridade 1: Nome do participant (direto da tabela)
+          if (participant.name) {
+            nameMap[participant.id] = participant.name;
+            console.log(`✅ Nome encontrado direto para ${participant.id}: ${participant.name}`);
+            return;
+          }
+          
+          // Prioridade 2: Nome do user relacionado
+          const userData = Array.isArray(participant.users) ? participant.users[0] : participant.users;
+          if (userData && userData.full_name) {
+            nameMap[participant.id] = userData.full_name;
+            console.log(`✅ Nome encontrado via user para ${participant.id}: ${userData.full_name}`);
+            return;
+          }
+          
+          // Fallback: tentar busca direta se user_id existir
+          if (participant.user_id) {
+            console.log(`⚠️ Nome não encontrado na relação para ${participant.id}, user_id: ${participant.user_id}`);
+            missingNames.push({ id: participant.id, user_id: participant.user_id });
+          } else {
+            console.log(`❌ Participante ${participant.id} sem user_id e sem nome`);
+            nameMap[participant.id] = `Participante ${participant.id.substring(0, 8)}...`;
+          }
+        });
+      }
+
+      // Buscar nomes faltantes diretamente na tabela users (fallback)
+      if (missingNames.length > 0) {
+        console.log('🔍 [getParticipantNames] Buscando nomes faltantes diretamente na tabela users:', missingNames);
+        
+        const userIds = missingNames.map(item => item.user_id);
+        const { data: usersData, error: usersError } = await supabase
+          .from('users')
+          .select('id, full_name')
+          .in('id', userIds);
+
+        if (usersError) {
+          console.error('Error fetching users data:', usersError);
+        } else if (usersData) {
+          const userMap = new Map(usersData.map(user => [user.id, user.full_name]));
+          
+          missingNames.forEach(item => {
+            const fullName = userMap.get(item.user_id);
+            if (fullName) {
+              nameMap[item.id] = fullName;
+              console.log(`✅ Nome encontrado via lookup direto para ${item.id}: ${fullName}`);
+            } else {
+              nameMap[item.id] = `Participante ${item.id.substring(0, 8)}...`;
+              console.log(`❌ Nome não encontrado para ${item.id}, usando fallback`);
+            }
+          });
+        }
+      }
+
+      // Para IDs que não foram encontrados na tabela participants
+      participantIds.forEach(id => {
+        if (!nameMap[id]) {
+          if (id.startsWith('WINNER_') || id.startsWith('LOSER_')) {
+            nameMap[id] = id; // Manter placeholder como está
+          } else {
+            nameMap[id] = `Participante ${id.substring(0, 8)}...`;
+          }
+        }
+      });
+
+      console.log('🔍 [getParticipantNames] Mapa de nomes final:', nameMap);
+      return nameMap;
+    } catch (error) {
+      console.error('Error in getParticipantNames:', error);
+      return {};
     }
   },
 

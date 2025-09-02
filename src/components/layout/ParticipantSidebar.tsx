@@ -6,7 +6,8 @@ import {
   LogOut,
   User,
   Trophy,
-  Clock
+  Clock,
+  Activity
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -70,6 +71,7 @@ export const ParticipantSidebar = () => {
         {/* Apenas as opções que participantes podem acessar */}
         <NavItem to="/" icon={User} label="Meu Perfil" />
         <NavItem to="/participante/convites" icon={Clock} label="Convites" />
+        <NavItem to="/acontecendo-agora" icon={Activity} label="Acontecendo Agora" />
         <NavItem to="/meus-torneios" icon={Trophy} label="Meus Torneios" />
         <NavItem to="/eventos-disponiveis" icon={Calendar} label="Eventos Disponíveis" />
       </nav>
