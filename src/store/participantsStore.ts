@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { Participant, CreateParticipantDTO, TransactionType, PaymentStatus, PaymentMethod } from '../types';
 import { ParticipantsService, FinancialsService, EventsService } from '../services';
 import { traduzirErroSupabase } from '../lib/supabase';
-import { withCacheRetry, isCacheError } from '../utils/cacheUtils';
+import { isCacheError } from '../utils/cacheUtils';
 
 interface ParticipantsState {
   eventParticipants: Participant[];
@@ -73,13 +73,26 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
     try {
       const newParticipant = await ParticipantsService.create(data);
       
-      const currentEventParticipants = get().eventParticipants;
-      // Add only if the new participant belongs to the currently viewed event (if applicable)
-      if (currentEventParticipants.length > 0 && currentEventParticipants[0].eventId === data.eventId) {
-         set(state => ({ eventParticipants: [...state.eventParticipants, newParticipant], loading: false }));
+      // Aqui podemos atualizar a lista completa para garantir que estamos vendo todos os participantes,
+      // incluindo os que foram criados em outra parte do sistema
+      if (data.eventId) {
+        // Recarregar todos os participantes do evento para garantir consistência
+        await ParticipantsService.getByEventId(data.eventId)
+          .then(participants => {
+            set({ eventParticipants: participants, loading: false });
+          })
+          .catch(error => {
+            console.error('Erro ao recarregar participantes após criação:', error);
+            // Em caso de falha ao recarregar, adicionar apenas o novo participante
+            const currentEventParticipants = get().eventParticipants;
+            if (currentEventParticipants.length > 0 && currentEventParticipants[0].eventId === data.eventId) {
+              set(state => ({ eventParticipants: [...state.eventParticipants, newParticipant], loading: false }));
+            } else {
+              set({ loading: false });
+            }
+          });
       } else {
-         // If eventParticipants is empty or for a different event, just set loading false
-         set({ loading: false });
+        set({ loading: false });
       }
 
       // Optionally update allParticipants list if it's already populated
@@ -119,12 +132,8 @@ export const useParticipantsStore = create<ParticipantsState>((set, get) => ({
         throw new Error('Participante não encontrado');
       }
 
-      // Usar withCacheRetry para operação robusta
-      const updatedParticipant = await withCacheRetry(
-        () => ParticipantsService.updatePaymentStatus(id, status),
-        2,
-        'atualizar pagamento do participante'
-      );
+      // Atualizar status de pagamento diretamente (sem cache retry para evitar recursão)
+      const updatedParticipant = await ParticipantsService.updatePaymentStatus(id, status);
 
       // Se o status foi alterado para CONFIRMED, criar transação financeira automaticamente
       if (status === 'CONFIRMED' && currentParticipant.paymentStatus !== 'CONFIRMED') {

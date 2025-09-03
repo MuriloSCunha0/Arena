@@ -12,6 +12,7 @@ export enum TeamFormationType {
   FORMED = 'FORMED',
   RANDOM = 'RANDOM',
   SUPER8 = 'SUPER8', // Formação específica para Super 8
+  MANUAL = 'MANUAL', // Modo manual - permite entradas não cadastradas e formação manual de duplas/grupos
 }
 
 export type EventStatus = 'DRAFT' | 'PUBLISHED' | 'OPEN' | 'CLOSED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'ONGOING';
@@ -77,6 +78,7 @@ export interface Participant {
   registeredAt: string;
   birthDate?: string | null;
   partnerName?: string | null;
+  teamName?: string | null; // Nome da equipe/grupo
   ranking?: number;
   seedNumber?: number;
   category?: string;
@@ -93,6 +95,18 @@ export interface Participant {
   registrationNotes?: string;
   medicalNotes?: string;
   metadata?: Record<string, any>;
+}
+
+// Interface para participantes manuais (não cadastrados no sistema)
+export interface ManualParticipant {
+  id: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  isManual: true; // Flag para identificar participantes manuais
+  manualPartnerName?: string; // Nome do parceiro manual
+  manualTeamName?: string; // Nome da dupla manual
+  manualGroupName?: string; // Nome do grupo manual
 }
 
 export interface PartnerInvite {
@@ -432,10 +446,12 @@ export interface CreateParticipantDTO {
   birthDate?: string | null;
   partnerId?: string | null;
   partnerName?: string | null;
+  teamName?: string | null; // Nome da equipe/grupo
   paymentStatus?: 'PENDING' | 'CONFIRMED';
   paymentMethod?: string | null;
   paymentId?: string | null;
   userId?: string; // ID do usuário do sistema, se selecionado
+  metadata?: Record<string, any>; // Campo para metadados adicionais
 }
 
 // Interfaces adicionais que devem ser centralizadas

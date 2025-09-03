@@ -344,6 +344,7 @@ export const EventForm = () => {
                     <option value={TeamFormationType.FORMED}>Duplas Formadas</option>
                     <option value={TeamFormationType.RANDOM}>Duplas Aleatórias</option>
                     <option value={TeamFormationType.SUPER8}>Super 8 (Individual)</option>
+                    <option value={TeamFormationType.MANUAL}>Modo Manual</option>
                   </Select>
                 )}
               />

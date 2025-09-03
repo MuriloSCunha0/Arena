@@ -62,16 +62,24 @@ export const ParticipantsList: React.FC<ParticipantsListProps> = ({ eventId }) =
   
   const exportParticipants = () => {
     // Create CSV data
-    const headers = ['Nome', 'Email', 'Telefone', 'Status de Pagamento', 'Data de Inscrição'];
+    const headers = ['Nome', 'Email', 'Telefone', 'Dupla', 'Grupo', 'Status de Pagamento', 'Data de Inscrição'];
     const csvData = [
       headers.join(','),
-      ...filteredParticipants.map(p => [
-        p.name,
-        p.email || '', // Handle optional email
-        p.phone || '', // Handle optional phone as well
-        p.paymentStatus === 'CONFIRMED' ? 'Pago' : 'Pendente',
-        new Date(p.registeredAt).toLocaleString('pt-BR')
-      ].join(','))
+      ...filteredParticipants.map(p => {
+        const partner = participants.find(part => part.id === p.partnerId);
+        const partnerName = p.partnerName || (partner?.name) || 'Sem dupla';
+        const groupName = p.teamName || p.metadata?.manualGroupName || p.metadata?.teamName || '-';
+        
+        return [
+          p.name,
+          p.email || '', // Handle optional email
+          p.phone || '', // Handle optional phone as well
+          partnerName,
+          groupName,
+          p.paymentStatus === 'CONFIRMED' ? 'Pago' : 'Pendente',
+          new Date(p.registeredAt).toLocaleString('pt-BR')
+        ].join(',');
+      })
     ].join('\n');
     
     // Create and download the file
@@ -124,6 +132,15 @@ export const ParticipantsList: React.FC<ParticipantsListProps> = ({ eventId }) =
   
   const handleAddParticipantSuccess = () => {
     setShowAddModal(false);
+    // Recarregar a lista de participantes após adicionar um novo
+    if (eventId) {
+      fetchParticipantsByEvent(eventId).catch(() => {
+        addNotification({
+          type: 'error',
+          message: 'Falha ao atualizar lista de participantes'
+        });
+      });
+    }
     addNotification({
       type: 'success',
       message: 'Participante adicionado com sucesso!'
@@ -185,6 +202,7 @@ export const ParticipantsList: React.FC<ParticipantsListProps> = ({ eventId }) =
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contato</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dupla</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Grupo</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Inscrição</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pagamento</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
@@ -194,18 +212,35 @@ export const ParticipantsList: React.FC<ParticipantsListProps> = ({ eventId }) =
               {filteredParticipants.map((participant) => {
                 // Find partner information if any
                 const partner = participants.find(p => p.id === participant.partnerId);
+                const partnerName = participant.partnerName || (partner?.name);
+                const groupName = participant.teamName || participant.metadata?.manualGroupName || participant.metadata?.teamName;
+                const isManualParticipant = participant.metadata?.isManual;
                 
                 return (
                   <tr key={participant.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-brand-blue">{participant.name}</div>
+                      <div className="flex items-center">
+                        <div className="text-sm font-medium text-brand-blue">{participant.name}</div>
+                        {isManualParticipant && (
+                          <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded-full">
+                            Manual
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">{participant.email || 'Email não informado'}</div>
                       <div className="text-sm text-gray-500">{participant.phone || 'Telefone não informado'}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{partner ? partner.name : 'Sem dupla'}</div>
+                      <div className="text-sm text-gray-900">
+                        {partnerName || 'Sem dupla'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        {groupName || '-'}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {formatDateTime(participant.registeredAt)}

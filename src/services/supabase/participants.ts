@@ -3,6 +3,70 @@ import { tratarErroSupabase } from '../../lib/supabase';
 // Import CreateParticipantDTO
 import { Participant, CreateParticipantDTO } from '../../types';
 
+/**
+ * Gera um UUID simples
+ */
+function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+/**
+ * Cria um usuário temporário para participantes manuais
+ */
+async function createTemporaryUser(participantData: {
+  name: string;
+  email: string;
+  phone: string;
+  cpf: string;
+}): Promise<string | null> {
+  try {
+    const userId = generateUUID();
+    
+    const userData = {
+      id: userId,
+      email: participantData.email,
+      full_name: participantData.name,
+      phone: participantData.phone,
+      cpf: participantData.cpf,
+      user_metadata: {
+        name: participantData.name,
+        phone: participantData.phone,
+        cpf: participantData.cpf,
+        isTemporary: true,
+        createdFor: 'manual_participant'
+      },
+      app_metadata: {
+        role: 'user',
+        isTemporary: true
+      },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    const { data: createdUser, error } = await supabase
+      .from('users')
+      .insert(userData)
+      .select('id')
+      .single();
+
+    if (error) {
+      console.error('❌ Erro ao criar usuário temporário:', error);
+      return null;
+    }
+
+    console.log(`✅ Usuário temporário criado: ${createdUser.id} para ${participantData.name}`);
+    return createdUser.id;
+
+  } catch (error) {
+    console.error('❌ Erro na criação de usuário temporário:', error);
+    return null;
+  }
+}
+
 // Função para converter dados do Supabase para nosso tipo Participant
 const transformParticipant = (data: any): Participant => ({
   id: data.id,
@@ -22,12 +86,14 @@ const transformParticipant = (data: any): Participant => ({
   pixQrcodeUrl: data.pix_qrcode_url,
   paymentTransactionId: data.payment_transaction_id,
   partnerName: data.partner_name, // Assuming partner_name exists if needed
+  teamName: data.team_name, // Nome da equipe/grupo
   userId: data.user_id, // Adicionar userId para filtragem
-  eventName: data.event_name // Adicionar nome do evento se disponível
+  eventName: data.event_name, // Adicionar nome do evento se disponível
+  metadata: data.metadata // Adicionar metadados
 });
 
 // Função para converter nosso tipo CreateParticipantDTO para o formato do Supabase
-const toSupabaseParticipantCreate = (participant: CreateParticipantDTO) => ({
+const toSupabaseParticipantCreate = (participant: CreateParticipantDTO & { metadata?: any; teamName?: string }) => ({
   event_id: participant.eventId,
   name: participant.name,
   email: participant.email,
@@ -35,9 +101,12 @@ const toSupabaseParticipantCreate = (participant: CreateParticipantDTO) => ({
   cpf: participant.cpf, 
   birth_date: participant.birthDate || null, // Tratar string vazia como null
   partner_id: participant.partnerId,
+  partner_name: participant.partnerName, // Nome da dupla/parceiro
+  team_name: participant.teamName, // Nome da equipe/grupo
   payment_status: participant.paymentStatus || 'PENDING',
   payment_id: participant.paymentId,
   user_id: participant.userId, // Adicionar userId quando disponível
+  metadata: participant.metadata || {}, // Metadados adicionais
   // payment_date is set below based on status
 });
 
@@ -92,33 +161,37 @@ export const ParticipantsService = {
    * excluindo administradores e organizadores conforme solicitação de requisito de negócio.
    * @param eventId ID do evento para filtrar os participantes
    */  async getByEventId(eventId: string): Promise<Participant[]> {
-    // Primeiro, buscar os IDs de usuários com app_metadata.role === "user" ou app_metadata.roles contém "user"
-    // Usando sintaxe correta do PostgREST para consultar campos JSON
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .select('id, app_metadata')
-      .or('app_metadata->>role.eq.user,app_metadata->roles.cs.["user"]');
+    try {
+      // Buscar todos os usuários válidos (incluindo temporários para participantes manuais)
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('id, app_metadata')
+        .or('app_metadata->>role.eq.user,app_metadata->roles.cs.["user"]');
 
-    if (userError) throw userError;
+      if (userError) throw userError;
 
-    // Extrair os IDs de usuário
-    const userIds = userData.map(user => user.id);
+      // Extrair os IDs de usuário (incluindo temporários)
+      const userIds = userData.map(user => user.id);
 
-    // Buscar participantes que correspondem a esses usuários e ao evento específico
-    const { data, error } = await supabase
-      .from('participants')
-      .select('*, events(title)')
-      .eq('event_id', eventId)
-      .in('user_id', userIds)
-      .order('registered_at', { ascending: false });
+      // Buscar participantes que correspondem a esses usuários e ao evento específico
+      const { data, error } = await supabase
+        .from('participants')
+        .select('*, events(title)')
+        .eq('event_id', eventId)
+        .in('user_id', userIds)
+        .order('registered_at', { ascending: false });
 
-    if (error) throw error;
+      if (error) throw error;
 
-    // Transformar os dados para incluir o nome do evento
-    return data.map(item => ({
-      ...transformParticipant(item),
-      eventName: item.events?.title || 'Evento sem nome'
-    }));
+      // Transformar os dados para incluir o nome do evento
+      return data.map(item => ({
+        ...transformParticipant(item),
+        eventName: item.events?.title || 'Evento sem nome'
+      }));
+    } catch (error) {
+      console.error('Erro ao buscar participantes por evento:', error);
+      throw error;
+    }
   },
 
   // Buscar um participante por ID
@@ -161,8 +234,37 @@ export const ParticipantsService = {
       if (maxCount > 0 && currentCount >= maxCount) {
         throw new Error('O evento já atingiu o número máximo de participantes');
       }
+
+      let finalParticipant = { ...participant };
+
+      // Para participantes manuais sem userId, criar usuário temporário automaticamente
+      if (!participant.userId && participant.metadata?.isManual) {
+        console.log('🔧 Criando usuário temporário para participante manual:', participant.name);
+        
+        // Validar que temos os dados obrigatórios
+        if (participant.email && participant.phone && participant.cpf) {
+          const tempUserId = await createTemporaryUser({
+            name: participant.name,
+            email: participant.email,
+            phone: participant.phone,
+            cpf: participant.cpf
+          });
+
+          if (tempUserId) {
+            finalParticipant.userId = tempUserId;
+            console.log(`✅ Usuário temporário ${tempUserId} vinculado ao participante ${participant.name}`);
+          } else {
+            console.warn('⚠️ Falha ao criar usuário temporário, prosseguindo sem userId');
+          }
+        } else {
+          console.warn('⚠️ Dados insuficientes para criar usuário temporário (email, phone, cpf são obrigatórios)');
+        }
+      }
       
-      const supabaseData = toSupabaseParticipantCreate(participant);
+      const supabaseData = toSupabaseParticipantCreate({
+        ...finalParticipant,
+        teamName: finalParticipant.teamName || undefined
+      });
       
       const { data, error } = await supabase
         .from('participants')
@@ -201,43 +303,48 @@ export const ParticipantsService = {
     paymentId?: string
   ): Promise<Participant> {
     try {
-      // Primeiro, tentar verificar se o participante existe
-      const { data: existingParticipant, error: fetchError } = await supabase
-        .from('participants')
-        .select('*')
-        .eq('id', id)
-        .single();
+      console.log(`Atualizando status de pagamento para participante ${id}: ${paymentStatus}`);
 
-      if (fetchError) {
-        console.error('Erro ao buscar participante:', fetchError);
-        throw new Error(`Participante não encontrado: ${fetchError.message}`);
-      }
-
-      console.log('Participante encontrado:', existingParticipant);
-
-      const updateData: any = { payment_status: paymentStatus };
-      
-      if (paymentStatus === 'CONFIRMED') {
-        updateData.payment_id = paymentId;
-        updateData.payment_date = new Date().toISOString();
-      }
-
-      console.log('Tentando atualizar com dados:', updateData);
-
-      const { data, error } = await supabase
-        .from('participants')
-        .update(updateData)
-        .eq('id', id)
-        .select()
-        .single();
+      // Usar RPC para bypass de possíveis triggers problemáticos
+      const { data, error } = await supabase.rpc('update_participant_payment', {
+        participant_id: id,
+        new_payment_status: paymentStatus,
+        new_payment_id: paymentId || null
+      });
 
       if (error) {
-        console.error('Erro ao atualizar participante:', error);
-        throw new Error(`Erro ao atualizar: ${error.message} (Code: ${error.code})`);
+        console.warn('Falha no RPC, tentando atualização direta:', error);
+        
+        // Fallback para atualização direta
+        const updateData: any = { 
+          payment_status: paymentStatus,
+          updated_at: new Date().toISOString()
+        };
+        
+        if (paymentStatus === 'CONFIRMED') {
+          updateData.payment_id = paymentId;
+          updateData.payment_date = new Date().toISOString();
+        }
+
+        const { data: directData, error: directError } = await supabase
+          .from('participants')
+          .update(updateData)
+          .eq('id', id)
+          .select()
+          .single();
+
+        if (directError) {
+          console.error('Erro na atualização direta:', directError);
+          throw new Error(`Erro ao atualizar: ${directError.message} (Code: ${directError.code || 'UNKNOWN'})`);
+        }
+
+        return transformParticipant(directData);
       }
 
-      console.log('Participante atualizado com sucesso:', data);
+      // Se chegou aqui, o RPC funcionou
+      console.log('Participante atualizado via RPC:', data);
       return transformParticipant(data);
+      
     } catch (error) {
       console.error('Erro completo no updatePaymentStatus:', error);
       throw error;

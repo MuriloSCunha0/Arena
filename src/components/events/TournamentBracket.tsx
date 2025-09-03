@@ -45,6 +45,98 @@ import BeachTennisMatchEditor from '../tournament/BeachTennisMatchEditor';
 import { TournamentWheel } from './TournamentWheel'; // Import do componente de sorteio
 import { saveRandomTeamsAndGroups } from '../../services/teamRandomDrawService'; // Import do serviço de sorteio
 
+// Função para formar times manuais baseados nos metadados dos participantes
+const formManualTeams = (participants: any[]): string[][] => {
+  const teams: string[][] = [];
+  const processedParticipants = new Set<string>();
+  const usedPartners = new Set<string>();
+  
+  console.log("🔄 Formando times manuais com", participants.length, "participantes");
+  
+  // Primeiro, formar duplas com parceiros manuais definidos
+  participants.forEach(participant => {
+    if (processedParticipants.has(participant.id)) return;
+    
+    // Verificar se já existe uma relação de parceria (partnerId diretamente)
+    if (participant.partnerId) {
+      const partner = participants.find(p => p.id === participant.partnerId);
+      if (partner && !processedParticipants.has(partner.id)) {
+        console.log(`👥 Formando dupla por partnerId: ${participant.name} + ${partner.name}`);
+        teams.push([participant.id, partner.id]);
+        processedParticipants.add(participant.id);
+        processedParticipants.add(partner.id);
+      }
+      return;
+    }
+    
+    // Verificar por nome do parceiro
+    const partnerName = participant.partnerName || 
+                        (participant.metadata && participant.metadata.manualPartnerName);
+    
+    if (partnerName) {
+      // Procurar o parceiro pelo nome
+      const partner = participants.find(p => 
+        !processedParticipants.has(p.id) && 
+        p.id !== participant.id &&
+        p.name === partnerName
+      );
+      
+      if (partner) {
+        console.log(`👥 Formando dupla por nome: ${participant.name} + ${partner.name}`);
+        teams.push([participant.id, partner.id]);
+        processedParticipants.add(participant.id);
+        processedParticipants.add(partner.id);
+        // Registrar que este participante já foi usado como parceiro
+        usedPartners.add(partner.id);
+      } else {
+        console.log(`⚠️ Não encontrou parceiro para ${participant.name} (parceiro declarado: ${partnerName})`);
+      }
+    }
+  });
+  
+  // Procurar por pares recíprocos (onde ambos se declaram parceiros um do outro)
+  participants.forEach(participant => {
+    if (processedParticipants.has(participant.id)) return;
+    
+    const myPartnerName = participant.partnerName || 
+                         (participant.metadata && participant.metadata.manualPartnerName);
+    
+    if (myPartnerName) {
+      const potentialPartner = participants.find(p => 
+        !processedParticipants.has(p.id) && 
+        p.id !== participant.id &&
+        ((p.partnerName && p.partnerName === participant.name) || 
+         (p.metadata && p.metadata.manualPartnerName === participant.name))
+      );
+      
+      if (potentialPartner) {
+        console.log(`👥 Formando dupla recíproca: ${participant.name} + ${potentialPartner.name}`);
+        teams.push([participant.id, potentialPartner.id]);
+        processedParticipants.add(participant.id);
+        processedParticipants.add(potentialPartner.id);
+      }
+    }
+  });
+  
+  // Depois, formar duplas com os participantes restantes
+  const remainingParticipants = participants.filter(p => !processedParticipants.has(p.id));
+  console.log(`⚠️ Restaram ${remainingParticipants.length} participantes sem dupla definida`);
+  
+  for (let i = 0; i < remainingParticipants.length - 1; i += 2) {
+    console.log(`👥 Formando dupla automática: ${remainingParticipants[i].name} + ${remainingParticipants[i+1].name}`);
+    teams.push([remainingParticipants[i].id, remainingParticipants[i + 1].id]);
+  }
+  
+  // Se sobrar um participante ímpar, criar uma "dupla" só com ele
+  if (remainingParticipants.length % 2 === 1) {
+    console.log(`👤 Participante sem parceiro: ${remainingParticipants[remainingParticipants.length - 1].name}`);
+    teams.push([remainingParticipants[remainingParticipants.length - 1].id]);
+  }
+  
+  console.log(`✅ Times formados: ${teams.length} times`);
+  return teams;
+};
+
 interface TournamentBracketProps {
   eventId: string;
 }
@@ -421,11 +513,13 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
   const [loadingEventDetails, setLoadingEventDetails] = useState(true);
   const [viewMode, setViewMode] = useState<'all' | 'by-court'>('all');
   const [selectedCourtId, setSelectedCourtId] = useState<string | null>(null);
-  const [showGroupRankingsModal, setShowGroupRankingsModal] = useState(false);  const [calculatedRankings, setCalculatedRankings] = useState<Record<number, GroupRanking[]>>({});
+  const [showGroupRankingsModal, setShowGroupRankingsModal] = useState(false);
+  const [calculatedRankings, setCalculatedRankings] = useState<Record<number, GroupRanking[]>>({});
   const [zoomLevel, setZoomLevel] = useState(100);
   const [autoZoomLevel, setAutoZoomLevel] = useState<number | null>(null);
   const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
-  const [resetInProgress, setResetInProgress] = useState(false);  const [overallGroupRankings, setOverallGroupRankings] = useState<OverallRanking[]>([]);
+  const [resetInProgress, setResetInProgress] = useState(false);
+  const [overallGroupRankings, setOverallGroupRankings] = useState<OverallRanking[]>([]);
   const [showOverallRankingsModal, setShowOverallRankingsModal] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false); // Add state for full-screen mode
   const [showByeAssignment, setShowByeAssignment] = useState(false); // Estado para modal de atribuição de BYE
@@ -502,11 +596,69 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     
     // Handle single player teams (for byes or odd numbers)
     if (teamIds.length === 1) {
-      return participantMap.get(teamIds[0]) || 'Desconhecido';
+      const participant = eventParticipants.find(p => p.id === teamIds[0]);
+      if (participant) {
+        // Se há nome da equipe/grupo, mostrar: "Nome do Grupo"
+        if (participant.teamName) {
+          return participant.teamName;
+        }
+        // Senão, mostrar apenas o nome do participante
+        return participant.name;
+      }
+      return 'Desconhecido';
     }
     
-    // Handle pairs
-    const names = teamIds.map(id => participantMap.get(id) || 'Desconhecido');
+    // Handle pairs - verificar se ambos têm o mesmo teamName
+    const participants = teamIds.map(id => 
+      eventParticipants.find(p => p.id === id)
+    ).filter(Boolean);
+    
+    if (participants.length === 0) {
+      return 'TBD';
+    }
+    
+    // Verificar se todos têm o mesmo teamName/grupo
+    const teamName = participants[0]?.teamName;
+    const allSameTeam = teamName && participants.every(p => p?.teamName === teamName);
+    
+    if (allSameTeam) {
+      // Mostrar: "Nome do Grupo"
+      return teamName;
+    } else {
+      // Mostrar: "Nome1 & Nome2"
+      const names = participants.map(p => p?.name || 'Desconhecido');
+      return names.join(' & ');
+    }
+  };
+
+  // Nova função para obter o nome do grupo (para títulos)
+  const getGroupDisplayName = (teamIds: string[] | null | undefined): string => {
+    if (!teamIds || teamIds.length === 0) return 'Grupo';
+    
+    // Pegar o primeiro participante para obter o teamName
+    const firstParticipant = eventParticipants.find(p => p.id === teamIds[0]);
+    
+    if (firstParticipant?.teamName) {
+      return firstParticipant.teamName;
+    }
+    
+    return 'Grupo';
+  };
+
+  // Nova função para obter os nomes individuais dos participantes (para exibição dentro dos grupos)
+  const getIndividualParticipantNames = (teamIds: string[] | null | undefined): string => {
+    if (!teamIds || teamIds.length === 0) return 'TBD';
+    
+    const participants = teamIds.map(id => 
+      eventParticipants.find(p => p.id === id)
+    ).filter(Boolean);
+    
+    if (participants.length === 0) {
+      return 'TBD';
+    }
+    
+    // Sempre mostrar os nomes individuais, separados por " & "
+    const names = participants.map(p => p?.name || 'Desconhecido');
     return names.join(' & ');
   };
 
@@ -632,14 +784,22 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
         options = { ...options, format: TournamentFormat.SUPER8 };
         console.log('🎯 [handleGenerateFormedStructureWithConfig] SUPER8: passando participantes individuais:', teamsOrParticipants);
       } else {
-        // Para outros formatos, formar as duplas normalmente
-        const { teams } = TournamentService.formTeamsFromParticipants(
-          eventParticipants,
-          TeamFormationType.FORMED,
-          { groupSize: traditionalGroupSize }
-        );
-        teamsOrParticipants = teams;
-        console.log('👥 [handleGenerateFormedStructureWithConfig] Teams formed:', teams.length);
+        // Para outros formatos, formar as duplas usando nossa lógica manual otimizada
+        const manualTeams = formManualTeams(eventParticipants);
+        console.log('👥 [handleGenerateFormedStructureWithConfig] Manual teams formed:', manualTeams.length);
+        
+        // Se não conseguiu formar duplas manualmente, usar o serviço padrão
+        if (manualTeams.length === 0) {
+          const { teams } = TournamentService.formTeamsFromParticipants(
+            eventParticipants,
+            TeamFormationType.FORMED,
+            { groupSize: traditionalGroupSize }
+          );
+          teamsOrParticipants = teams;
+          console.log('👥 [handleGenerateFormedStructureWithConfig] Fallback teams formed:', teams.length);
+        } else {
+          teamsOrParticipants = manualTeams;
+        }
       }
 
       console.log('🎯 [handleGenerateFormedStructureWithConfig] Calling generateFormedStructure with options:', options);
@@ -795,6 +955,8 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
         ? TeamFormationType.FORMED 
         : currentEvent.team_formation === 'SUPER8'
         ? TeamFormationType.SUPER8
+        : currentEvent.team_formation === 'MANUAL'
+        ? TeamFormationType.MANUAL
         : TeamFormationType.RANDOM;
       
       // Passo 5: Formar equipes baseado na configuração do evento
@@ -812,6 +974,10 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
       } else if (teamFormationType === TeamFormationType.SUPER8) {
         // Para Super 8, usar a lógica específica
         await generateFormedStructure(eventId, eventParticipants.map(p => [p.id]), { forceReset: true });
+      } else if (teamFormationType === TeamFormationType.MANUAL) {
+        // Para modo manual, formar duplas com base nos dados manuais dos participantes
+        const manualTeams = formManualTeams(eventParticipants);
+        await generateFormedStructure(eventId, manualTeams, { forceReset: true });
       } else {
         await generateRandomStructure(eventId, teams, { forceReset: true });
       }
@@ -2009,11 +2175,15 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
     (tournament as any).matches_data?.length > 0
   );
 
-  // ✅ CONDIÇÃO PRINCIPAL: dados do sorteio têm prioridade máxima
-  const tournamentHasData = hasStandingsData || hasOtherDrawData || (tournament && (
-    tournament.matches.length > 0 || 
-    tournament.status === 'CREATED'
-  ));
+  // ✅ CONDIÇÃO PRINCIPAL: verificar se há realmente dados do torneio
+  const tournamentHasData = hasStandingsData || hasOtherDrawData || (tournament && tournament.matches.length > 0);
+
+  // ✅ Verificar se há participantes manuais cadastrados
+  const hasManualParticipants = eventParticipants.length > 0;
+
+  // ✅ Para participantes manuais, sempre mostrar estrutura padrão do torneio
+  // Para outros casos, mostrar tela inicial apenas se não há dados do torneio
+  const shouldShowInitialScreen = !hasManualParticipants && (!tournament || (!tournamentHasData && tournament.status !== 'STARTED' && tournament.status !== 'FINISHED'));
 
   // 🔍 Debug: Log detalhado para verificar estado do torneio
   console.log('🔍 [TournamentBracket] Tournament state check:', {
@@ -2077,8 +2247,94 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
           </div>
         </div>
 
-        {/* BYE Information Section */}
-        {eliminationBracketMetadata && eliminationBracketMetadata.teamsWithByes.length > 0 && (
+        {/* ✅ Tela inicial quando não há torneio criado */}
+        {shouldShowInitialScreen && (
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6">
+              <div className="text-center space-y-4">
+                <div className="flex justify-center">
+                  <Trophy size={48} className="text-blue-600" />
+                </div>
+                <h3 className="text-xl font-semibold text-blue-800">
+                  Pronto para Gerar o Torneio!
+                </h3>
+                <p className="text-blue-700">
+                  Você tem <strong>{eventParticipants.length} participantes</strong> cadastrados. 
+                  Agora é hora de formar as duplas e grupos para começar o torneio.
+                </p>
+                
+                {eventParticipants.length >= 2 ? (
+                  <div className="space-y-4">
+                    <div className="bg-white border border-blue-200 rounded-lg p-4">
+                      <h4 className="font-medium text-blue-800 mb-2">Participantes Cadastrados:</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                        {eventParticipants.map((participant, index) => (
+                          <div key={participant.id} className="flex items-center justify-between p-2 bg-blue-50 rounded">
+                            <span className="font-medium">{participant.name}</span>
+                            {participant.teamName && (
+                              <span className="text-xs bg-blue-200 text-blue-800 px-2 py-1 rounded-full">
+                                {participant.teamName}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    <Button
+                      onClick={() => setShowGroupConfigModal(true)}
+                      size="lg"
+                      className="flex items-center justify-center space-x-2"
+                    >
+                      <Shuffle size={20} />
+                      <span>Gerar Torneio com Participantes Manuais</span>
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                    <p className="text-amber-800">
+                      <AlertCircle size={16} className="inline mr-2" />
+                      É necessário pelo menos 2 participantes para gerar um torneio.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ✅ Conteúdo do torneio (só mostra quando há dados) */}
+        {!shouldShowInitialScreen && (
+          <div className="space-y-6">
+            {/* ✅ Seção para gerar torneio quando há participantes manuais mas não há dados */}
+            {hasManualParticipants && !tournamentHasData && (
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6">
+                <div className="text-center space-y-4">
+                  <div className="flex justify-center">
+                    <Trophy size={48} className="text-blue-600" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-blue-800">
+                    Pronto para Gerar o Torneio!
+                  </h3>
+                  <p className="text-blue-700">
+                    Você tem <strong>{eventParticipants.length} participantes</strong> cadastrados. 
+                    Clique no botão abaixo para gerar o torneio com a estrutura padrão.
+                  </p>
+                  
+                  <Button
+                    onClick={() => setShowGroupConfigModal(true)}
+                    size="lg"
+                    className="flex items-center justify-center space-x-2"
+                  >
+                    <Shuffle size={20} />
+                    <span>Gerar Torneio com Participantes Manuais</span>
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* BYE Information Section */}
+            {eliminationBracketMetadata && eliminationBracketMetadata.teamsWithByes.length > 0 && (
           <div className="bg-green-50 border border-green-200 rounded-lg p-4">
             <div className="flex items-center mb-3">
               <UserX size={20} className="text-green-600 mr-2" />
@@ -2184,16 +2440,40 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                       </div>
                       
                       <div className="p-4 space-y-3">
-                        {group.teams?.map((team: string[], teamIndex: number) => (
-                          <div
-                            key={teamIndex}
-                            className="border rounded-lg p-3 bg-blue-50 border-blue-200"
-                          >
-                            <div className="font-medium text-blue-800">
-                              {team.map(id => participantMap.get(id) || 'Desconhecido').join(' & ')}
+                        {group.teams?.map((team: string[], teamIndex: number) => {
+                          // Buscar os participantes da dupla
+                          const participants = team.map(id => 
+                            eventParticipants.find(p => p.id === id)
+                          ).filter(Boolean);
+                          
+                          // Verificar se há um nome de grupo/equipe comum
+                          const teamName = participants[0]?.teamName;
+                          const hasCommonTeamName = teamName && participants.every(p => p?.teamName === teamName);
+                          
+                          return (
+                            <div
+                              key={teamIndex}
+                              className="border rounded-lg p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200 shadow-sm"
+                            >
+                              {hasCommonTeamName ? (
+                                // Mostrar nome do grupo/equipe
+                                <div className="space-y-1">
+                                  <div className="font-bold text-indigo-800">
+                                    {teamName}
+                                  </div>
+                                  <div className="text-xs text-indigo-600">
+                                    {participants.map(p => p?.name).join(' & ')}
+                                  </div>
+                                </div>
+                              ) : (
+                                // Mostrar nomes individuais
+                                <div className="font-medium text-blue-800">
+                                  {participants.map(p => p?.name || 'Desconhecido').join(' & ')}
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   ))}
@@ -2206,16 +2486,40 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
               <div className="space-y-4">
                 <h4 className="text-lg font-semibold text-brand-blue">Duplas Criadas</h4>
                 <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {(tournament as any).teams_data?.map((team: string[], index: number) => (
-                    <div
-                      key={index}
-                      className="border rounded-lg p-3 bg-green-50 border-green-200"
-                    >
-                      <div className="font-medium text-green-800">
-                        Dupla {index + 1}: {team.map(id => participantMap.get(id) || 'Desconhecido').join(' & ')}
+                  {(tournament as any).teams_data?.map((team: string[], index: number) => {
+                    // Buscar os participantes da dupla
+                    const participants = team.map(id => 
+                      eventParticipants.find(p => p.id === id)
+                    ).filter(Boolean);
+                    
+                    // Verificar se há um nome de grupo/equipe comum
+                    const teamName = participants[0]?.teamName;
+                    const hasCommonTeamName = teamName && participants.every(p => p?.teamName === teamName);
+                    
+                    return (
+                      <div
+                        key={index}
+                        className="border rounded-lg p-4 bg-gradient-to-r from-green-50 to-emerald-50 border-green-200 shadow-sm hover:shadow-md transition-shadow"
+                      >
+                        {hasCommonTeamName ? (
+                          // Mostrar nome do grupo/equipe
+                          <div className="space-y-2">
+                            <div className="font-bold text-emerald-800 text-lg">
+                              {teamName}
+                            </div>
+                            <div className="text-sm text-emerald-600">
+                              {participants.map(p => p?.name).join(' & ')}
+                            </div>
+                          </div>
+                        ) : (
+                          // Mostrar nomes individuais
+                          <div className="font-medium text-green-800">
+                            Dupla {index + 1}: {participants.map(p => p?.name || 'Desconhecido').join(' & ')}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -2437,6 +2741,19 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                                 autoCalculateGroups: false,
                                 forceReset: true
                               });
+                            } else if (currentEvent?.team_formation === 'MANUAL') {
+                              console.log('🔥 [DEBUG] Gerando partidas para modo manual...');
+                              
+                              // Para modo manual, usar nossa função específica para formar duplas
+                              const manualTeams = formManualTeams(eventParticipants);
+                              console.log('👥 [DEBUG] Times manuais formados:', manualTeams);
+                              
+                              await generateFormedStructure(eventId, manualTeams, {
+                                groupSize: 3,
+                                maxTeamsPerGroup: 4,
+                                autoCalculateGroups: false,
+                                forceReset: true
+                              });
                             } else if (currentEvent?.team_formation === 'SUPER8') {
                               console.log('🔥 [DEBUG] Gerando partidas para Super 8...');
                               
@@ -2494,11 +2811,15 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                 const completedMatches = groupMatches.filter(m => m.completed);
                 const totalMatches = groupMatches.length;
                 
+                // Obter o nome do grupo a partir da primeira partida do grupo
+                const firstMatch = groupMatches[0];
+                const groupDisplayName = firstMatch ? getGroupDisplayName(firstMatch.team1) : `Grupo ${groupNum}`;
+                
                 return (
                   <div key={groupNum} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
                     <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
                       <div className="flex justify-between items-center">
-                        <h4 className="font-medium text-brand-blue">Grupo {groupNum}</h4>
+                        <h4 className="font-medium text-brand-blue">{groupDisplayName}</h4>
                         <span className="text-sm text-gray-500">
                           {completedMatches.length}/{totalMatches} partidas
                         </span>
@@ -2528,7 +2849,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                               match.winnerId === match.team1?.[0] ? 'font-bold text-green-600' : ''
                             }`}>
                               <span className="truncate mr-2">
-                                {getTeamDisplayName(match.team1)}
+                                {getIndividualParticipantNames(match.team1)}
                               </span>
                               <span className="font-bold flex-shrink-0">
                                 {match.score1 !== null ? match.score1 : '-'}
@@ -2539,7 +2860,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                               match.winnerId === match.team2?.[0] ? 'font-bold text-green-600' : ''
                             }`}>
                               <span className="truncate mr-2">
-                                {getTeamDisplayName(match.team2)}
+                                {getIndividualParticipantNames(match.team2)}
                               </span>
                               <span className="font-bold flex-shrink-0">
                                 {match.score2 !== null ? match.score2 : '-'}
@@ -2627,8 +2948,8 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                                 minute: '2-digit' 
                               })
                             : undefined;
-                          const team1Name = getTeamDisplayName(match.team1);
-                          const team2Name = getTeamDisplayName(match.team2);
+                          const team1Name = getIndividualParticipantNames(match.team1);
+                          const team2Name = getIndividualParticipantNames(match.team2);
                           const isWinner1 = match.winnerId && match.team1?.includes(match.winnerId);
                           const isWinner2 = match.winnerId && match.team2?.includes(match.winnerId);
                           
@@ -2951,14 +3272,55 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
                 Cancelar
               </Button>
               <Button
-                onClick={() => {
+                onClick={async () => {
                   console.log('🔥 [DEBUG] Botão Gerar Torneio clicado no modal!', { groupConfigMode });
                   console.log('🔥 [DEBUG] Modal button clicked - about to call handler');
                   if (groupConfigMode === 'formed') {
                     console.log('🔥 [DEBUG] Calling handleGenerateFormedStructureWithConfig...');
                     handleGenerateFormedStructureWithConfig();
+                  } else if (currentEvent?.team_formation === 'MANUAL') {
+                    console.log('🔥 [DEBUG] Detected MANUAL mode, using manual teams formation...');
+                    // Para modo manual, chamar a função específica que usa formManualTeams
+                    if (eventId) {
+                      try {
+                        setGeneratingStructure(true);
+                        setShowGroupConfigModal(false);
+                        
+                        // Para modo manual, usar nossa função específica para formar duplas
+                        const manualTeams = formManualTeams(eventParticipants);
+                        console.log('👥 [DEBUG] Times manuais formados:', manualTeams);
+                        
+                        await generateFormedStructure(eventId, manualTeams, {
+                          groupSize: traditionalGroupSize,
+                          maxTeamsPerGroup: maxTeamsPerGroup,
+                          autoCalculateGroups: autoCalculateGroups,
+                          forceReset: true
+                        });
+                        
+                        // Check if there was an error in the store
+                        const currentError = useTournamentStore.getState().error;
+                        if (currentError) {
+                          console.error('❌ [DEBUG] Store error:', currentError);
+                          addNotification({ type: 'error', message: currentError });
+                        } else {
+                          console.log('🎉 [DEBUG] Success!');
+                          addNotification({ 
+                            type: 'success', 
+                            message: 'Estrutura do torneio com duplas manuais gerada com sucesso!' 
+                          });
+                        }
+                      } catch (error) {
+                        console.error('❌ [DEBUG] Error:', error);
+                        addNotification({ 
+                          type: 'error', 
+                          message: error instanceof Error ? error.message : 'Erro ao gerar estrutura' 
+                        });
+                      } finally {
+                        setGeneratingStructure(false);
+                      }
+                    }
                   } else {
-                    console.log('🔥 [DEBUG] Calling handleGenerateFormedStructureWithConfig...');
+                    console.log('🔥 [DEBUG] Calling handleGenerateFormedStructureWithConfig for other modes...');
                     handleGenerateFormedStructureWithConfig();
                   }
                 }}
@@ -3085,6 +3447,10 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ eventId })
             saveRandomTeamsAndGroups={saveRandomTeamsAndGroups}
             isReset={isResetMode}
           />
+        )}
+        
+        {/* Fecha a div condicional do conteúdo do torneio */}
+        </div>
         )}
       </div>
     );

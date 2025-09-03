@@ -3,9 +3,11 @@ import { useForm } from 'react-hook-form';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { useParticipantsStore } from '../../store/participantsStore';
+import { useEventsStore } from '../../store/eventsStore';
 import { UserSelector } from '../ui/UserSelector';
-import { UserPlus, UserCheck, Users } from 'lucide-react';
+import { UserPlus, UserCheck, Users, Settings } from 'lucide-react';
 import { supabase } from "../../lib/supabase";
+import { TeamFormationType } from '../../types';
 
 interface AddParticipantFormProps {
   eventId: string;
@@ -19,6 +21,10 @@ interface ParticipantFormData {
   phone: string;
   cpf: string;
   category?: string;
+  // Campos para modo manual
+  manualPartnerName?: string;
+  manualTeamName?: string;
+  manualGroupName?: string;
 }
 
 interface UserData {
@@ -43,6 +49,10 @@ export const AddParticipantForm: React.FC<AddParticipantFormProps> = ({
   const [multiUsers, setMultiUsers] = useState<UserData[]>([]);
   const [multiLoading, setMultiLoading] = useState(false);
   const createParticipant = useParticipantsStore(state => state.createParticipant);
+  const { currentEvent } = useEventsStore();
+  
+  // Verificar se o evento está em modo manual
+  const isManualMode = currentEvent?.teamFormation === TeamFormationType.MANUAL;
   
   const { register, handleSubmit, formState: { errors }, setValue, reset } = useForm<ParticipantFormData>({
     defaultValues: {
@@ -177,16 +187,107 @@ export const AddParticipantForm: React.FC<AddParticipantFormProps> = ({
   const onSubmit = async (data: ParticipantFormData) => {
     setIsSubmitting(true);
     try {
-      await createParticipant({
-        eventId,
-        name: data.name,
-        email: data.email,
-        phone: data.phone,
-        cpf: data.cpf, 
-        // If using selected user, pass the userId for better tracking
-        userId: selectedUser?.id
+      // Função para gerar dados aleatórios únicos
+      const generateUniqueData = () => {
+        const timestamp = Date.now() % 100000; // Últimos 5 dígitos do timestamp atual
+        const randomDigits = Math.floor(Math.random() * 900) + 100; // 3 dígitos aleatórios
+        const uniqueNumber = parseInt(`${randomDigits}${timestamp % 10000}`.slice(0, 6));
+        
+        // Formatação compatível com as restrições do banco
+        const phoneFormatted = `(00) 9${uniqueNumber.toString().slice(0, 4)}-${uniqueNumber.toString().slice(-4)}`; // Formato: (00) 00000-0000
+        const cpfFormatted = `${uniqueNumber.toString().slice(0, 3)}.${uniqueNumber.toString().slice(3, 6)}.${uniqueNumber.toString().padEnd(9, '0').slice(6, 9)}-00`; // Formato: 000.000.000-00
+        
+        return {
+          uniqueNumber,
+          phone: phoneFormatted,
+          cpf: cpfFormatted,
+          email: `p${uniqueNumber}@manual.local`
+        };
+      };
+
+      if (isManualMode) {
+        // Para modo manual, gerar dados automaticamente
+        const mainParticipantData = generateUniqueData();
+        
+        const participantData = {
+          eventId,
+          name: data.name,
+          email: mainParticipantData.email,
+          phone: mainParticipantData.phone,
+          cpf: mainParticipantData.cpf,
+          userId: undefined, // Não vinculado a usuário do sistema
+          partnerName: data.manualPartnerName || null, // Nome do parceiro
+          teamName: data.manualGroupName || null, // Nome do grupo
+          metadata: {
+            isManual: true,
+            manualPartnerName: data.manualPartnerName,
+            manualGroupName: data.manualGroupName,
+            generatedAt: new Date().toISOString(),
+            generatedData: {
+              email: mainParticipantData.email,
+              phone: mainParticipantData.phone,
+              cpf: mainParticipantData.cpf
+            }
+          }
+        };
+        
+        // Primeiro, criar o participante principal
+        const createdParticipant = await createParticipant(participantData);
+        
+        // Se houver parceiro, criar o segundo participante também
+        if (data.manualPartnerName) {
+          // Gerar dados únicos para o parceiro
+          const partnerData = generateUniqueData();
+          
+          // Criar o parceiro com referência ao participante principal
+          await createParticipant({
+            eventId,
+            name: data.manualPartnerName,
+            email: partnerData.email,
+            phone: partnerData.phone,
+            cpf: partnerData.cpf,
+            userId: undefined,
+            partnerId: createdParticipant.id, // Vincular ao participante principal
+            partnerName: data.name, // Nome do participante principal como parceiro
+            teamName: data.manualGroupName || null, // Mesmo grupo
+            metadata: {
+              isManual: true,
+              manualPartnerName: data.name,
+              manualGroupName: data.manualGroupName,
+              generatedAt: new Date().toISOString(),
+              generatedData: {
+                email: partnerData.email,
+                phone: partnerData.phone,
+                cpf: partnerData.cpf
+              }
+            }
+          });
+        }
+      } else {
+        // Para modo normal, usar dados fornecidos
+        const participantData = {
+          eventId,
+          name: data.name,
+          email: data.email,
+          phone: data.phone,
+          cpf: data.cpf, 
+          userId: selectedUser?.id
+        };
+        
+        await createParticipant(participantData);
+      }
+      
+      // Resetar o formulário
+      reset({
+        name: '',
+        email: '',
+        phone: '',
+        cpf: '',
+        manualPartnerName: '',
+        manualGroupName: ''
       });
       
+      // Chamar a função de sucesso
       onSuccess();
     } catch (error) {
       console.error('Error adding participant:', error);
@@ -228,47 +329,49 @@ export const AddParticipantForm: React.FC<AddParticipantFormProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Entry Method Toggle */}
-      <div className="flex space-x-2 mb-4">
-        <button
-          type="button"
-          className={`flex-1 py-2 px-3 rounded-md flex items-center justify-center ${
-            entryMethod === 'manual' 
-              ? 'bg-brand-blue text-white' 
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-          }`}
-          onClick={() => setEntryMethod('manual')}
-        >
-          <UserPlus size={18} className="mr-2" />
-          Inserir Manualmente
-        </button>
-        <button
-          type="button"
-          className={`flex-1 py-2 px-3 rounded-md flex items-center justify-center ${
-            entryMethod === 'select' 
-              ? 'bg-brand-green text-white' 
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-          }`}
-          onClick={() => setEntryMethod('select')}
-        >
-          <UserCheck size={18} className="mr-2" />
-          Selecionar Usuário
-        </button>
-        <button
-          type="button"
-          className={`flex-1 py-2 px-3 rounded-md flex items-center justify-center ${
-            entryMethod === 'multi' 
-              ? 'bg-indigo-600 text-white' 
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-          }`}
-          onClick={() => setEntryMethod('multi')}
-        >
-          <Users size={18} className="mr-2" />
-          Seleção Múltipla
-        </button>
-      </div>
+      {/* Entry Method Toggle - Oculto em modo manual */}
+      {!isManualMode && (
+        <div className="flex space-x-2 mb-4">
+          <button
+            type="button"
+            className={`flex-1 py-2 px-3 rounded-md flex items-center justify-center ${
+              entryMethod === 'manual' 
+                ? 'bg-brand-blue text-white' 
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+            onClick={() => setEntryMethod('manual')}
+          >
+            <UserPlus size={18} className="mr-2" />
+            Inserir Manualmente
+          </button>
+          <button
+            type="button"
+            className={`flex-1 py-2 px-3 rounded-md flex items-center justify-center ${
+              entryMethod === 'select' 
+                ? 'bg-brand-green text-white' 
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+            onClick={() => setEntryMethod('select')}
+          >
+            <UserCheck size={18} className="mr-2" />
+            Selecionar Usuário
+          </button>
+          <button
+            type="button"
+            className={`flex-1 py-2 px-3 rounded-md flex items-center justify-center ${
+              entryMethod === 'multi' 
+                ? 'bg-indigo-600 text-white' 
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+            onClick={() => setEntryMethod('multi')}
+          >
+            <Users size={18} className="mr-2" />
+            Seleção Múltipla
+          </button>
+        </div>
+      )}
 
-      {entryMethod === 'select' && (
+      {!isManualMode && entryMethod === 'select' && (
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Buscar usuário do sistema
@@ -280,7 +383,7 @@ export const AddParticipantForm: React.FC<AddParticipantFormProps> = ({
         </div>
       )}
 
-      {entryMethod === 'multi' && (
+      {!isManualMode && entryMethod === 'multi' && (
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Selecionar vários usuários
@@ -333,52 +436,91 @@ export const AddParticipantForm: React.FC<AddParticipantFormProps> = ({
         </div>
       )}
       
-      {entryMethod !== 'multi' && (
+      {(isManualMode || entryMethod !== 'multi') && (
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <Input
-            label="Nome"
-            placeholder="Nome completo"
-            {...register("name", { required: "Nome é obrigatório" })}
-            error={errors.name?.message}
-            disabled={entryMethod === 'select' && selectedUser !== null}
-          />
-          
-          <Input
-            label="E-mail"
-            placeholder="email@exemplo.com"
-            type="email"
-            {...register("email", { 
-              required: "E-mail é obrigatório",
-              pattern: {
-                value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-                message: "E-mail inválido"
-              }
-            })}
-            error={errors.email?.message}
-            disabled={entryMethod === 'select' && selectedUser !== null}
-          />
-          
-          <Input
-            label="Telefone"
-            placeholder="(00) 00000-0000"
-            {...register("phone", { required: "Telefone é obrigatório" })}
-            error={errors.phone?.message}
-            disabled={entryMethod === 'select' && selectedUser !== null}
-          />
-          
-          <Input
-            label="CPF"
-            placeholder="000.000.000-00"
-            {...register("cpf", { 
-              required: "CPF é obrigatório",
-              pattern: {
-                value: /^\d{3}\.\d{3}\.\d{3}-\d{2}$|^\d{11}$/,
-                message: "Formato de CPF inválido"
-              }
-            })}
-            error={errors.cpf?.message}
-            disabled={entryMethod === 'select' && selectedUser !== null}
-          />
+          {isManualMode ? (
+            // Formulário simplificado para modo manual
+            <>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <div className="flex items-center mb-2">
+                  <Settings size={16} className="mr-2 text-blue-600" />
+                  <span className="font-medium text-blue-800">Modo Manual Ativo</span>
+                </div>
+                <p className="text-sm text-blue-700">
+                  Informe apenas os dados essenciais. Email, telefone e CPF serão gerados automaticamente.
+                </p>
+              </div>
+
+              <Input
+                label="Nome do Participante *"
+                placeholder="Nome completo do participante"
+                {...register("name", { required: "Nome é obrigatório" })}
+                error={errors.name?.message}
+              />
+              
+              <Input
+                label="Nome da Dupla"
+                placeholder="Nome do parceiro (deixe vazio se individual)"
+                {...register("manualPartnerName")}
+                error={errors.manualPartnerName?.message}
+              />
+              
+              <Input
+                label="Grupo"
+                placeholder="Nome ou número do grupo (ex: Grupo A, Chave 1)"
+                {...register("manualGroupName")}
+                error={errors.manualGroupName?.message}
+              />
+            </>
+          ) : (
+            // Formulário completo para modo normal
+            <>
+              <Input
+                label="Nome"
+                placeholder="Nome completo"
+                {...register("name", { required: "Nome é obrigatório" })}
+                error={errors.name?.message}
+                disabled={entryMethod === 'select' && selectedUser !== null}
+              />
+              
+              <Input
+                label="E-mail"
+                placeholder="email@exemplo.com"
+                type="email"
+                {...register("email", { 
+                  required: "E-mail é obrigatório",
+                  pattern: {
+                    value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+                    message: "E-mail inválido"
+                  }
+                })}
+                error={errors.email?.message}
+                disabled={entryMethod === 'select' && selectedUser !== null}
+              />
+              
+              <Input
+                label="Telefone"
+                placeholder="(00) 00000-0000"
+                {...register("phone", { required: "Telefone é obrigatório" })}
+                error={errors.phone?.message}
+                disabled={entryMethod === 'select' && selectedUser !== null}
+              />
+              
+              <Input
+                label="CPF"
+                placeholder="000.000.000-00"
+                {...register("cpf", { 
+                  required: "CPF é obrigatório",
+                  pattern: {
+                    value: /^\d{3}\.\d{3}\.\d{3}-\d{2}$|^\d{11}$/,
+                    message: "Formato de CPF inválido"
+                  }
+                })}
+                error={errors.cpf?.message}
+                disabled={entryMethod === 'select' && selectedUser !== null}
+              />
+            </>
+          )}
           
           <div className="flex justify-end space-x-3">
             <Button 

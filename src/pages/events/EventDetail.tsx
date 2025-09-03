@@ -14,7 +14,8 @@ import {
   Trash2,
   Loader2,
   UserCheck, // Icon for Organizer
-  Grid // Icon for Courts
+  Grid, // Icon for Courts
+  Settings // Icon for Manual Mode
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { useEventsStore, useParticipantsStore, useFinancialsStore, useCourtsStore } from '../../store'; // Import useCourtsStore
@@ -25,6 +26,7 @@ import { TournamentBracket } from '../../components/events/TournamentBracket';
 import { EventFinancial } from '../../components/events/EventFinancial';
 import { RegistrationLink } from '../../components/events/RegistrationLink';
 import { EventType, TeamFormationType } from '../../types'; // Import TeamFormationType
+import { ManualModeToggle } from '../../components/ui/ManualModeToggle';
 
 // Helper function to get event type configuration
 const getEventTypeConfig = (type: EventType) => {
@@ -52,7 +54,7 @@ export const EventDetail: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('details');
 
   // Use getByIdWithOrganizer to fetch event with organizer data
-  const { currentEvent, getByIdWithOrganizer, deleteEvent, loading, error } = useEventsStore();
+  const { currentEvent, getByIdWithOrganizer, updateEvent, deleteEvent, loading, error } = useEventsStore();
   const { fetchParticipantsByEvent } = useParticipantsStore();
   const { fetchTransactionsByEvent, fetchEventSummary } = useFinancialsStore();
   const { courts, fetchCourts } = useCourtsStore(); // Get courts data
@@ -325,8 +327,53 @@ export const EventDetail: React.FC = () => {
                             ? 'Duplas formadas'
                             : currentEvent.teamFormation === TeamFormationType.SUPER8
                             ? 'Super 8 (Individual)'
+                            : currentEvent.teamFormation === TeamFormationType.MANUAL
+                            ? 'Modo Manual'
                             : 'Duplas aleatórias'}
                         </p>
+                      </div>
+                    </div>
+
+                    {/* Controle de Modo Manual */}
+                    <div className="flex items-start">
+                      <Settings size={20} className="text-brand-purple mr-3 mt-1 flex-shrink-0" />
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-brand-blue">Modo Manual</p>
+                            <p className="text-sm text-gray-500">
+                              Controle total sobre participantes, duplas e grupos
+                            </p>
+                          </div>
+                          <ManualModeToggle 
+                            isManual={currentEvent.teamFormation === TeamFormationType.MANUAL}
+                            onToggle={async (enabled) => {
+                              try {
+                                await updateEvent(currentEvent.id, {
+                                  teamFormation: enabled ? TeamFormationType.MANUAL : TeamFormationType.FORMED
+                                });
+                                addNotification({
+                                  type: 'success',
+                                  message: enabled ? 'Modo manual ativado!' : 'Modo manual desativado!'
+                                });
+                                // Recarregar o evento para mostrar as mudanças
+                                await getByIdWithOrganizer(currentEvent.id);
+                              } catch (error) {
+                                addNotification({
+                                  type: 'error',
+                                  message: 'Erro ao alterar modo do evento'
+                                });
+                              }
+                            }}
+                          />
+                        </div>
+                        {currentEvent.teamFormation === TeamFormationType.MANUAL && (
+                          <div className="mt-2 p-2 bg-blue-50 rounded border border-blue-200">
+                            <p className="text-xs text-blue-700">
+                              ✓ Modo manual ativo: você pode adicionar participantes apenas pelo nome e organizar duplas/grupos manualmente
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
 

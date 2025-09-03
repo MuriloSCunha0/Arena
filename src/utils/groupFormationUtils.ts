@@ -275,6 +275,42 @@ export function createTournamentStructure(
   if (teamFormationType === 'FORMED') {
     // Para duplas formadas, usar formação automática que respeita parcerias existentes
     teams = formAutomaticPairs(participants);
+  } else if (teamFormationType === 'MANUAL') {
+    // Para modo manual, formar duplas com base nos dados manuais dos participantes
+    const processedParticipants = new Set<string>();
+    
+    // Primeiro, formar duplas com parceiros manuais definidos
+    participants.forEach(participant => {
+      if (processedParticipants.has(participant.id)) return;
+      
+      const metadata = participant.metadata || {};
+      const manualPartnerName = metadata.manualPartnerName;
+      
+      if (manualPartnerName) {
+        // Procurar o parceiro pelos metadados ou pelo nome
+        const partner = participants.find(p => 
+          !processedParticipants.has(p.id) && 
+          (p.name === manualPartnerName || p.metadata?.manualPartnerName === participant.name)
+        );
+        
+        if (partner) {
+          teams.push([participant.id, partner.id]);
+          processedParticipants.add(participant.id);
+          processedParticipants.add(partner.id);
+        }
+      }
+    });
+    
+    // Depois, formar duplas com os participantes restantes
+    const remainingParticipants = participants.filter(p => !processedParticipants.has(p.id));
+    for (let i = 0; i < remainingParticipants.length - 1; i += 2) {
+      teams.push([remainingParticipants[i].id, remainingParticipants[i + 1].id]);
+    }
+    
+    // Se sobrar um participante ímpar, criar uma "dupla" só com ele
+    if (remainingParticipants.length % 2 === 1) {
+      teams.push([remainingParticipants[remainingParticipants.length - 1].id]);
+    }
   } else {
     // Para duplas aleatórias, embaralhar todos e formar duplas
     const shuffledParticipants = [...participants].sort(() => Math.random() - 0.5);
